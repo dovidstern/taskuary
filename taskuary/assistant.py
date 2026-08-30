@@ -35,7 +35,7 @@ start from zero; a quiet check still rewrites the note, it just posts nothing. H
 COUNSEL.md (Docs tab) - the owner edits that to change its voice and what it takes a position on;
 the report's prompt is what it watches for.
 """
-import json, re, threading
+import json, math, re, threading
 from datetime import datetime, timedelta
 from loguru import logger
 
@@ -176,6 +176,46 @@ def followups(store, hours: int, want=('followup', 'promise')) -> list:
     return out
 
 
+def unanswered(store, days: float = 2, hours: int = 3) -> list:
+    """The mirror of followups(): threads where THEIR last word asked the owner for something and
+    nothing of the owner's came after it - the ask that slipped. `hours` old at least (fresh mail
+    is not yet missed). Each carries what covers it: a draft in Review, a task and its state, or
+    nothing at all - the morning brief's "what slipped" is built from these."""
+    from .categories import sender_class, team_domains_of
+    from .triage import strip_boilerplate
+    settings = store.get_settings(); team = team_domains_of(settings); me = (settings.get('owner_email') or '').lower()
+    cut = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+    pend = {r['TaskId'] for r in store.list_reviews('pending')}
+    mine = lambda c: c.get('Status') == 'context' or c.get('Direction') == 'out' or (c.get('FromEmail') or '').lower() == me
+    seen, out, away = set(), [], None
+    for r in store.recent_messages(_since(days), limit=500):
+        cid = r.get('ConversationId')
+        if not cid or cid in seen or r.get('Channel') in ('report', CHANNEL) or _OOO.match(str(r.get('Subject') or '')): continue
+        seen.add(cid)
+        if sender_class(r, team) != 'person': continue
+        chain = sorted((c for c in store.thread_messages(conversation_id=cid, limit=12) if c.get('Status') != 'skipped'), key=lambda c: _ts(c.get('SentAt')))
+        if not chain: continue
+        last = chain[-1]
+        if mine(last) or _ts(last.get('SentAt')) > cut: continue
+        body = strip_boilerplate(_BANNER.sub('', str(last.get('BodyText') or '')))
+        if not _ASKS.search(body): continue
+        tid = next((c.get('TaskId') for c in reversed(chain) if c.get('TaskId')), None)
+        t = store.get_task(tid) if tid else None
+        cover = ('a draft waits for you in Review' if tid in pend else
+                 f"{task_ref(tid)} is {t.get('Status')}" + (', an agent is on it' if t.get('RunStatus') == 'running' else '') if t else 'no task, no draft')
+        who = last.get('FromName') or last.get('FromEmail') or 'someone'
+        age = datetime.now() - (_dt(last['SentAt']) or datetime.now())
+        ago = f"{age.days} day{'s' if age.days != 1 else ''}" if age.days else f"{int(age.total_seconds() // 3600)}h"
+        if away is None: away = ooo(store)
+        gone = away.get((last.get('FromEmail') or '').lower(), '')
+        out.append({'key': f'asked:{cid}', 'kind': 'asked', 'sig': _ts(last['SentAt']),
+                    'facts': f"{who} asked {_when(last['SentAt'])} re \"{_short(last.get('Subject'), 70)}\": \"{_gist(body, 160)}\" - no answer from you in {ago}; {cover}"
+                             + (f"; {who} is {gone}" if gone else ''),
+                    'text': f"{who} asked \"{_gist(body, 60)}\" {ago} ago - no answer yet ({cover})",
+                    'action': {'type': 'message', 'mid': last['MessageId'], 'tid': tid}})
+    return out
+
+
 def cold(store, days: int) -> list:
     """Open work nothing has touched for `days`: no comment, no message, no run. A live agent on
     it is activity; a draft waiting in Review is the owner's to move."""
@@ -299,9 +339,9 @@ def _recent(store, days: int = 2) -> str:
     first. A pattern (87 alerts from one system, the same ask twice) is a number the model can see
     instead of a list it has to count - and calendar-today at 00:49 was a 49-minute window. A report
     carries its schedule, and a failure its cause (the machines are to be read, not counted)."""
-    by, sched = {}, _schedules(store)
-    for r in store.feed(limit=400, days=days):
-        if r.get('Channel') == CHANNEL: continue
+    by, sched, since = {}, _schedules(store), _since(days)
+    for r in store.feed(limit=400, days=math.ceil(days)):
+        if r.get('Channel') == CHANNEL or _ts(r.get('SentAt')) < since: continue
         k = (r.get('FromName') or r.get('FromEmail') or r.get('SourceName') or '?',
              re.sub(r'^((re|fw|fwd|aw)\s*:\s*)+', '', _short(r.get('Subject'), 60), flags=re.I).lower())
         g = by.setdefault(k, {'n': 0, 'r': r, 'cats': set()}); g['n'] += 1; g['cats'].add(r.get('Category') or '')
@@ -367,11 +407,11 @@ def _calendar(store) -> str:
                      for e in ev[:8]) or '(nothing on the calendar for two days' + (')' if store.get_settings().get('calendar_enabled', '1') == '1' else ' - calendar off)')
 
 
-def _week(store) -> str:
-    """What got DONE this week - closed tasks, each with the agent's own summary line where there is
-    one. The ideas worth having about the owner's work (the fix that keeps recurring, the report
+def _done(store, days: float = 7) -> str:
+    """What got DONE in the window - closed tasks, each with the agent's own summary line where there
+    is one. The ideas worth having about the owner's work (the fix that keeps recurring, the report
     nobody reads, the automation) live here, not in today's mail."""
-    cut = _since(7)
+    cut = _since(days)
     ts = [t for t in store.list_tasks() if t.get('Status') == 'done' and _ts(t.get('ClosedAt') or t.get('UpdatedAt')) >= cut][:25]
     out = []
     for t in ts:
@@ -382,7 +422,10 @@ def _week(store) -> str:
             summ = ' - ' + _short(m.group(1) if m else rep['Body'].split('\n', 1)[-1], 110)
         repo = (re.search(r'repo:([^\s,]+)', str(t.get('Tags') or '')) or [None, None])[1]
         out.append(f"- {task_ref(t['TaskId'])} [{t.get('Kind')}{', ' + repo if repo else ''}] {_short(t.get('Title'), 70)}{summ}")
-    return '\n'.join(out) or '(nothing closed this week)'
+    return '\n'.join(out) or '(nothing closed in this window)'
+
+
+def _week(store) -> str: return _done(store, 7)
 
 
 def _open(store) -> str:
@@ -405,6 +448,20 @@ def _said(store) -> str:
         for turn in chat[-4:]:
             out.append(f"    {turn.get('role')}: {_short(turn.get('text'), 300)}")
     return '\n'.join(out) or '(nothing yet)'
+
+
+def raised(store, days: float = 2) -> str:
+    """The assistant's own lines from the window, each with its state and what the owner said back -
+    the morning brief reads these so it can say what still stands instead of finding it again."""
+    cut = _since(days)
+    rows = [i for i in store.list_ideas() if _ts(i.get('LastSaid') or i.get('FirstSeen')) >= cut][:30]
+    out = []
+    for i in rows:
+        out.append(f"- ({i.get('Status')}, said {_when(i.get('LastSaid') or i.get('FirstSeen'))}) {i['Text']}")
+        try: chat = json.loads(i.get('ActionJson') or '{}').get('chat') or []
+        except ValueError: chat = []
+        out += [f"    {turn.get('role')}: {_short(turn.get('text'), 200)}" for turn in chat[-2:]]
+    return '\n'.join(out) or '(the assistant raised nothing in this window)'
 
 
 def parse(text: str, cands: list, max_lines: int = MAX_LINES) -> list:

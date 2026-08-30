@@ -154,11 +154,11 @@ Taskuary's behavior is governed by plain Markdown on the Docs tab:
 |---|---|---|
 | `TRIAGE.md` | What makes an item a task, reply, or FYI; can generate a history block from answered and ignored mail | Triage |
 | `STYLE.md` | Greeting, tone, length, and phrasing; can generate a history block from sent mail | Reply drafts |
-| `COUNSEL.md` | How the Assistant speaks to you and how strongly it takes a position | Assistant and reply drafts |
+| `COUNSEL.md` | How the Assistant speaks to you and how strongly it takes a position | Assistant, the morning brief and reply drafts |
 | `SOUL.md` | The constitution: rules, voice, escalation lines, and repository map | Triage, replies, coding agents |
 | `CODER.md` | How coding agents work and close out | Coding agents |
 | `LEARNED.md` | The profile learned from verdicts; always subordinate to `SOUL.md` | Triage, replies, coding agents |
-| `DIGEST.md` | The current morning brief written by the Morning digest report | You |
+| `DIGEST.md` | The current morning brief — what slipped, today, what happened — written by the Morning digest report | You |
 
 ![The seven operator documents and the parts of Taskuary they guide.](seven-docs.svg)
 

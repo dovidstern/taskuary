@@ -158,7 +158,7 @@ class DigestReportTests(unittest.TestCase):
         src = digest_of(s)[0]                     # Automation ideas ships seeded too - filter to the digest
         cfg = json.loads(src['ConfigJson'])
         self.assertEqual((cfg['type'], cfg['title']), ('digest', 'Morning digest'))
-        self.assertIn('TQ-refs', cfg['ai_prompt'])           # the editable ask, on the Reports tab
+        self.assertIn('TQ-ref', cfg['ai_prompt'])           # the editable ask, on the Reports tab
         s.delete_source(src['SourceId'])
         s.cx.close()
         s2 = SQLiteStore(p)

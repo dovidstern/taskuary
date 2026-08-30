@@ -1,5 +1,6 @@
 """A coder in a live session is working the task - the feed row must not say "needs you"."""
 import unittest
+from datetime import datetime, timedelta
 from unittest import mock
 
 from taskuary import terminal, digest
@@ -29,22 +30,28 @@ class WorkingTests(unittest.TestCase):
         self.assertEqual((row['NeedsYou'], row['Working']), (1, 'claude'))
 
 
-class DigestTagTests(unittest.TestCase):
-    def test_the_brief_opens_with_the_window_by_tag_and_what_people_said(self):
-        s = MemoryStore(); s.set_setting('owner_email', 'uri@ours.com', 't')
+class DigestBriefTests(unittest.TestCase):
+    def test_the_brief_reads_the_words_and_names_the_ask_that_slipped(self):
+        s = MemoryStore(); s.set_setting('owner_email', 'uri@ours.com', 't'); s.set_setting('calendar_enabled', '0', 't')
+        old = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
         mid = s.add_message({'Channel': 'email', 'Subject': 'RE: Stampli Approvers', 'FromName': 'Sam', 'FromEmail': 'teammate@northwind.example',
-                             'BodyText': 'It can be looked up by GL expense.', 'Status': 'filed'})
+                             'BodyText': 'Can you send me the GL expense list?', 'Status': 'filed', 'ConversationId': 'cv1', 'SentAt': old})
         s.add_route(mid, None, 'file', None, 'triage: fyi - informational', [], 'triage')
-        s.add_message({'Channel': 'email', 'Subject': 'CI failed', 'FromEmail': 'notifications@github.com', 'BodyText': 'Run failed', 'Status': 'ignored'})
         s.create_task({'Title': 'fix it', 'Kind': 'coding', 'Status': 'open'}, 't')
         text = digest.gather(s, 3)
-        self.assertIn('THE WINDOW BY TAG', text); self.assertIn('info (a person told you something): 1', text); self.assertIn('ignored: 1', text)
-        self.assertIn('OPEN TASKS BY KIND:\n  coding: 1', text)
-        self.assertIn('INFO FROM PEOPLE', text); self.assertIn('Sam: RE: Stampli Approvers - It can be looked up by GL expense.', text)
+        for head in ('THEIR ASKS YOU HAVE NOT ANSWERED', 'MY OPEN LOOPS', 'WHAT PEOPLE SAID', 'OPEN WORK',
+                     'FINISHED THIS WINDOW', 'WHAT THE ASSISTANT ALREADY RAISED', 'THE WINDOW IN NUMBERS'):
+            self.assertIn(head, text)
+        slipped = text.split('THEIR ASKS YOU HAVE NOT ANSWERED', 1)[1].split('MY OPEN LOOPS')[0]
+        self.assertIn('Sam', slipped); self.assertIn('GL expense list', slipped); self.assertIn('no task, no draft', slipped)
+        self.assertIn('Can you send me the GL expense list?', text.split('WHAT PEOPLE SAID', 1)[1].split('OUT OF OFFICE')[0])
+        self.assertIn('1 info (a person told you something)', text)
+        self.assertIn('open tasks: 1 coding', text)
+        self.assertNotIn('THE WINDOW BY TAG', text)          # the counts collapsed to one line
 
     def test_the_stock_prompt_that_shipped_before_is_healed_to_the_new_one(self):
-        self.assertIn('By the tags', digest.PROMPT); self.assertIn('Info from people', digest.PROMPT)
-        self.assertTrue(any('Every TQ-ref keeps the link' in p and 'By the tags' not in p for p in digest.OLD_PROMPTS))
+        self.assertIn('What slipped', digest.PROMPT); self.assertIn('The assistant said', digest.PROMPT)
+        self.assertTrue(any("Today's meetings" in p and 'By the tags' in p for p in digest.OLD_PROMPTS))
         self.assertNotIn(digest.PROMPT, digest.OLD_PROMPTS)
 
 

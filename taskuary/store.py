@@ -467,8 +467,8 @@ class SQLiteStore:
                 from .digest import PROMPT
                 self.cx.execute('INSERT INTO source (Channel, Address, Owner, Active, ConfigJson) VALUES (?,?,?,?,?)',
                                 ('report', 'Morning digest', 'template', 1,
-                                 json.dumps({'type': 'digest', 'title': 'Morning digest', 'days': 1, 'daily_at': '08:00', 'on_startup': True,
-                                             'ai_prompt': PROMPT})))
+                                 json.dumps({'type': 'digest', 'title': 'Morning digest', 'days': 1, 'daily_at': '08:00',
+                                             'on_startup': True, 'once_per_day': True, 'ai_prompt': PROMPT})))
                 self.cx.execute("INSERT INTO setting (Name, Value, UpdatedBy) VALUES ('digest_report_seeded', '1', 'template')")
             # ...and its sibling: the weekly 'what should you automate next' brief (toil.py) -
             # same deal: a real report, prompt on the Reports tab, deleting it turns it off
@@ -510,6 +510,8 @@ class SQLiteStore:
                     # 8 am brief that also runs on startup; an owner-set cadence is kept
                     stock_clock = not any(c.get(k) for k in ('cron', 'every_minutes', 'daily_at')) or (c.get('every_minutes') == 180 and not c.get('cron') and not c.get('daily_at'))
                     if stock_clock: c.pop('every_minutes', None); c['daily_at'] = '08:00'; c['on_startup'] = True
+                    # ...and a brief is once a day: on_startup alone re-filed it on every launch
+                    if c.get('on_startup'): c['once_per_day'] = True
                     self.cx.execute('UPDATE source SET ConfigJson=? WHERE SourceId=?', (json.dumps(c), sid_))
             # data heal: 'triage' was a fourth Kind the pickers never offered, so those tasks
             # showed a kind the dropdown could not represent - and every one of them had a

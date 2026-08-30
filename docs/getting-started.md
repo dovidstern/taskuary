@@ -61,8 +61,11 @@ Open **Connectors** and configure these in order:
    database, cloud account, REST endpoint, RSS feed, or MCP server. Preview it against the
    live source before scheduling it.
 
-The **Morning digest** and **Assistant** reports are included by default. Edit their prompts
-and schedules on the Reports tab, or delete either report to turn it off.
+The **Morning digest** and **Assistant** reports are included by default, and both speak in
+the assistant's voice from `COUNSEL.md`: the digest is one brief a day (what slipped, today's
+meetings, what happened, what is in flight), the Assistant a short post whenever it notices
+something between briefs. Edit their prompts and schedules on the Reports tab, or delete
+either report to turn it off.
 
 ## Choosing the AI setup
 

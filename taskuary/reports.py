@@ -612,6 +612,16 @@ def report_llm(store, cfg: dict, default_llm):
         return default_llm
 
 
+def report_system(store, cfg: dict, charts: bool = False) -> str:
+    """The system prompt of a report's AI pass. Rows from a database get the report summarizer;
+    the Morning digest is the ASSISTANT speaking (digest.system: COUNSEL.md's voice and its honesty
+    rules) - the owner (2026-08-30): a brief of counts is useless, make it the assistant's summary."""
+    if cfg.get('type') == 'digest' or 'digest' in {s.get('type') for s in cfg.get('sources') or []}:
+        from .digest import system
+        return system(store)
+    return AI_SYSTEM + (CHART_SYSTEM if charts else '')
+
+
 def render_report(store, cfg: dict, llm=None):
     """Run the executor(s), then (optionally) the AI pass: cfg['ai_prompt'] + a configured
     AI connector turn raw rows into the summary that lands on the timeline. The report may
@@ -628,7 +638,7 @@ def render_report(store, cfg: dict, llm=None):
             data = summary[:AI_CHARS]
             if len(summary) > AI_CHARS: data += '\n…(data truncated here - later rows were NOT shown to you)'
             charts = str(store.get_settings().get('report_images_enabled') or '1') == '1'
-            ai = (llm(AI_SYSTEM + (CHART_SYSTEM if charts else ''),
+            ai = (llm(report_system(store, cfg, charts),
                       f"Instruction: {cfg['ai_prompt']}\n\nData ({head}):\n{data}",
                       max_tokens=SUMMARY_TOKENS) or '').strip()
             # an empty answer used to file as a bare '--- raw data ---' wall, which reads
@@ -682,14 +692,23 @@ def cron_prev(expr: str, now: datetime):
     return None
 
 
+def _ran_today(last_polled) -> bool:
+    try: return str(last_polled)[:10] == datetime.now().strftime('%Y-%m-%d')
+    except (TypeError, ValueError): return False
+
+
 def is_due(cfg: dict, last_polled, startup: bool = False) -> bool:
     # on_startup is local-first scheduling: the app is a window you open, so "when I open
     # it" is a real schedule. Due exactly once per launch - never on the 10-minute auto-sync,
     # and a cron time it would have missed while closed is not its problem.
     # on_startup ALONE is "once per launch, never on the clock"; on_startup beside a schedule is
     # BOTH - the Morning digest runs when the app opens and again on its interval
+    # ...but a BRIEF is once a day. on_startup on the Morning digest filed a fresh copy on every
+    # launch - ten identical briefs in two days, which is the noise that made it unreadable (the
+    # owner, 2026-08-30). once_per_day keeps the "you opened the app, here is today's" behaviour
+    # and drops every repeat: a launch fires it only when today has not had one yet.
     if cfg.get('on_startup'):
-        if startup: return True
+        if startup and not (cfg.get('once_per_day') and _ran_today(last_polled)): return True
         if not any(cfg.get(k) for k in ('cron', 'every_minutes', 'daily_at')): return False
     now = datetime.now()
     if not last_polled: return True

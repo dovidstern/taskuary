@@ -2244,15 +2244,28 @@ async def terminal_ws(ws: WebSocket, sid: str):
         while True:
             data = await q.get()
             if data is None: return await send_frame({'type': 'exit'})
+            # Codex repaints its WHOLE screen for every keystroke, and ConPTY hands that back in
+            # several reads. One websocket frame - and one xterm parse - per read meant a fast
+            # sentence typed its own repaints into a backlog the echo had to queue behind, which
+            # is what "typing is really slow" was. Drain whatever is already waiting and send it
+            # as one ordered chunk, exactly as to_pty() does for keystrokes. Nothing is dropped:
+            # this only changes how many frames the same bytes arrive in.
+            chunks, ended = [data], False
+            while True:
+                try: more = q.get_nowait()
+                except asyncio.QueueEmpty: break
+                if more is None: ended = True; break     # the exit marker keeps its place in the order
+                chunks.append(more)
             inflight += 1
-            try: await send_frame({'type': 'out', 'data': data})
+            try: await send_frame({'type': 'out', 'data': ''.join(chunks)})
             finally: inflight -= 1
-            delivered += 1
+            delivered += len(chunks)
             # Ignore output that was already queued when the resize began. The first new chunk
             # and every repaint chunk after it move the quiet barrier; ready follows the burst.
             if redraw_boundary is not None and delivered >= redraw_boundary:
                 if redraw_quiet: redraw_quiet.cancel()
                 redraw_quiet = asyncio.create_task(finish_redraw(.09))
+            if ended: return await send_frame({'type': 'exit'})
     pump = asyncio.create_task(to_browser())
 
     async def to_pty():

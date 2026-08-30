@@ -26,6 +26,7 @@ import { CAN_NOTIFY } from "./notify.js";
 import { hasLogo } from "./logos.jsx";
 import { AgentsPage } from "./AgentsPanel.jsx";
 import { TerminalPane } from "./TerminalView.jsx";
+import { plannedFor } from "./connectorCatalog.js";
 
 /* ── Get AI to set it up: the card's Guide becomes the coding agent's prompt, in a live terminal ON
    the card (taskuary/aisetup.py). The agent asks here for what only a human can fetch, saves it onto
@@ -428,11 +429,6 @@ const META = {
       "Save model (small unless the owner wants otherwise) in ConfigJson, Test (POST {base}/api/connectors/{cid}/test{hdr}) - warn the owner the first Test downloads the model - turn it on, SETUP DONE."] },
 };
 
-const PLANNED_AI = [
-  { name: "AWS Bedrock", desc: "planned - Claude & friends through your AWS account" },
-  { name: "Google Vertex AI", desc: "planned - Gemini / Claude through your GCP project" },
-];
-
 const MSSQL_HOWTO = [
   "This card is the CONNECTION only - set it up once, Test it, and every SQL report inherits it.",
   "Local SQL Server: keep auth on Windows (trusted) - server + database is all the config. Named instance? Use HOST\INSTANCE, e.g. localhost\SQLEXPRESS.",
@@ -695,8 +691,8 @@ const ConnCard = ({ c }) => (
 
 // The catalog's sections, named once: the rail reads them before `groups` is built (groups
 // needs the loaded connectors), and they must stay in step.
-const GROUP_TITLES = ["AI — agents & models", "Messaging", "Developer", "Project management",
-  "Databases", "Cloud & infrastructure", "Observability", "Agentic web", "Files & sheets", "Everything else"];
+const GROUP_TITLES = ["AI — agents & models", "AI — voice", "Email", "Messaging", "Developer", "Project management",
+  "Databases", "Cloud & infrastructure", "Corporate systems", "Observability", "Agentic web", "Files & sheets", "Everything else"];
 // planned types read as raw identifiers on a card ("sharepoint_list"), which looks unfinished
 // in a way the feature is not. Named here; anything unnamed falls back to a de-underscored key.
 const PLANNED_TITLES = { google_sheets: "Google Sheets", sharepoint_list: "SharePoint list",
@@ -897,13 +893,17 @@ export default function ConnectorsView() {
   const plannedCards = (keys, rest = false) => (rest ? planned.filter((t) => !PLACED.has(t)) : keys.filter((t) => planned.includes(t)))
     .map((t) => ({ key: `p${t}`, title: PLANNED_TITLES[t] || t.replace(/_/g, " "), desc: "planned",
       channel: t, haystack: `${t} planned`, planned: true }));
+  const catalogCards = (category) => plannedFor(category).map((c) => ({
+    key: `catalog-${c.type}`, title: c.title, desc: `planned — ${c.desc}`, channel: c.type,
+    haystack: `${c.type} ${c.title} ${c.desc} planned`, planned: true,
+  }));
 
   const groups = [
     { title: "AI — agents & models", cards: [
       { key: "agents", title: "AI CLI agents", desc: "claude / codex / gemini — bring your own coding CLI, resumable sessions",
         channel: "cli", haystack: "ai cli agents claude codex gemini command args resume", go: () => setOpen({ kind: "agents" }) },
       ...channelCards(["anthropic", "openai", "azure_openai", "openrouter", "ollama"]),
-      ...PLANNED_AI.map((p) => ({ key: p.name, title: p.name, desc: p.desc, channel: "ai", haystack: `${p.name} ${p.desc}`, planned: true })),
+      ...catalogCards("AI — agents & models"),
     ]},
     // speech to text: voice notes on the chat channels arrive as text, and the prompt boxes get a mic
     { title: "AI — voice",
@@ -915,12 +915,13 @@ export default function ConnectorsView() {
           haystack: "custom shared voice vocabulary words phrases domain names acronyms",
           go: () => setOpen({ kind: "voice-vocabulary" }) },
         ...channelCards(["gemini_stt", "groq_stt", "openai_stt", "deepgram", "elevenlabs_stt", "stt_server", "local_whisper"]),
+        ...catalogCards("AI — voice"),
       ] },
     // mail and chat are different jobs: one group held nine cards and read as a wall
-    { title: "Email", cards: channelCards(["outlook", "gmail", "imap"]) },
-    { title: "Messaging", cards: channelCards(["teams", "slack", "telegram", "whatsapp", "imessage", "discord"]) },
-    { title: "Developer", cards: channelCards(["github", "gitlab", "azdo", "sentry", "pagerduty"]) },
-    { title: "Project management", cards: channelCards(["jira", "asana", "monday", "clickup", "todoist", "linear", "trello", "notion"]) },
+    { title: "Email", cards: [...channelCards(["outlook", "gmail", "imap"]), ...catalogCards("Email")] },
+    { title: "Messaging", cards: [...channelCards(["teams", "slack", "telegram", "whatsapp", "imessage", "discord"]), ...catalogCards("Messaging")] },
+    { title: "Developer", cards: [...channelCards(["github", "gitlab", "azdo", "sentry", "pagerduty"]), ...catalogCards("Developer")] },
+    { title: "Project management", cards: [...channelCards(["jira", "asana", "monday", "clickup", "todoist", "linear", "trello", "notion"]), ...catalogCards("Project management")] },
     /* One "Data connections" bucket held eleven cards that have nothing to do with each
        other - a SQL server, a log store and a web-search API are three different jobs, and a
        rail entry saying "11" tells you nothing about which one you came for. Split by what
@@ -929,27 +930,26 @@ export default function ConnectorsView() {
     { title: "Databases", cards: [
       ...specialCards("mssql", "Microsoft SQL Server", "mssql",
         "microsoft sql server mssql connection windows auth " + MSSQL_HOWTO.join(" ")),
-      ...dataCards(["database"]), ...plannedCards(["graphql", "sqlite"]),
+      ...dataCards(["database"]), ...plannedCards(["graphql", "sqlite"]), ...catalogCards("Databases"),
     ]},
     { title: "Cloud & infrastructure", cards: [
       ...dataCards(["aws", "azure"]),
       ...specialCards("winrm", "Remote Windows (WinRM)", "winrm",
         "remote windows winrm rdp powershell remoting azweb01 " + WINRM_HOWTO.join(" ")),
-      ...plannedCards(["gcp", "kubernetes"]),
+      ...catalogCards("Cloud & infrastructure"),
     ]},
     { title: "Corporate systems", cards: [
       ...dataCards(["intacct"]),
-      ...plannedCards(["netsuite", "quickbooks", "sap", "workday", "adp",
-                       "epic", "cerner", "pointclickcare"]),
+      ...catalogCards("Corporate systems"),
     ]},
-    { title: "Observability", cards: [...dataCards(["prometheus", "datadog"]), ...plannedCards(["grafana", "elastic"])] },
+    { title: "Observability", cards: [...dataCards(["prometheus", "datadog"]), ...catalogCards("Observability")] },
     // the web as a source: one REST call and a key each. What is deliberately NOT here is
     // anything that drives a browser - logging in, clicking - which needs CDP, not an API.
-    { title: "Agentic web", cards: [...dataCards(["exa", "tavily", "firecrawl", "reader"]), ...plannedCards(["perplexity", "serpapi", "browserbase"])] },
-    { title: "Files & sheets", cards: [...dataCards(["knowledge", "sharepoint", "google_sheets"]), ...plannedCards(["smb_file", "local_file"])] },
-    { title: "Everything else", cards: plannedCards(KNOWN_PLANNED, true) },
+    { title: "Agentic web", cards: [...dataCards(["exa", "tavily", "firecrawl", "reader"]), ...catalogCards("Agentic web")] },
+    { title: "Files & sheets", cards: [...dataCards(["knowledge", "sharepoint", "google_sheets"]), ...catalogCards("Files & sheets")] },
+    { title: "Everything else", cards: [...catalogCards("Everything else"), ...plannedCards(KNOWN_PLANNED, true)] },
   ];
-  const hits = q ? groups.flatMap((g) => g.cards.filter((c) => !c.planned && c.haystack.toLowerCase().includes(q.toLowerCase()))
+  const hits = q ? groups.flatMap((g) => g.cards.filter((c) => c.haystack.toLowerCase().includes(q.toLowerCase()))
     .map((c) => ({ ...c, crumb: g.title }))) : [];
 
   const shown = groups.find((g) => g.title === group) || groups[0];
@@ -957,7 +957,7 @@ export default function ConnectorsView() {
   return (
     <SideRail title="Connectors" q={q} setQ={setQ}
       placeholder="Search connectors — Slack, SQL Server…"
-      items={groups.map((g) => ({ key: g.title, label: g.title, n: g.cards.filter((c) => !c.planned).length || null }))}
+      items={groups.map((g) => ({ key: g.title, label: g.title, n: g.cards.length || null }))}
       value={group} onChange={setGroup}
       note="Keys and connection settings are stored locally, in the same SQLite file as your tasks.">
       {err && <Alert severity="error" onClose={() => setErr("")} sx={{ mb: 1.5 }}>{err}</Alert>}

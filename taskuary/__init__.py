@@ -1,4 +1,4 @@
-"""Taskuary - Automate your job: AI triage in, coding agents out, you in charge."""
+"""Taskuary - your work AI assistant: AI triage in, coding agents out, you in charge."""
 # ONE place holds the version and it is pyproject.toml, because that is the one the git tag has
 # to match (RELEASING.md). A second copy here said 0.2.0 through the whole of 0.2.1: the CLI
 # banner, the API and the header pill all reported it, and the header's own tooltip told the

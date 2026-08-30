@@ -24,7 +24,7 @@ def _is_taskuary(url):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog='taskuary', description='Automate your job - the local-first agent work hub.')
+    ap = argparse.ArgumentParser(prog='taskuary', description='Your work AI assistant - the local-first agent work hub.')
     ap.add_argument('--host', help='override [server].host (0.0.0.0 to listen on all interfaces)')
     ap.add_argument('--port', type=int, help='override [server].port')
     ap.add_argument('--no-browser', action='store_true')

@@ -158,19 +158,26 @@ const TermOnly = ({ sid, height = "70vh", onExit }) => {
     // queued behind it, so one replayPending boolean was not enough: the curtain lifted between
     // those writes and exposed Codex repainting from top to bottom. Count ALL queued writes and
     // reveal only after the server's redraw barrier and xterm's final write callback both land.
-    let bail = null, revealFrame = null, pendingWrites = 0, readySeen = false;
+    // The reveal happens ONCE per replay. Every write's completion used to call maybeLift(), and
+    // once the curtain was up the condition stayed true - so every live frame Codex painted ran
+    // lift() again: scrollToBottom + focus(), several times a second. That stole the keyboard from
+    // every other input on the page (the queue bar, the New task dialog - the Tasks tab stays
+    // mounted behind the others) and made the pane jump: "it just flickers, can't type in it".
+    let bail = null, revealFrame = null, pendingWrites = 0, readySeen = false, lifted = false;
     const lift = () => {
       clearTimeout(bail); cancelAnimationFrame(revealFrame);
-      revealFrame = null;
+      revealFrame = null; lifted = true;
       term.scrollToBottom(); setRestoring(false); term.focus();
     };
     const maybeLift = () => {
-      if (canRevealTerminal(readySeen, pendingWrites) && !revealFrame) revealFrame = requestAnimationFrame(lift);
+      if (canRevealTerminal(readySeen, pendingWrites, lifted) && !revealFrame) revealFrame = requestAnimationFrame(lift);
     };
     const write = (data) => {
       if (revealFrame) { cancelAnimationFrame(revealFrame); revealFrame = null; }
       pendingWrites += 1;
-      term.write(data, () => { pendingWrites -= 1; term.scrollToBottom(); maybeLift(); });
+      // behind the curtain the viewport follows the replay; once live, xterm's own follow-output
+      // rule applies, so scrolling up to read while the agent works is not yanked back down
+      term.write(data, () => { pendingWrites -= 1; if (!lifted) term.scrollToBottom(); maybeLift(); });
     };
     // Compatibility with an older server: this marks the barrier seen, but still NEVER uncovers
     // an unfinished replay. The old escape hatch called lift() directly at four seconds.
@@ -178,7 +185,7 @@ const TermOnly = ({ sid, height = "70vh", onExit }) => {
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
       if (m.type === "out") {
-        if (m.replay) setRestoring(true);
+        if (m.replay) { setRestoring(true); lifted = false; }   // a fresh replay curtains again, and lifts once more
         write(m.data);
       }
       else if (m.type === "ready") { readySeen = true; maybeLift(); }

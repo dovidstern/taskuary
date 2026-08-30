@@ -11,5 +11,7 @@ export const changedTerminalSize = (previous, rows, cols) => {
 export const usableTerminalBox = (width, height) => width >= 80 && height >= 40;
 
 // The server barrier and xterm parser are independent. Seeing either one alone is not enough
-// to uncover a replaying pane.
-export const canRevealTerminal = (readySeen, pendingWrites) => !!readySeen && pendingWrites === 0;
+// to uncover a replaying pane - and a pane already uncovered is never "revealed" again: the
+// reveal focuses the terminal, so re-running it on every live frame stole the keyboard from
+// whatever the owner was typing into.
+export const canRevealTerminal = (readySeen, pendingWrites, lifted = false) => !lifted && !!readySeen && pendingWrites === 0;

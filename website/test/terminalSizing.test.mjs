@@ -20,3 +20,9 @@ test("the curtain waits for both the server repaint barrier and every xterm writ
   assert.equal(canRevealTerminal(true, 2), false);
   assert.equal(canRevealTerminal(true, 0), true);
 });
+
+test("a live frame after the reveal never lifts the curtain (and refocuses the terminal) again", () => {
+  assert.equal(canRevealTerminal(true, 0, false), true);      // the one reveal
+  assert.equal(canRevealTerminal(true, 0, true), false);      // every later completed write
+  assert.equal(canRevealTerminal(true, 1, true), false);
+});

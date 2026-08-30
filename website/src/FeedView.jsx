@@ -15,6 +15,7 @@ import AssignmentIndIcon from "@mui/icons-material/AssignmentInd";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
 import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import api from "./api";
+import { ageOpacity } from "./timelineFade.js";
 import EventIcon from "@mui/icons-material/Event";
 import { pollWhileVisible } from "./visible.js";
 import { feedHeaders, feedOk, takeFeed } from "./feedLoad.js";
@@ -201,6 +202,10 @@ const meetingEnded = (e) => !e.all_day && e.end && tsMs(e.end) < Date.now();
 
 // One meeting as a Timeline row - tinted so it reads as a different kind of thing. Hover opens it
 // after the same beat a message takes, click opens it now; the panel shows who is in it and why.
+// the resting opacity of a row by age, by the timeline_fade setting (Settings > Display); the curve
+// itself lives in timelineFade.js so it can be tested without the React tree
+const rowOpacity = (sentAt, mode) => ageOpacity((Date.now() - tsMs(sentAt)) / 36e5, mode);
+
 const MeetingRow = ({ e, onPick, picked, fade }) => {
   const hover = useRef(null);
   useEffect(() => () => clearTimeout(hover.current), []);
@@ -509,6 +514,21 @@ export default function FeedView({ onOpenTask, onChanged }) {
   // uses (next - serverNow) and never trusts the two machines to agree on the hour
   const [nextIn, setNextIn] = useState(null);        // seconds until the next background sync, from the server
   const [triageErr, setTriageErr] = useState("");    // the brain's last failure, until it answers again
+  const [fade, setFade] = useState("sharp");         // how old rows dim (Settings > Display), from ingest/status
+  // the fade is a RESTING state, not a filter: scrolling or hovering brings every row back to full,
+  // so nothing is ever hidden from someone actually reading the list
+  const listRef = useRef(null);
+  useEffect(() => {
+    let tm = 0;
+    const wake = () => {
+      const el = listRef.current; if (!el) return;
+      el.dataset.live = "1"; clearTimeout(tm);
+      tm = setTimeout(() => { if (listRef.current) listRef.current.dataset.live = "0"; }, 2500);
+    };
+    window.addEventListener("scroll", wake, { passive: true });
+    window.addEventListener("wheel", wake, { passive: true });
+    return () => { clearTimeout(tm); window.removeEventListener("scroll", wake); window.removeEventListener("wheel", wake); };
+  }, []);
   const [tick, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick((t) => t + 1), 1000); return () => clearInterval(id); }, []);
   const nextAtRef = useRef(null);                     // Date.now() when the server's next poll is due
@@ -524,6 +544,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
         if (data.lastPollAt) setLastSync(new Date(Date.now() - (data.now - data.lastPollAt) * 1000));
         nextAtRef.current = data.nextPollAt ? Date.now() + (data.nextPollAt - data.now) * 1000 : null;
         setTriageErr(data.triageError || "");
+        if (data.timelineFade) setFade(data.timelineFade);
         // the server's OWN ten-minute sync wears the same face as pressing the button: the
         // button says Syncing…, the caption says what it is reading, rows land as they arrive
         running = data.status?.state === "running";
@@ -921,7 +942,8 @@ export default function FeedView({ onOpenTask, onChanged }) {
         {/* syncing = the TIMELINE is loading, so the timeline says so: rows dim and a
             spinner sits on the list itself - the old 3px bar over just the left column
             read as a broken artifact, not a state */}
-        <Box sx={{ position: "relative", opacity: syncing ? 0.55 : 1, transition: "opacity .25s" }}>
+        <Box ref={listRef} sx={{ position: "relative", opacity: syncing ? 0.55 : 1, transition: "opacity .25s",
+          "&[data-live='1'] .tqRow, & .tqRow:hover": { opacity: "1 !important" } }}>
           {syncing && (
             <Box sx={{ position: "absolute", inset: 0, zIndex: 4, display: "flex",
               alignItems: "flex-start", justifyContent: "center", pointerEvents: "none" }}>
@@ -945,8 +967,10 @@ export default function FeedView({ onOpenTask, onChanged }) {
                       <MeetingRow key={`m-${e.start}-${j}`} e={e} fade picked={calSel} onPick={(ev) => { setSel(null); setCalSel(ev); }} />
                     ))}
                     <Box className="tqRow" sx={{ display: "grid", gridTemplateColumns: `${GUTTER}px 14px minmax(0,1fr)`,
-                      alignItems: "stretch", mb: "4px",
-                      ...(seen.current.has(r.MessageId) ? {} : { ...fadeIn, animationDelay: `${Math.min(i * 45, 400)}ms` }) }}>
+                      alignItems: "stretch", mb: "4px", opacity: rowOpacity(r.SentAt, fade), transition: "opacity .9s ease",
+                      // the entrance animation must not PIN opacity afterwards (fill-mode both did, and no row
+                      // ever faded): backwards keeps only the start frame, then the age opacity takes over
+                      ...(seen.current.has(r.MessageId) ? {} : { ...fadeIn, animationDelay: `${Math.min(i * 45, 400)}ms`, animationFillMode: "backwards" }) }}>
                       {/* time sits OUTSIDE the card, in its own gutter - wide enough that
                           "12:40 PM" can never wrap onto a second line */}
                       <Typography sx={{ ...mono, fontSize: 10.5, color: "#6e685f", textAlign: "right",
@@ -963,8 +987,11 @@ export default function FeedView({ onOpenTask, onChanged }) {
                       {/* one DEFINED object per message: who and what on top, what the hub did
                           underneath. Hover adds the message gist; click opens the panel. */}
                       <Box data-tq-keep onClick={() => drill(r)} onMouseEnter={() => hoverSelect(r)} onMouseMove={() => hoverSelect(r)} onMouseLeave={hoverCancel}
-                        sx={{ bgcolor: r.Channel === "assistant" ? ASSISTANT.tint : ["ignored", "filed"].includes(r.MsgStatus) ? "#faf8f4" : PANEL,
-                          border: `1px solid ${r.Channel === "assistant" ? ASSISTANT.bd : BORDER}`, borderRadius: "8px", px: "11px", pt: "5px", pb: "6px",
+                        // the assistant's row is a row like any other: a green card among cream ones
+                        // read as an alert every time it posted (the owner, 2026-08-30). Its dot and
+                        // its 'assistant' tag say who is speaking, the same way every other row does.
+                        sx={{ bgcolor: ["ignored", "filed"].includes(r.MsgStatus) ? "#faf8f4" : PANEL,
+                          border: `1px solid ${BORDER}`, borderRadius: "8px", px: "11px", pt: "5px", pb: "6px",
                           minWidth: 0, overflow: "hidden",
                           transition: "box-shadow .18s, border-color .18s",
                           ...(sel?.MessageId === r.MessageId

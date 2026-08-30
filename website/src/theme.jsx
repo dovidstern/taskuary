@@ -19,8 +19,12 @@ export const ACCENT2 = "#6f8a6e";      // sage - section labels, secondary empha
 export const GRADIENT = `linear-gradient(90deg, ${ACCENT}, #7d9a7c)`;
 // The assistant shares the sync control's slate-to-sage family: the sage end identifies its
 // posts without the old light-blue wash, and primary actions use the exact same gradient.
+// The tint and border sit close to the paper on purpose: a saturated green panel among cream
+// cards read as a warning rather than as a voice (the owner, 2026-08-30 - "make it more subtle
+// like the rest of the colors"). Identity comes from the dot, the icon and the label, which stay
+// sage; the surfaces stay quiet. Timeline rows take no assistant tint at all.
 export const ASSISTANT = {
-  solid: "#7d9a7c", ink: "#526b53", tint: "#edf1ea", bd: "#cfd8c8", gradient: GRADIENT,
+  solid: "#7d9a7c", ink: "#526b53", tint: "#f3f5f0", bd: "#dde1d6", gradient: GRADIENT,
 };
 
 /* The one loud colour, and the whole point of this palette: ALERT means "this is on you" and

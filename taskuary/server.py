@@ -481,6 +481,9 @@ def _att_row(a: dict) -> dict:
     return {'id': a['AttachmentId'], 'name': a['Name'], 'content_type': a['ContentType'] or '',
             'size': a['Size'], 'inline': bool(a['Inline']), 'saved': bool(a['Path']),
             'is_image': str(a['ContentType'] or '').startswith('image/'),
+            # a voice note is meant to be PLAYED where you are reading it, not downloaded and
+            # opened in something else - the panel draws a player for these (Attachments.jsx)
+            'is_audio': str(a['ContentType'] or '').startswith('audio/'),
             'url': f"/api/attachments/{a['AttachmentId']}" if a['Path'] else None}
 
 # SVG/HTML as a navigable document on this origin runs script as Taskuary. PNG/JPEG
@@ -524,7 +527,9 @@ def attachment(aid: int, download: bool = False):
     if not path:
         raise HTTPException(404, 'this one was never saved - open the original message for it')
     ct = (a.get('ContentType') or 'application/octet-stream').split(';')[0].strip() or 'application/octet-stream'
-    inline = (not download) and ct.lower().startswith('image/') and ct.lower() not in _NOSCRIPT
+    # audio joins images as "shown in place": <audio> is a subresource like <img>, and an
+    # attachment disposition on it is a download prompt waiting to happen
+    inline = (not download) and ct.lower().startswith(('image/', 'audio/')) and ct.lower() not in _NOSCRIPT
     resp = FileResponse(path, media_type=ct, filename=_att_filename(a.get('Name')),
                         content_disposition_type='inline' if inline else 'attachment')
     resp.headers['X-Content-Type-Options'] = 'nosniff'
@@ -2078,7 +2083,8 @@ def ingest_status():
     return {'status': st, 'everyMinutes': every, 'lastPollAt': _LAST_POLL[0],
             'nextPollAt': (_LAST_POLL[0] + every * 60) if every > 0 else None, 'now': time.time(),
             # the brain's last failure, until it answers again - shown in the caption, not buried in rows
-            'triageError': store.get_settings().get('triage_last_error') or ''}
+            'triageError': store.get_settings().get('triage_last_error') or '',
+            'timelineFade': store.get_settings().get('timeline_fade') or 'sharp'}   # how old rows dim (FeedView)
 
 # ── interactive terminals (real pty + websocket; the headless runs live on /api/runs) ──
 class TermBody(BaseModel):

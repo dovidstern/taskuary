@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import { Box, Button, CircularProgress, Dialog, Typography } from "@mui/material";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import DownloadIcon from "@mui/icons-material/Download";
+import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import api from "./api";
 import { PANEL, PANEL2, BORDER, DIM, FAINT, INK, ACCENT2, mono } from "./theme.jsx";
 
@@ -21,6 +22,11 @@ const LOGO = 24 * 1024;
 // are small by nature.
 const chrome = (a) => a.inline && a.size && a.size < LOGO && a.content_type !== "image/svg+xml";
 const drawable = (a) => a.is_image && a.url && !chrome(a);
+// A voice note is the message, not a file about it: WhatsApp and Teams send audio where other
+// people send a sentence, so it gets a player here rather than a download chip that opens some
+// other app. content_type is the truth; the extension is the fallback for a bridge that sent none.
+const AUDIO_EXT = /\.(ogg|opus|mp3|m4a|aac|wav|webm|flac|amr)$/i;
+const playable = (a) => !!a.url && (a.is_audio || AUDIO_EXT.test(a.name || ""));
 const kb = (n) => (!n ? "" : n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 const KIND = { pdf: "PDF", sheet: "XLSX", excel: "XLSX", csv: "CSV", zip: "ZIP", word: "DOCX", document: "DOCX" };
 const kindOf = (a) => Object.entries(KIND).find(([k]) => (a.content_type + " " + a.name).toLowerCase().includes(k))?.[1]
@@ -54,7 +60,8 @@ export const Attachments = ({ messageId, canFetch, dense }) => {
     </Typography>
   ) : null;
   const imgs = items.filter(drawable);
-  const files = items.filter((a) => !drawable(a));
+  const clips = items.filter((a) => !drawable(a) && playable(a));
+  const files = items.filter((a) => !drawable(a) && !playable(a));
   return (
     <Box sx={{ mt: 1 }}>
       {/* images are PART of the message ("see below" mail IS the screenshot, a report's chart
@@ -73,8 +80,31 @@ export const Attachments = ({ messageId, canFetch, dense }) => {
           ))}
         </Box>
       )}
+      {/* play it where you are reading it - the browser decodes ogg/opus, which is what the
+          WhatsApp and Teams bridges send. Transcription is a separate action on the message. */}
+      {clips.length > 0 && (
+        <Box sx={{ mt: imgs.length ? 0.75 : 0, display: "flex", flexDirection: "column", gap: 0.6 }}>
+          {clips.map((a) => (
+            <Box key={a.id} sx={{ border: `1px solid ${BORDER}`, borderRadius: 1.5, bgcolor: PANEL2,
+              px: 0.9, py: 0.7, maxWidth: 420 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.4 }}>
+                <GraphicEqIcon sx={{ fontSize: 13, color: "#6f8a6e" }} />
+                <Typography variant="caption" sx={{ color: INK, flex: 1, minWidth: 0 }} noWrap>{a.name}</Typography>
+                <Typography variant="caption" sx={{ color: FAINT, fontSize: 9.5 }}>{kb(a.size)}</Typography>
+                <Box component="a" href={attUrl(a, true)} title="save the audio"
+                  sx={{ display: "inline-flex", color: FAINT, "&:hover": { color: INK } }}>
+                  <DownloadIcon sx={{ fontSize: 14 }} />
+                </Box>
+              </Box>
+              {/* preload="none": a day of chat rows must not pull every clip off disk on render */}
+              <Box component="audio" controls preload="none" src={attUrl(a)}
+                sx={{ display: "block", width: "100%", height: 32 }} />
+            </Box>
+          ))}
+        </Box>
+      )}
       {files.length > 0 && (
-        <Box sx={{ mt: imgs.length ? 0.75 : 0, pt: 0.75, borderTop: `1px dashed ${BORDER}` }}>
+        <Box sx={{ mt: imgs.length || clips.length ? 0.75 : 0, pt: 0.75, borderTop: `1px dashed ${BORDER}` }}>
           <Typography variant="caption" sx={{ color: DIM, fontWeight: 700, display: "flex", alignItems: "center", gap: 0.3 }}>
             <AttachFileIcon sx={{ fontSize: 12 }} /> Attached · {files.length}
           </Typography>

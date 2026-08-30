@@ -318,6 +318,22 @@ class FeedJoinTests(unittest.TestCase):
 
 
 class ListTasksJoinTests(unittest.TestCase):
+    def test_linked_system_and_message_identity_land_on_the_searchable_row(self):
+        s = MemoryStore()
+        tid = s.create_task({'Title': 'Fix validation', 'Summary': 'Contributor updated the branch',
+                             'Source': 'github', 'SourceRef': 'https://github.com/org/app/pull/31'}, 't')
+        s.add_message({'TaskId': tid, 'ExternalId': 'gh:org/app#31', 'Channel': 'github',
+                       'SourceName': 'org/app', 'Subject': 'org/app#31 Fix validation',
+                       'FromName': 'octocat', 'FromEmail': 'octocat@users.noreply.github.com',
+                       'SourceLink': 'https://github.com/org/app/pull/31', 'Status': 'routed'})
+        row = s.list_tasks()[0]
+        self.assertEqual(row['SearchChannels'], 'github')
+        self.assertEqual(row['SearchSources'], 'org/app')
+        self.assertIn('org/app#31', row['SearchSubjects'])
+        self.assertEqual(row['SearchPeople'], 'octocat')
+        self.assertIn('gh:org/app#31', row['SearchExternalIds'])
+        self.assertIn('/pull/31', row['SearchLinks'])
+
     def test_latest_review_run_and_handover_land_on_the_row(self):
         s = MemoryStore()
         tid = s.create_task({'Title': 'live', 'Status': 'in_progress'}, 't')

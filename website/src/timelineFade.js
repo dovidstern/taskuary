@@ -3,15 +3,15 @@
 // mode reaches a visibly different place at the same age, and only a table of numbers proves that.
 //
 // {grace hours before it starts, span hours from there to the floor, floor}. On the cream palette a
-// gentle fade is nearly invisible, which is why 'sharp' exists and is the default: the last hour or
-// two stands out and everything older is clearly quiet.
+// gentle fade is nearly invisible; normal is the default so the live part stays distinct without
+// rows becoming quiet as abruptly as the sharper option.
 export const FADE = { off: null, gentle: [2, 20, 0.7], normal: [0.5, 5, 0.5], sharp: [0.33, 2, 0.35] };
 
 export const FADE_MODES = Object.keys(FADE);
 
 // Purely visual, and a resting state rather than a filter: FeedView restores any row to full while
 // the list is being scrolled or a row is hovered, so nothing is ever hidden from someone reading.
-export const ageOpacity = (hours, mode = "sharp") => {
+export const ageOpacity = (hours, mode = "normal") => {
   const c = FADE[mode];
   if (!c || !(hours > 0)) return 1;                 // unknown mode, 'off', a future or unparsed time
   const [grace, span, floor] = c;

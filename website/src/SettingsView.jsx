@@ -167,7 +167,7 @@ const KNOB_META = {
     desc: "How fast a Timeline row dims with age, so the last hour reads as the live part of the list.",
     help: ["gentle = barely, over most of a day; normal = noticeable within a few hours; sharp = the last hour or two",
       "stands out and everything older is clearly quiet; off = every row full brightness.",
-      "\n\nOn a light palette a subtle fade is hard to see, which is why 'sharp' exists. Purely visual - nothing is",
+      "\n\nNormal is the default. On a light palette a subtle fade can be hard to see, so 'sharp' remains available. Purely visual - nothing is",
       "hidden, and scrolling or hovering brings any row back to full."].join(" ") },
   feed_days: { group: "Display", label: "Timeline lookback (days)", type: "number",
     desc: "How many days the Timeline shows. Display only — nothing is deleted.",

@@ -182,6 +182,10 @@ class CoreTests(unittest.TestCase):
         self.assertEqual((d['coder_auto_enabled'], d['auto_draft_enabled']), ('1', '1'))
         self.assertEqual(MemoryStore().get_settings()['coder_auto_enabled'], '1')
 
+    def test_out_of_the_box_timeline_fade_is_normal(self):
+        self.assertEqual(store_mod.DEFAULT_SETTINGS['timeline_fade'], 'normal')
+        self.assertEqual(MemoryStore().get_settings()['timeline_fade'], 'normal')
+
     def test_reply_only_is_drafted_by_the_main_ai_not_a_coding_agent(self):
         """A question needs an answer, not an agent. Drafting used to require a CLI agent
         named 'responder' - nobody has one, so reply mail sat undrafted, and the fallback

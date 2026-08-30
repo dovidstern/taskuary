@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert, Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress,
-  Drawer, IconButton, Link, MenuItem, Select, TextField, Tooltip, Typography,
+  Drawer, IconButton, InputAdornment, Link, MenuItem, Select, TextField, Tooltip, Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import CloseIcon from "@mui/icons-material/Close";
@@ -11,7 +11,9 @@ import SmartToyIcon from "@mui/icons-material/SmartToy";
 import AltRouteIcon from "@mui/icons-material/AltRoute";
 import DifferenceIcon from "@mui/icons-material/Difference";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import SearchIcon from "@mui/icons-material/Search";
 import api from "./api";
+import { taskMatchesQuery } from "./taskSearch.js";
 import { pollWhileActive, pollWhileVisible } from "./visible.js";
 import { PANEL, PANEL2, BORDER, DIM, FAINT, INK, card, frame, frameInner, hoverable, mono, selSx, ACCENT2, PILL_COLORS } from "./theme.jsx";
 import { Handoff } from "./Handoff.jsx";
@@ -63,6 +65,7 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
   // "live" on arrival: what is still on somebody's plate is what you came here for. "all"
   // opens on a list whose top is whatever finished most recently. ("" = all; the rest derive.)
   const [filter, setFilter] = useState("live");
+  const [query, setQuery] = useState("");
   // "all" and "done" pile up for months; today's are the ones you came to look at, the rest
   // wait behind one button. In progress is never cut: what is still on a plate must show.
   const [older, setOlder] = useState(false);
@@ -273,8 +276,11 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
 
   // the pane shows the selected task or nothing - never the previous one while this loads
   const t = detail?.task?.TaskId === selected ? detail.task : null;
-  const bucket = (tasks || []).filter((x) => !filter || inBucket(x, filter));
-  const cut = filter !== "live" && !older;
+  const search = query.trim();
+  // Search means the whole archive, regardless of the selected state pill or today's cutoff. That
+  // is what makes a completed PR/task discoverable instead of merely searching the visible rows.
+  const bucket = (tasks || []).filter((x) => search ? taskMatchesQuery(x, search) : (!filter || inBucket(x, filter)));
+  const cut = !search && filter !== "live" && !older;
   const shown = cut ? bucket.filter(touchedToday) : bucket;
   const nOlder = bucket.length - shown.length;
   // The desktop page is a master/detail workspace. Opening it with a populated list but no
@@ -307,7 +313,7 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
                 push it off the edge of a 340px panel again. */}
             <Box sx={{ flex: 1, minWidth: 0, overflowX: "auto", "&::-webkit-scrollbar": { display: "none" },
               scrollbarWidth: "none" }}>
-              <FilterPills value={filter} onChange={setFilter}
+              <FilterPills value={search ? "" : filter} onChange={(next) => { setFilter(next); setQuery(""); }}
                 options={STATE_FILTERS.map((f) => ({ ...f,
                   n: !tasks ? null : f.key ? tasks.filter((x) => inBucket(x, f.key)).length : tasks.length }))} />
             </Box>
@@ -316,10 +322,22 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
             <Button size="small" startIcon={<AddIcon sx={{ fontSize: 15 }} />} onClick={() => setNewOpen(true)}
               sx={{ flexShrink: 0, minWidth: "auto", px: 1 }}>New</Button>
           </Box>
+          <Box sx={{ px: 1, py: 0.75, borderBottom: `1px solid ${BORDER}`, bgcolor: PANEL2, flexShrink: 0 }}>
+            <TextField fullWidth size="small" placeholder="Search system, name, summary, PR…" value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              inputProps={{ "aria-label": "Search all tasks" }}
+              InputProps={{
+                startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 16, color: FAINT }} /></InputAdornment>,
+                endAdornment: query ? <InputAdornment position="end"><IconButton size="small" aria-label="Clear task search"
+                  onClick={() => setQuery("")}><CloseIcon sx={{ fontSize: 15 }} /></IconButton></InputAdornment> : null,
+              }}
+              sx={{ "& .MuiOutlinedInput-root": { bgcolor: "#fff", fontSize: 12.5 } }} />
+          </Box>
           {/* rows as separated cards on a soft ground - air between tasks instead of a ruled
               ledger, selection said with the border alone. Scandinavian: fewer lines, calmer. */}
           <Box sx={{ overflowY: "auto", flex: 1, bgcolor: "#f1ede7", px: 1, py: 1 }}>
-            {!tasks ? <CircularProgress size={20} sx={{ m: 2 }} /> : !shown.length && !nOlder ? <Empty>No tasks here.</Empty> : shown.map((task) => (
+            {!tasks ? <CircularProgress size={20} sx={{ m: 2 }} /> : !shown.length && !nOlder
+              ? <Empty>{search ? `No tasks match “${search}”.` : "No tasks here."}</Empty> : shown.map((task) => (
               // the selected row is outlined in its STATE's colour - a working task in the same sage as
               // its chip - not in the brand slate, which read as a fourth state nobody could name
               <Box key={task.TaskId} onClick={() => onSelect(task.TaskId)}
@@ -337,6 +355,9 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
                   <Typography variant="caption" sx={{ color: FAINT }}>{timeAgo(task.CreatedAt)}</Typography>
                 </Box>
                 <Typography variant="body2" noWrap sx={{ color: INK, fontWeight: 500, mt: 0.4 }}>{task.Title}</Typography>
+                {search && <Typography variant="caption" noWrap sx={{ color: FAINT, display: "block", mt: 0.2 }}>
+                  {[task.Source, task.SearchSources, task.Summary].filter(Boolean).join(" · ")}
+                </Typography>}
               </Box>
             ))}
             {tasks && nOlder > 0 && (

@@ -514,7 +514,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
   // uses (next - serverNow) and never trusts the two machines to agree on the hour
   const [nextIn, setNextIn] = useState(null);        // seconds until the next background sync, from the server
   const [triageErr, setTriageErr] = useState("");    // the brain's last failure, until it answers again
-  const [fade, setFade] = useState("sharp");         // how old rows dim (Settings > Display), from ingest/status
+  const [fade, setFade] = useState("normal");        // how old rows dim (Settings > Display), from ingest/status
   // the fade is a RESTING state, not a filter: scrolling or hovering brings every row back to full,
   // so nothing is ever hidden from someone actually reading the list
   const listRef = useRef(null);

@@ -221,7 +221,7 @@ DEFAULT_SETTINGS = {'default_action': 'draft', 'auto_draft_enabled': '1', 'attac
                     # ~/.taskuary/context/TQ-xxxx.md and pointed at from the seed - not crammed into it
                     'coder_context_file': '1',
                     'agent_hooks': '1',           # Claude Code tells the Board what it is doing, through its own hooks (hooks.py)
-                    'timeline_fade': 'sharp',     # older Timeline rows rest quieter - off | gentle | normal | sharp (FeedView ageOpacity)
+                    'timeline_fade': 'normal',    # older Timeline rows rest quieter - off | gentle | normal | sharp (FeedView ageOpacity)
                     'waitroom_drip': '1',         # queued notes land one per stop (a funnel of prompts), not all at once
                     # which CLI agent works tasks when nothing names one - pickers list it first
                     'default_agent': 'coder',
@@ -596,9 +596,11 @@ class SQLiteStore:
     def get_task(self, task_id): return self._one('SELECT * FROM task WHERE TaskId=?', (task_id,))
     def list_tasks(self, status=None, active_only=False):
         q = '''SELECT t.*, rv.Status ReviewStatus, rv.Kind ReviewKind,
-                      rn.Status RunStatus, rn.AgentName RunAgent,
-                      ho.Body HandoverNote
-               FROM task t
+                       rn.Status RunStatus, rn.AgentName RunAgent,
+                       ho.Body HandoverNote,
+                       ms.SearchChannels, ms.SearchSources, ms.SearchSubjects, ms.SearchPeople,
+                       ms.SearchEmails, ms.SearchExternalIds, ms.SearchLinks
+                FROM task t
                LEFT JOIN (
                    SELECT TaskId, Status, Kind FROM review
                    WHERE ReviewId IN (SELECT MAX(ReviewId) FROM review GROUP BY TaskId)
@@ -612,7 +614,19 @@ class SQLiteStore:
                    WHERE CommentId IN (
                        SELECT MAX(CommentId) FROM comment WHERE Body LIKE 'HANDOVER NOTE%' GROUP BY TaskId
                    )
-               ) ho ON ho.TaskId=t.TaskId'''
+                ) ho ON ho.TaskId=t.TaskId'''
+        q += '''
+               LEFT JOIN (
+                   SELECT TaskId,
+                          GROUP_CONCAT(DISTINCT Channel) SearchChannels,
+                          GROUP_CONCAT(DISTINCT SourceName) SearchSources,
+                          GROUP_CONCAT(DISTINCT Subject) SearchSubjects,
+                          GROUP_CONCAT(DISTINCT FromName) SearchPeople,
+                          GROUP_CONCAT(DISTINCT FromEmail) SearchEmails,
+                          GROUP_CONCAT(DISTINCT ExternalId) SearchExternalIds,
+                          GROUP_CONCAT(DISTINCT SourceLink) SearchLinks
+                   FROM message GROUP BY TaskId
+               ) ms ON ms.TaskId=t.TaskId'''
         where, p = [], []
         if status:
             where.append('t.Status=?'); p.append(status)

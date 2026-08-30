@@ -13,6 +13,11 @@ test("off keeps every row at full brightness however old", () => {
   assert.equal(ageOpacity(1000, "off"), 1);
 });
 
+test("normal is the default fade", () => {
+  assert.equal(ageOpacity(3), ageOpacity(3, "normal"));
+  assert.notEqual(ageOpacity(3), ageOpacity(3, "sharp"));
+});
+
 test("each mode reaches a visibly different place at the same age", () => {
   // the whole reason the setting has four values: at three hours old they must not look alike
   const at3 = (m) => ageOpacity(3, m);

@@ -3,7 +3,7 @@
 // question to answer", which has no checkout for a CLI to stand in and belongs in the chat.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { NO_REPO, planTask, repoOf } from "../src/newTask.js";
+import { ASK_TAG, NO_REPO, planTask, repoOf, wantsAsk, withoutAsk } from "../src/newTask.js";
 
 test("a repository means a coding task for a CLI in that checkout", () => {
   const p = planTask("acme/fanapp", "live");
@@ -20,9 +20,36 @@ test("General means a general task, worked in the assistant's chat", () => {
   assert.equal(p.repo, null);
 });
 
+test("the question to ask rides ON the task, so no navigation can lose it", () => {
+  const p = planTask(NO_REPO, "live");
+  assert.equal(p.ask, true);
+  assert.equal(p.tags, ASK_TAG);
+  assert.equal(wantsAsk({ Tags: p.tags }), true);
+});
+
+test("only 'Ask the assistant' asks - filing it and the terminal do not", () => {
+  assert.equal(planTask(NO_REPO, "file").tags, null);
+  assert.equal(planTask(NO_REPO, "terminal").ask, false);
+  assert.equal(wantsAsk({ Tags: "repo:acme/fanapp" }), false);
+  assert.equal(wantsAsk({}), false);
+});
+
+test("the marker is stripped once the question has been asked, and nothing else is", () => {
+  assert.equal(withoutAsk(`repo:acme/fanapp,${ASK_TAG}`), "repo:acme/fanapp");
+  assert.equal(withoutAsk(ASK_TAG), "");
+  assert.equal(withoutAsk(""), "");
+  assert.equal(wantsAsk({ Tags: withoutAsk(ASK_TAG) }), false);
+});
+
+test("a tag that merely CONTAINS the marker is not the marker", () => {
+  assert.equal(wantsAsk({ Tags: "ask:assistant-later" }), false);
+});
+
 test("no repository is never written as a repo tag", () => {
-  assert.equal(planTask(NO_REPO, "live").tags, null);   // 'repo:none' was a tag pointing at nothing
-  assert.equal(planTask("", "live").tags, null);
+  // 'repo:none' was a tag pointing at nothing; the ask marker is the only tag a General task wears
+  for (const pick of [NO_REPO, ""]) assert.equal(planTask(pick, "live").tags, ASK_TAG);
+  assert.equal(planTask(NO_REPO, "file").tags, null);
+  assert.match(String(planTask("acme/fanapp", "live").tags), /^repo:/);
 });
 
 test("an empty picker - no repositories connected at all - is the chat, not a terminal", () => {

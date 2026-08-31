@@ -13,6 +13,7 @@ import ViewDayIcon from "@mui/icons-material/ViewDay";
 import FunctionsIcon from "@mui/icons-material/Functions";
 import api from "./api.js";
 import { streamAssistant, toolTarget } from "./assistantStream.js";
+import { wantsAsk, withoutAsk } from "./newTask.js";
 import { Md } from "./md.jsx";
 import { SessionPane, TerminalPane } from "./TerminalView.jsx";
 import SemanticPanel from "./SemanticPanel.jsx";
@@ -60,7 +61,7 @@ const AssistantMessage = () => (
   </MessagePrimitive.Root>
 );
 
-function AssistantThread({ task, messages, seed, onSeeded, selectionRef, attachmentsRef, onSent, onClearAttachments, onAttach, onReport, reportBusy }) {
+function AssistantThread({ task, messages, onAsked, selectionRef, attachmentsRef, onSent, onClearAttachments, onAttach, onReport, reportBusy }) {
   const modelAdapter = useMemo(() => ({
     async *run({ messages: runMessages, abortSignal }) {
       const prompt = textOf([...runMessages].reverse().find((m) => m.role === "user"));
@@ -117,14 +118,19 @@ function AssistantThread({ task, messages, seed, onSeeded, selectionRef, attachm
   /* "New task for the agent" with no repository: the prompt the owner typed is the first thing
      said here, appended through the same streaming runtime as anything they type - so they watch
      the answer arrive instead of finding a task with their own words sitting in it, unanswered.
-     Only into an EMPTY thread, and only once: reopening a discussion must not re-ask it. */
+
+     The question is read off the TASK (newTask.js: the ask tag), never handed in as a prop: two
+     earlier attempts passed it across the navigation and lost it to a re-render both times.
+     Only into an EMPTY thread, and only once - the tag is stripped as it is asked, so a reload
+     never re-asks and a chat opened an hour later still gets the question. */
   const asked = useRef(false);
   useEffect(() => {
-    if (asked.current || !seed || messages?.length) return;
+    const text = String(task.Summary || '').trim();
+    if (asked.current || messages?.length || !text || !wantsAsk(task)) return;
     asked.current = true;
-    onSeeded?.();
-    runtime.thread.append(seed);
-  }, [seed, messages, runtime, onSeeded]);
+    onAsked?.();
+    runtime.thread.append(text);
+  }, [task, messages, runtime, onAsked]);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -172,7 +178,7 @@ function AssistantThread({ task, messages, seed, onSeeded, selectionRef, attachm
   );
 }
 
-export function GeneralWorkspace({ task, onSession, onOpenReports, seed, onSeeded, compact = false }) {
+export function GeneralWorkspace({ task, onSession, onOpenReports, compact = false }) {
   const [data, setData] = useState(null);
   const [view, setView] = useState(savedView);
   const [connectorId, setConnectorId] = useState("");
@@ -187,6 +193,11 @@ export function GeneralWorkspace({ task, onSession, onOpenReports, seed, onSeede
   const attachmentsRef = useRef([]);
   selectionRef.current = { connectorId, model };
   attachmentsRef.current = attachments;
+
+  // asked once, and only once: the marker is cleared on the server as the question goes
+  const dropAsk = useCallback(() => {
+    api.patch(`/api/tasks/${task.TaskId}`, { Tags: withoutAsk(task.Tags) }).catch(() => {});
+  }, [task.TaskId, task.Tags]);
 
   const accept = useCallback((payload) => {
     setData(payload);
@@ -296,7 +307,7 @@ export function GeneralWorkspace({ task, onSession, onOpenReports, seed, onSeede
         ) : session ? (
           <SessionPane sid={session.sid} height="100%">
             <AssistantThread key={`${task.TaskId}-${threadKey}`} task={task} messages={data.messages}
-              seed={seed} onSeeded={onSeeded} selectionRef={selectionRef}
+              onAsked={dropAsk} selectionRef={selectionRef}
               attachmentsRef={attachmentsRef} onSent={sent} onClearAttachments={clearAttachments}
               onAttach={() => fileRef.current?.click()} onReport={makeReport} reportBusy={reportBusy} />
           </SessionPane>

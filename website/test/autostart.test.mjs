@@ -8,15 +8,15 @@
 //      produced it: set and wiped in the same commit, gone before the chat mounted.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { autostartPlan, isGeneralKind, seedFor } from "../src/autostart.js";
+import { autostartPlan, isGeneralKind } from "../src/autostart.js";
 
 const detailOf = (TaskId, Kind, Summary = "") => ({ task: { TaskId, Kind, Summary } });
 
-test("a general task hands its prompt to the chat", () => {
+test("a general task starts nothing here - the chat asks its own question", () => {
   const plan = autostartPlan({ autostart: { taskId: 7 }, selected: 7,
     detail: detailOf(7, "general", "Whats up"), hasSession: false });
   assert.equal(plan.do, "chat");
-  assert.deepEqual(plan.seed, { taskId: 7, text: "Whats up" });
+  assert.equal(plan.seed, undefined);       // handing it through here is what lost it, twice
 });
 
 test("the PREVIOUS task's detail decides nothing", () => {
@@ -26,12 +26,7 @@ test("the PREVIOUS task's detail decides nothing", () => {
   assert.equal(plan.do, "wait");
 });
 
-test("the seed is only ever handed to the task it came from", () => {
-  const seed = { taskId: 7, text: "Whats up" };
-  assert.equal(seedFor(seed, 7), "Whats up");
-  assert.equal(seedFor(seed, 8), "");        // moved on: the next task must not inherit the ask
-  assert.equal(seedFor(null, 7), "");
-});
+
 
 test("a coding task starts a terminal, and never a second one", () => {
   const args = { autostart: { taskId: 7 }, selected: 7, detail: detailOf(7, "coding", "fix the thing") };
@@ -52,10 +47,7 @@ test("nothing happens without an autostart, or for a different task", () => {
   assert.equal(autostartPlan({ autostart: { taskId: 7 }, selected: 7, detail: null }).do, "wait");
 });
 
-test("a task with no prompt still opens the chat, with nothing to ask", () => {
-  const plan = autostartPlan({ autostart: { taskId: 7 }, selected: 7, detail: detailOf(7, "general", "") });
-  assert.deepEqual(plan.seed, { taskId: 7, text: "" });
-});
+
 
 test("every kind the assistant workspace handles is a chat", () => {
   for (const k of ["general", "Research", "marketing", "triage", "assistant", undefined])

@@ -36,7 +36,7 @@ import { TerminalPane } from "./TerminalView.jsx";
 // chunks by content, so that tab asks the new server for a filename the build no longer has.
 // Recover once automatically; a real module error still reaches the view boundary on retry.
 const GENERAL_CHUNK_RELOAD = "tq-general-chunk-reload";
-import { autostartPlan, isGeneralKind, seedFor } from "./autostart.js";
+import { autostartPlan, isGeneralKind } from "./autostart.js";
 
 const loadGeneralWorkspace = () => import("./GeneralWorkspace.jsx").then((module) => {
   try { sessionStorage.removeItem(GENERAL_CHUNK_RELOAD); } catch { /* storage disabled */ }
@@ -301,12 +301,12 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
   // A GENERAL task has no repository and no CLI - it is a question, worked in the assistant's
   // own chat below. Starting a terminal on it was the bug behind "why did this open in a
   // terminal?": the prompt is handed to the chat instead, which asks it as the first message.
-  const [chatSeed, setChatSeed] = useState(null);      // {taskId, text} - see autostart.js
   useEffect(() => {
     const plan = autostartPlan({ autostart, selected, detail, hasSession: term !== null });
     if (plan.do === "wait") return;
     onAutostarted?.();
-    if (plan.do === "chat") { setChatSeed(plan.seed); return; }
+    // a general task asks its own question, off the tag the Board put on it (GeneralWorkspace)
+    if (plan.do === "chat") return;
     openTerm({ agent: autostart.agent || run.agent, model: autostart.model || run.model || null,
       task_id: selected, repo: repoOf(detail.task), seed: true });
   }, [autostart, selected, term, detail, openTerm, onAutostarted, run.agent]);
@@ -525,8 +525,7 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
                 )}
                 {isGeneral ? (
                   <React.Suspense fallback={<Box sx={{ flex: 1, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}>
-                    <GeneralWorkspace task={t} onSession={generalSession} onOpenReports={onGoReports}
-                      seed={seedFor(chatSeed, selected)} onSeeded={() => setChatSeed(null)} />
+                    <GeneralWorkspace task={t} onSession={generalSession} onOpenReports={onGoReports} />
                   </React.Suspense>
                 ) : wrapping && !wrapped ? (
                   <Box sx={{ ...card, bgcolor: "#e3e6e1", border: "1px solid #d2d6cf" }}>

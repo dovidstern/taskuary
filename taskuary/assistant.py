@@ -686,7 +686,7 @@ def discussion_task(store, idea_id: int, actor: str = 'owner') -> dict:
     why = str(action.get('why') or '').strip()
     summary = str(i.get('Text') or '').strip()
     if why: summary += f'\n\nWhy the assistant raised it: {why}'
-    tid = store.create_task({'Title': title, 'Summary': summary[:2000], 'Kind': 'assistant',
+    tid = store.create_task({'Title': title, 'Summary': summary[:2000], 'Kind': 'general',
                              'Source': 'assistant', 'SourceRef': f'assistant:idea:{idea_id}'}, actor)
     seed = str(i.get('Text') or '').strip()
     if why: seed += f'\n\nWhy I raised this: {why}'

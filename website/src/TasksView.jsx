@@ -55,7 +55,9 @@ const GeneralWorkspace = React.lazy(loadGeneralWorkspace);
 const repoOf = (t) => (String(t?.Tags || "").match(/repo:([^\s,]+)/) || [])[1] || null;
 
 const STATUSES = ["open", "in_progress", "waiting", "done", "dropped"];
-const GENERAL_KINDS = new Set(["general", "research", "marketing", "triage"]);
+// `assistant` is a legacy alias from Timeline discussions. New discussions use `general`, but
+// old ones must still open here instead of falling through to the coding terminal.
+const GENERAL_KINDS = new Set(["general", "research", "marketing", "triage", "assistant"]);
 // CATEGORY is where a task is; the chip on the row says what it needs. Filtering by "needs
 // you" and "working" separately made those two look like opposites, so a task whose agent
 // picked it up vanished out of the bucket you were watching - and a task sitting in "needs

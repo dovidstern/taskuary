@@ -18,6 +18,7 @@ import api from "./api";
 import { bottomDissolveVisible, timelineOpacity } from "./timelineFade.js";
 import { availablePickerChannels, channelsForCategory } from "./feedFilters.js";
 import { timelineDayLabel } from "./timelineDay.js";
+import { splitTimelineMeetings } from "./timelineMeetings.js";
 import EventIcon from "@mui/icons-material/Event";
 import { pollWhileVisible } from "./visible.js";
 import { feedHeaders, feedOk, takeFeed } from "./feedLoad.js";
@@ -182,8 +183,7 @@ const untilText = (start, end) => {
 };
 // Today's meetings, fetched once for the whole Timeline and re-rendered every 30 s so countdowns
 // move. Upcoming ones go in the band above the newest message (the list is newest-first, so the
-// future belongs on top); a meeting that has ENDED is history and takes its place in the stream at
-// its own time - a 1:30 meeting sat above a 3:07 mail and read as "the clock is wrong".
+// future belongs on top); at its start time a meeting takes its chronological place in the stream.
 const useCalToday = () => {
   const [cal, setCal] = useState(null);
   const [tick, setTick] = useState(0);          // only read to force the 30 s re-render (the scope test needs it named)
@@ -196,8 +196,6 @@ const useCalToday = () => {
   }, []);
   return tick >= 0 ? (cal?.events || []) : [];
 };
-const meetingEnded = (e) => !e.all_day && e.end && tsMs(e.end) < Date.now();
-
 // One meeting as a Timeline row - tinted so it reads as a different kind of thing. Hover opens it
 // after the same beat a message takes, click opens it now; the panel shows who is in it and why.
 // the resting opacity of a row by age, by the timeline_fade setting (Settings > Display); the curve
@@ -842,15 +840,26 @@ export default function FeedView({ onOpenTask, onChanged }) {
     (acc[d] = acc[d] || []).push(r);
     return acc;
   }, {});
-  // an ended meeting is placed in the stream on its own day; one whose day has no messages yet
-  // stays in the band, so it is never lost
-  const inStream = (e) => meetingEnded(e) && !!days[localDay(e.start)];
-  const upcoming = calEvents.filter((e) => !inStream(e)), pastMeetings = calEvents.filter(inStream);
-  // the ended meetings that belong between message i-1 and message i of a day (newest-first), or
+  // Once its start time arrives, a meeting becomes normal Timeline history at that timestamp.
+  // Give it a day even when no messages arrived that day; otherwise the calendar row would vanish
+  // from both the upcoming band and the stream.
+  const { upcoming, started: timelineMeetings } = splitTimelineMeetings(calEvents, Date.now(), tsMs);
+  timelineMeetings.forEach((e) => {
+    const day = localDay(e.start);
+    if (day && !days[day]) days[day] = [];
+  });
+  // With no messages yet, a calendar-only day still needs a group in which to render its upcoming
+  // band. `/calendar/today` only returns this day, so the first event is the correct heading.
+  if (!Object.keys(days).length && calEvents.length) {
+    const day = localDay(calEvents[0].start);
+    if (day) days[day] = [];
+  }
+  const dayEntries = Object.entries(days).sort(([a], [b]) => b.localeCompare(a));
+  // the started meetings that belong between message i-1 and message i of a day (newest-first), or
   // after the oldest message of the day when i === items.length
   const meetingsAt = (day, items, i) => {
     const hi = i === 0 ? Infinity : tsMs(items[i - 1].SentAt), lo = i >= items.length ? -Infinity : tsMs(items[i].SentAt);
-    return pastMeetings.filter((e) => localDay(e.start) === day && tsMs(e.start) < hi && tsMs(e.start) >= lo);
+    return timelineMeetings.filter((e) => localDay(e.start) === day && tsMs(e.start) < hi && tsMs(e.start) >= lo);
   };
 
   // only offer channels that actually have a connection behind them. With no category
@@ -1040,7 +1049,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
             gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(520px, 44%)" } }}>
             <Typography variant="caption" sx={{ ...mono, color: INK, fontWeight: 800, fontSize: 11.5,
               letterSpacing: 0.5, pt: 0.75, pb: 0.25, textAlign: "center" }}>
-              {fmtDay(curDay || Object.keys(days)[0] || "")}
+              {fmtDay(curDay || dayEntries[0]?.[0] || "")}
             </Typography>
           </Box>
         )}
@@ -1060,13 +1069,13 @@ export default function FeedView({ onOpenTask, onChanged }) {
               <CircularProgress size={26} sx={{ mt: 14 }} />
             </Box>
           )}
-          {!rows ? (err ? null : <CircularProgress size={22} sx={{ m: 4 }} />) : !sorted.length ? (
+          {!rows ? (err ? null : <CircularProgress size={22} sx={{ m: 4 }} />) : !sorted.length && !calEvents.length ? (
             // the empty line has to know WHY it is empty: "activate a mailbox" under the
             // code filter told someone with three mailboxes to add a fourth
             <Empty>{view || cat || pick
               ? "Nothing here matches this filter — try “everything”, or widen the Timeline lookback in Settings."
               : "Nothing in the feed yet — connect a source in Connectors (a mailbox, a chat, a repo, a board…) and hit Sync now."}</Empty>
-          ) : Object.entries(days).map(([day, items], di) => (
+          ) : dayEntries.map(([day, items], di) => (
             // the group's top edge is what the date spy watches - no header row of its own
             <Box key={day} sx={{ mt: di ? 1.5 : 0 }} ref={(el) => { if (el) dayRefs.current[day] = el; else delete dayRefs.current[day]; }}>
               {di === 0 && !cat && !pick && <ComingUp events={upcoming} picked={calSel} onPick={(e) => { setSel(null); setCalSel(e); }} />}
@@ -1162,7 +1171,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
                     </Box>
                   </React.Fragment>
                 ))}
-                {/* meetings that ended before the oldest message of the day shown so far */}
+                {/* meetings that started before the oldest message of the day shown so far */}
                 {!cat && !pick && meetingsAt(day, items, items.length).map((e, j) => (
                   <MeetingRow key={`m-${e.start}-${j}`} e={e} fade picked={calSel} onPick={(ev) => { setSel(null); setCalSel(ev); }} />
                 ))}

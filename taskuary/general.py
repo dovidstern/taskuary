@@ -17,7 +17,10 @@ from . import llm as llm_mod
 
 USER_TYPE = 'assistant_user'
 ASSISTANT_TYPE = 'assistant_agent'
-GENERAL_KINDS = {'general', 'research', 'marketing', 'triage'}
+# ``assistant`` was briefly written by Timeline discussions before those tasks were normalized
+# to ``general``. Keep it as a read-compatible alias so existing discussions still open in the
+# Assistant workspace without a data migration.
+GENERAL_KINDS = {'general', 'research', 'marketing', 'triage', 'assistant'}
 SCROLLBACK = 200_000
 MAX_CONTEXT = 24_000
 MAX_REPLY_TOKENS = 2_000

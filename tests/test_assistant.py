@@ -353,7 +353,9 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(first.json()['created']); self.assertFalse(again.json()['created'])
         self.assertEqual(first.json()['taskId'], again.json()['taskId'])
         task = s.get_task(first.json()['taskId'])
-        self.assertEqual(task['Kind'], 'assistant')
+        self.assertEqual(task['Kind'], 'general')
+        self.assertTrue(general.handles(task))
+        self.assertTrue(general.handles({'Kind': 'assistant'}))  # discussions made before this fix
         self.assertEqual(s.get_task(related)['Kind'], 'coding')
         history = general.history(s, task['TaskId'])
         self.assertEqual([m['role'] for m in history], ['assistant', 'user', 'assistant'])

@@ -30,6 +30,13 @@ ACTIONS = {
     'poll': 'read', 'fetch': 'read', 'search': 'read', 'list': 'read', 'discover': 'read',
     'sqlite': 'read', 'mssql': 'read', 'database': 'read',
     'intacct': 'read', 'intacct_fields': 'read',      # readByQuery and lookup; nothing posts
+    # the semantic layer (semantic.py) reaches the ERP only through those same reads. The check
+    # DOES write - a metric it cannot reconcile is demoted, a verified one is frozen to a skill -
+    # but every one of those writes lands in Taskuary's own store, never upstream, which is what
+    # this ladder measures. Left unclassified they would have needed 'write' on the Intacct card,
+    # and the card ships at 'read': the assistant is told to fetch certified numbers through
+    # /api/tools/run, and every one of those calls would have been refused.
+    'metric': 'read', 'metric_check': 'read',
     'local_file': 'read',    # a path on this machine, opened read-only - like the sqlite above it
     'kb_search': 'read',     # the knowledge base is Taskuary's own index; searching it moves nothing (kb_reindex writes it: default)
     'aws': 'read', 's3_object': 'read', 'cloudwatch_logs': 'read',

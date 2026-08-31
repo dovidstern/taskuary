@@ -222,3 +222,28 @@ def test_the_metric_tool_refuses_an_unproved_number(monkeypatch):
     st.save_metric({'Name': 'unproved', 'SpecJson': json.dumps(SPEC)}, 'owner')
     with pytest.raises(ValueError, match='not verified'):
         REGISTRY['metric']({'store': st, 'name': 'unproved', 'scope': 'A', 'period': '2026-07'})
+
+
+def test_the_metric_tools_are_reachable_on_a_read_only_intacct_card():
+    """The card ships at 'read' and the assistant is told to fetch certified numbers through
+    /api/tools/run. Unclassified, both types would have needed 'write' (UNKNOWN_NEEDS) and every
+    one of those calls would have been refused."""
+    from taskuary import scopes
+    card = {'Type': 'intacct'}
+    assert scopes.scope_of(card) == 'read'
+    assert scopes.allows(card, 'metric') and scopes.allows(card, 'metric_check')
+
+
+# Fail-closed is the right default, but a type nobody classified is a refusal nobody predicted: it
+# needs 'write' on its card, so it is simply denied wherever that card ships at 'read'. These seven
+# were already unclassified. The test is here so an EIGHTH is a decision somebody made on purpose
+# rather than a tool that mysteriously will not run - adding a report type means giving it an
+# authority in scopes.ACTIONS, or adding it below and saying why 'write' is right for it.
+UNCLASSIFIED = ['agent', 'assistant', 'calendar', 'google_sheets', 'kb_reindex',
+                'sharepoint_file', 'sharepoint_list']
+
+
+def test_no_new_report_type_is_left_unclassified():
+    from taskuary import scopes
+    from taskuary.reports import PLANNED, REGISTRY
+    assert sorted(t for t in REGISTRY if t not in PLANNED and t not in scopes.ACTIONS) == UNCLASSIFIED

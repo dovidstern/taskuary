@@ -28,7 +28,8 @@ MAX_PEEKS = 3         # schema look-ups per compose: a table, its columns, and o
 # what a config of this type MUST carry to run at all. A composed report with only a title is a
 # form the owner has to finish - which is the thing the composer exists to spare them.
 REQUIRED = {'agent': ('prompt|skill',), 'intacct': ('object',), 'intacct_fields': ('object',), 'mssql': ('query',), 'database': ('query',), 'sqlite': ('db', 'query'),
-            'rest': ('url',), 'local_file': ('path',), 'winrm': ('script',), 's3_object': ('bucket',), 'cloudwatch_logs': ('log_group',)}
+            'rest': ('url',), 'local_file': ('path',), 'winrm': ('script',), 's3_object': ('bucket',), 'cloudwatch_logs': ('log_group',),
+            'metric': ('name',)}       # metric_check with no name is valid: it checks every one
 
 # Sage Intacct, as the model needs it spelled out: the executor docstring says what the keys are,
 # not how the system thinks. Fields are UPPERCASE ids; readByQuery filters, never SQL; nothing
@@ -38,7 +39,8 @@ INTACCT_PLAYBOOK = """SAGE INTACCT (type "intacct")
 - Field ids are UPPERCASE: RECORDNO, RECORDID, VENDORID, VENDORNAME, WHENCREATED (entered), WHENPOSTED (posted), WHENDUE, TOTALENTERED, TOTALDUE, STATE, CREATEDBY / MODIFIEDBY (the user - "who posted it"), AUUSERID, LOCATIONID, DEPARTMENTID. Custom fields exist per company: peek {"type": "intacct_fields", "object": "APBILL"} to see the real list.
 - "filters" is a list of [FIELD, op, value]; ops: = != > < >= <= like notlike in notin isnull isnotnull. Dates are MM/DD/YYYY. Facilities are LOCATIONs: when the owner names one ("Adelphi"), peek {"type": "intacct", "object": "LOCATION", "fields": ["LOCATIONID", "NAME"], "filters": [["NAME", "like", "Adelphi%"]]} and filter the report on LOCATIONID.
 - readByQuery does not group or count. "How many X per Y" = the rows with the Y field included, plus an ai_prompt that counts per Y and lists the total. "Posted yesterday/today" = a WHENPOSTED filter; a daily report should say so in explain.
-- Always set "object", and set "fields" to the handful the question needs - APBILL has dozens."""
+- Always set "object", and set "fields" to the handful the question needs - APBILL has dozens.
+- A named business number (EBITDAR, occupancy, net revenue) is NOT a GL query you write here. This company's Intacct is customised, so one you write yourself is plausible and wrong. If it has been certified it has a definition proved against numbers the owner already knew: use {"type": "metric", "name": "<name>", "scope": "<facility>", "period": "YYYY-MM"}. If it has not, say so rather than approximating it with a GLENTRY filter - an unproved figure in a scheduled report is the one nobody re-checks."""
 SCHEMA_ROWS = 300
 
 

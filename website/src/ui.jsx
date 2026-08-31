@@ -1305,21 +1305,34 @@ const pillSx = (r) => ({ height: 16, fontSize: 9, fontWeight: 700, bgcolor: ROLE
 const hhmm = (s) => s ? new Date(String(s).replace(" ", "T")).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
 export const WorkStrip = ({ taskId, live }) => {
   const [d, setD] = useState(null);
-  // one line by default - the terminal is the page, and a strip that pushed its bottom off screen
-  // was worse than no strip; the detail opens on click and stays open for this browser
-  const [open, setOpen] = useState(() => { try { return localStorage.getItem("tq.workstrip") === "1"; } catch { return false; } });
+  const [failed, setFailed] = useState(false);
+  // The structured view is why this is more useful than a naked terminal. Show it on first use;
+  // an owner who deliberately folds it keeps that choice for this browser.
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem("tq.workstrip") !== "0"; } catch { return true; } });
   const toggle = () => { setOpen((o) => { try { localStorage.setItem("tq.workstrip", o ? "0" : "1"); } catch { /* private window */ } return !o; }); };
   useEffect(() => {
     if (!taskId) return undefined;
     let alive = true;
-    const load = async (diff) => { try { const { data } = await api.get(`/api/tasks/${taskId}/work`, { params: { diff } }); if (alive) setD(data); } catch { /* no session yet */ } };
+    setD(null); setFailed(false);
+    const load = async (diff) => {
+      try {
+        const { data } = await api.get(`/api/tasks/${taskId}/work`, { params: { diff } });
+        if (alive) { setD(data); setFailed(false); }
+      } catch { if (alive) setFailed(true); }
+    };
     load(true);
     // the witness is cheap and polled; git's per-file diff is not, so it refreshes only when the session ends
     const id = live ? setInterval(() => load(false), 5000) : 0;
     return () => { alive = false; clearInterval(id); };
   }, [taskId, live]);
   const w = d?.work;
-  if (!d || (!w && !(d.files || []).length)) return null;
+  if (!d) return failed ? (
+    <Box sx={{ mb: 0.75, border: `1px solid ${ROLES.you.bd}`, borderRadius: 2, bgcolor: ROLES.you.tint,
+      px: 1.5, py: 0.65, display: "flex", alignItems: "center", gap: 1 }}>
+      <Typography sx={{ ...mono, fontSize: 10, fontWeight: 700, color: ROLES.you.ink }}>agent activity unavailable</Typography>
+      <Typography variant="caption" sx={{ color: DIM }}>the terminal is unaffected · {live ? "retrying" : "reload to retry"}</Typography>
+    </Box>
+  ) : null;
   const todos = w?.todos || [], files = (d.files || []).slice(0, 12);
   const tone = { check: "you", note: "info", ok: "done" };
   const who = d.session?.cli || d.session?.agent || d.prov?.by || "agent";
@@ -1330,6 +1343,7 @@ export const WorkStrip = ({ taskId, live }) => {
       <Box onClick={toggle} title={open ? "Fold the detail away" : "Open: the agent's list beside the files it wrote"}
         sx={{ px: 1.5, py: 0.5, display: "flex", flexWrap: "wrap", gap: 0.5, alignItems: "center", cursor: "pointer", borderBottom: open ? `1px solid ${BORDER}` : 0, "&:hover": { bgcolor: "#faf8f5" } }}>
         <Typography component="span" sx={{ ...mono, fontSize: 10, color: FAINT, width: 12 }}>{open ? "▾" : "▸"}</Typography>
+        <Typography component="span" sx={{ ...mono, fontSize: 9.5, color: DIM, fontWeight: 700, letterSpacing: ".06em", mr: 0.25 }}>AGENT ACTIVITY</Typography>
         {d.prov?.from && <Chip size="small" label={`from: ${d.prov.from}`} sx={pillSx("muted")} />}
         {d.prov?.kind && <Chip size="small" label={`kind: ${d.prov.kind}`} sx={pillSx("working")} />}
         {d.prov?.by && <Chip size="small" label={`by: ${who}`} sx={pillSx("working")} />}

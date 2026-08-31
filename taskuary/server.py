@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from . import config
@@ -253,6 +253,50 @@ def assistant_message(task_id: int, body: AssistantMessageBody):
         reply = session.send_prompt(body.text, body.attachments, body.connector_id, body.model, pick=body.pick)
     except (ValueError, RuntimeError) as e: raise HTTPException(422, str(e))
     return {'reply': reply, **_assistant_payload(task_id, session)}
+
+@app.post('/api/tasks/{task_id}/assistant/stream')
+async def assistant_stream(task_id: int, body: AssistantMessageBody):
+    """NDJSON work stream for assistant-ui: the configured CLI's real tool/text events.
+
+    The CLI stays on a worker thread (its subprocess pipes are blocking); events cross onto the
+    request loop through a queue. Closing the browser stream sets ``cancel`` and kills the CLI.
+    """
+    from . import general
+    loop, events, cancel = asyncio.get_running_loop(), asyncio.Queue(), threading.Event()
+
+    def put(event):
+        try: loop.call_soon_threadsafe(events.put_nowait, event)
+        except RuntimeError: cancel.set()
+
+    def trace(kind, name, detail):
+        put({'type': kind, 'name': name, 'detail': detail})
+
+    def work():
+        try:
+            session = general.start_session(store, task_id, body.connector_id, body.model, ACTOR, body.pick)
+            put({'type': 'start', 'session': session.info()})
+            reply = session.send_prompt(body.text, body.attachments, body.connector_id, body.model,
+                                        pick=body.pick, trace=trace, cancel=cancel)
+            put({'type': 'done', 'reply': reply, 'payload': _assistant_payload(task_id, session)})
+        # Once headers are streaming, FastAPI cannot replace this with its normal JSON error
+        # response. Always terminate the NDJSON stream explicitly instead of leaving the UI's
+        # spinner alive forever (missing CLI, provider/network errors, and bugs all land here).
+        except Exception as e:
+            put({'type': 'error', 'error': str(e)})
+
+    threading.Thread(target=work, daemon=True).start()
+
+    async def generate():
+        try:
+            while True:
+                event = await events.get()
+                yield json.dumps(event, default=str) + '\n'
+                if event.get('type') in ('done', 'error'): break
+        finally:
+            cancel.set()
+
+    return StreamingResponse(generate(), media_type='application/x-ndjson',
+                             headers={'Cache-Control': 'no-cache, no-transform'})
 
 @app.patch('/api/tasks/{task_id}')
 def update_task(task_id: int, body: TaskBody, background: BackgroundTasks = None):

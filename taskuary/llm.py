@@ -50,7 +50,7 @@ def readable_images(store, message_ids, cap: int = VISION_MAX) -> list:
 MAX_TOKENS = 400
 
 
-def make_cli_llm(store, agent_name: str, model: str = None, cwd: str = None):
+def make_cli_llm(store, agent_name: str, model: str = None, cwd: str = None, trace=None, cancel=None):
     """A CLI agent as the classifier: prompt in on stdin, JSON out. The repo working dir
     is dropped - triage is about the message, not about any checkout.
 
@@ -81,17 +81,18 @@ def make_cli_llm(store, agent_name: str, model: str = None, cwd: str = None):
         how long the answer should be. `images` is accepted and dropped: a CLI reads files off
         disk itself, and the prompt already names their paths."""
         from .agents import run_cli
-        out, _sid, _diff = run_cli(prof, f'{system}\n\n{user}', lambda *a: None)
+        kwargs = {'cancel': cancel} if cancel is not None else {}
+        out, _sid, _diff = run_cli(prof, f'{system}\n\n{user}', trace or (lambda *a: None), **kwargs)
         return out
     return llm
 
 
-def build_llm(store, pick=None, model=None):
+def build_llm(store, pick=None, model=None, trace=None, cancel=None):
     """The brain named by `pick` ('' = first active AI connector, 'connector:<id>',
     'cli:<agent>'), defaulting to the triage_ai setting - callers like reports may name
     their OWN brain and model per job instead of riding the triage tier."""
     pick = (pick if pick is not None else store.get_settings().get('triage_ai') or '').strip()
-    if pick.startswith('cli:'): return make_cli_llm(store, pick[4:], model)
+    if pick.startswith('cli:'): return make_cli_llm(store, pick[4:], model, trace=trace, cancel=cancel)
     want = pick[10:] if pick.startswith('connector:') else None
     want_id = int(want) if want and want.isdigit() else None
     for c in store.list_connectors():

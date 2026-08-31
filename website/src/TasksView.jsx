@@ -515,14 +515,9 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
                   </Box>
                 )}
                 {isGeneral ? (
-                  <>
-                    <React.Suspense fallback={<Box sx={{ height: 500, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}>
-                      <GeneralWorkspace task={t} onSession={generalSession} />
-                    </React.Suspense>
-                    <Box sx={{ mt: 0.75, flexShrink: 0 }}>
-                      <TellAgent taskId={selected} taskRef={detail?.ref} compact onQueued={() => loadDetail(selected)} />
-                    </Box>
-                  </>
+                  <React.Suspense fallback={<Box sx={{ flex: 1, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}>
+                    <GeneralWorkspace task={t} onSession={generalSession} />
+                  </React.Suspense>
                 ) : wrapping && !wrapped ? (
                   <Box sx={{ ...card, bgcolor: "#e3e6e1", border: "1px solid #d2d6cf" }}>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

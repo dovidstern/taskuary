@@ -205,7 +205,8 @@ class GeneralSession:
             if ch >= ' ':
                 self._input += ch; self._emit(ch)
 
-    def send_prompt(self, text: str, attachments=None, connector_id=None, model=None, echo=True, pick=None) -> str:
+    def send_prompt(self, text: str, attachments=None, connector_id=None, model=None, echo=True,
+                    pick=None, trace=None, cancel=None) -> str:
         text = str(text or '').strip()
         if not text: raise ValueError('empty message')
         if not self.alive: raise RuntimeError('assistant session has ended')
@@ -222,7 +223,15 @@ class GeneralSession:
             paths = list(attachments or []) + [m.group('path') for m in _IMAGE_PATH.finditer(text)]
             if paths and self.pick.startswith('cli:'):
                 user += '\n\nATTACHED FILES (read these when relevant)\n' + '\n'.join(str(Path(p).resolve()) for p in paths)
-            brain = llm_mod.build_llm(self.store, pick=self.pick, model=self.model or None)
+            def visible(kind, name, detail):
+                if trace: trace(kind, name, detail)
+                if kind == 'tool_call':
+                    target = next(iter((detail.get('args') or {}).values()), '') if isinstance(detail, dict) else ''
+                    self._emit(f'\x1b[33mtool>\x1b[0m {name} {str(target)[:180]}\r\n')
+                elif kind == 'tool_result' and isinstance(detail, dict) and detail.get('is_error'):
+                    self._emit(f'\x1b[31mtool error>\x1b[0m {str(detail.get("result") or "")[:240]}\r\n')
+            brain = llm_mod.build_llm(self.store, pick=self.pick, model=self.model or None,
+                                      trace=visible, cancel=cancel)
             if not brain: raise RuntimeError('the selected AI connector is unavailable')
             reply = str(brain(system, user, max_tokens=MAX_REPLY_TOKENS, images=_images(paths)) or '').strip()
             if not reply: raise RuntimeError('the model returned an empty response')

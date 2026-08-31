@@ -10,6 +10,7 @@ import SmartToyIcon from "@mui/icons-material/SmartToy";
 import TerminalIcon from "@mui/icons-material/Terminal";
 import ViewDayIcon from "@mui/icons-material/ViewDay";
 import api from "./api.js";
+import { streamAssistant, toolTarget } from "./assistantStream.js";
 import { Md } from "./md.jsx";
 import { SessionPane, TerminalPane } from "./TerminalView.jsx";
 import { BORDER, DIM, FAINT, INK, PANEL, PANEL2, mono } from "./theme.jsx";
@@ -24,6 +25,22 @@ const initial = (messages) => (messages || []).map((m) => ({
 }));
 
 const AssistantText = ({ text }) => <Md text={text} />;
+const AssistantReasoning = ({ text }) => text ? (
+  <details className="tq-aui-progress" open>
+    <summary>Agent progress</summary>
+    <div>{text}</div>
+  </details>
+) : null;
+const AssistantTool = ({ toolName, args, result, isError }) => {
+  const state = isError ? "error" : result === undefined ? "running" : "complete";
+  const target = toolTarget(args);
+  return (
+    <details className={`tq-aui-tool tq-aui-tool-${state}`}>
+      <summary><span className="tq-aui-tool-dot" /> <b>{toolName}</b>{target && <span>{target}</span>}<em>{state}</em></summary>
+      <pre>{JSON.stringify({ input: args, ...(result?.output ? { output: result.output } : {}) }, null, 2)}</pre>
+    </details>
+  );
+};
 const UserMessage = () => (
   <MessagePrimitive.Root className="tq-aui-message tq-aui-user">
     <div className="tq-aui-role">you</div>
@@ -34,25 +51,63 @@ const AssistantMessage = () => (
   <MessagePrimitive.Root className="tq-aui-message tq-aui-agent">
     <div className="tq-aui-role">assistant</div>
     <div className="tq-aui-agent-body">
-      <MessagePrimitive.Parts components={{ Text: AssistantText }} />
+      <MessagePrimitive.Parts components={{ Text: AssistantText, Reasoning: AssistantReasoning,
+        tools: { Fallback: AssistantTool } }} />
     </div>
   </MessagePrimitive.Root>
 );
 
 function AssistantThread({ task, messages, selectionRef, attachmentsRef, onSent, onClearAttachments, onAttach }) {
   const modelAdapter = useMemo(() => ({
-    async run({ messages: runMessages, abortSignal }) {
+    async *run({ messages: runMessages, abortSignal }) {
       const prompt = textOf([...runMessages].reverse().find((m) => m.role === "user"));
       const selected = selectionRef.current;
-      const response = await api.post(`/api/tasks/${task.TaskId}/assistant/messages`, {
+      const body = {
         text: prompt,
         pick: selected.connectorId || null,
         model: selected.model || null,
         attachments: attachmentsRef.current.map((a) => a.path),
-      }, { signal: abortSignal });
-      onClearAttachments();
-      onSent(response.data);
-      return { content: [{ type: "text", text: response.data.reply }] };
+      };
+      const tools = new Map();
+      const progress = [];
+      let structuredSeen = false;
+      const content = (reply) => [
+        ...tools.values(),
+        ...(progress.length ? [{ type: "reasoning", text: progress.join("\n\n") }] : []),
+        ...(reply ? [{ type: "text", text: reply }] : []),
+      ];
+      for await (const event of streamAssistant(task.TaskId, body, abortSignal)) {
+        if (event.type === "tool_call") {
+          structuredSeen = true;
+          const id = event.detail?.tool_call_id || `${event.name}-${tools.size}`;
+          const args = event.detail?.args || {};
+          tools.set(id, { type: "tool-call", toolCallId: id, toolName: event.name || "tool", args,
+            argsText: JSON.stringify(args) });
+          yield { content: content() };
+        } else if (event.type === "tool_result") {
+          const old = tools.get(event.name);
+          if (old) tools.set(event.name, { ...old, result: { output: event.detail?.result || "" },
+            isError: !!event.detail?.is_error });
+          yield { content: content() };
+        } else if (event.type === "start") {
+          progress.push(`Started ${event.session?.provider || "the selected agent"}`);
+          yield { content: content() };
+        } else if (event.type === "progress" && event.detail) {
+          structuredSeen = true;
+          progress.push(String(event.detail));
+          yield { content: content() };
+        } else if (event.type === "live" && !structuredSeen && event.detail) {
+          // Custom/Gemini/Aider CLIs may only provide line-oriented stdout. It is still live
+          // work and must not leave a blank pane merely because it lacks Claude/Codex JSON.
+          progress.push(String(event.detail));
+          yield { content: content() };
+        } else if (event.type === "error") {
+          throw new Error(event.error || "The agent stopped without an answer.");
+        } else if (event.type === "done") {
+          onClearAttachments(); onSent(event.payload);
+          yield { content: content(event.reply) };
+        }
+      }
     },
   }), [attachmentsRef, onClearAttachments, onSent, selectionRef, task.TaskId]);
   const runtime = useLocalRuntime(modelAdapter, { initialMessages: initial(messages) });
@@ -171,7 +226,8 @@ export function GeneralWorkspace({ task, onSession, compact = false }) {
   const session = data?.session;
   return (
     <Box onPaste={pasted} sx={{ border: `1px solid ${BORDER}`, borderRadius: 1.75, overflow: "hidden", bgcolor: PANEL2,
-      ...(compact ? { height: "100%", minHeight: 0, display: "flex", flexDirection: "column" } : {}) }}>
+      minHeight: 0, display: "flex", flexDirection: "column",
+      ...(compact ? { height: "100%" } : { flex: "1 1 auto" }) }}>
       <Box sx={{ minHeight: 39, px: 1.25, display: "flex", alignItems: "center", gap: 0.8, borderBottom: `1px solid ${BORDER}`, bgcolor: PANEL,
         overflowX: "auto", flexShrink: 0 }}>
         <Box sx={{ width: 7, height: 7, borderRadius: 99, bgcolor: session?.alive ? "#78a17b" : "#c7a258" }} />
@@ -196,9 +252,7 @@ export function GeneralWorkspace({ task, onSession, compact = false }) {
       {!data?.providers?.length && <Alert severity="info" sx={{ borderRadius: 0, py: 0 }}>Add a CLI agent in Settings to run this work. API providers are optional.</Alert>}
       <input ref={fileRef} hidden type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onChange={(e) => upload(e.target.files)} />
       {uploading && <Box sx={{ px: 1, py: 0.5, color: FAINT, fontSize: 11 }}>Attaching image…</Box>}
-      <Box sx={compact
-        ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }
-        : { height: { xs: "56vh", md: "clamp(500px, 64vh, 760px)" }, minHeight: { xs: 360, md: 500 }, display: "flex", flexDirection: "column" }}>
+      <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         {session && view === "terminal" ? (
           <TerminalPane sid={session.sid} height="100%" />
         ) : session ? (

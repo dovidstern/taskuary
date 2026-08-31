@@ -231,7 +231,9 @@ class CoreTests(unittest.TestCase):
         import sys
         script = ("import sys,json;sys.stdin.read();"
                   "print(json.dumps({'type':'assistant','message':{'content':"
-                  "[{'type':'tool_use','name':'Bash','input':{'command':'ls -la'}}]}}));"
+                  "[{'type':'tool_use','id':'tool-1','name':'Bash','input':{'command':'ls -la'}}]}}));"
+                  "print(json.dumps({'type':'user','message':{'content':"
+                  "[{'type':'tool_result','tool_use_id':'tool-1','content':'three files'}]}}));"
                   "print(json.dumps({'type':'result','result':'all done','session_id':'s1'}))")
         ev = []
         with mock.patch('taskuary.agents._resolve_cmd', return_value=[sys.executable]):
@@ -239,6 +241,25 @@ class CoreTests(unittest.TestCase):
                                   'hi', lambda k, n, d: ev.append((k, d)))
         self.assertEqual((out, sid), ('all done', 's1'))
         self.assertTrue(any(k == 'live' and 'Bash' in d for k, d in ev))
+        self.assertTrue(any(k == 'tool_call' and d['tool_call_id'] == 'tool-1' for k, d in ev))
+        self.assertTrue(any(k == 'tool_result' and d['result'] == 'three files' for k, d in ev))
+
+    def test_run_cli_normalizes_codex_jsonl_tools(self):
+        from unittest import mock
+        from taskuary.agents import run_cli
+        import sys
+        script = ("import sys,json;sys.stdin.read();"
+                  "print(json.dumps({'type':'thread.started','thread_id':'cx1'}));"
+                  "print(json.dumps({'type':'item.started','item':{'id':'i1','type':'command_execution','command':'dir','status':'in_progress'}}));"
+                  "print(json.dumps({'type':'item.completed','item':{'id':'i1','type':'command_execution','command':'dir','aggregated_output':'ok','exit_code':0,'status':'completed'}}));"
+                  "print(json.dumps({'type':'item.completed','item':{'id':'i2','type':'agent_message','text':'finished'}}))")
+        ev = []
+        with mock.patch('taskuary.agents._resolve_cmd', return_value=[sys.executable, '-c', script]):
+            out, sid, _ = run_cli({'cmd': 'codex', 'args': ['exec'], 'timeout': 60},
+                                  'hi', lambda k, n, d: ev.append((k, n, d)))
+        self.assertEqual((out, sid), ('finished', 'cx1'))
+        self.assertTrue(any(k == 'tool_call' and n == 'shell' for k, n, d in ev))
+        self.assertTrue(any(k == 'tool_result' and d['result'] == 'ok' for k, n, d in ev))
 
     def test_roles_gate_what_polls_and_github_can_trigger(self):
         from unittest import mock

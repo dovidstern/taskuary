@@ -146,13 +146,35 @@ def signed_out_msg(name: str, why: str) -> str:
     return f"{name} is signed out on this machine ({why.strip()[:160]}). Open a terminal, {how}, then come back here and try again."
 
 
-def run_cli(profile: dict, prompt: str, trace, resume: str = None):
+def _cli_name(cmd: str) -> str:
+    """Executable name for either a bare command or a Windows/POSIX path."""
+    return re.split(r'[\\/]', str(cmd or ''))[-1].lower().rsplit('.', 1)[0]
+
+
+def _codex_tool(item: dict):
+    """Turn a Codex JSONL item into the common visual tool name/input contract."""
+    typ = item.get('type')
+    if typ == 'command_execution': return 'shell', {'command': item.get('command') or ''}
+    if typ == 'file_change': return 'file change', {'changes': item.get('changes') or []}
+    if typ == 'mcp_tool_call':
+        return item.get('tool') or item.get('name') or 'MCP tool', item.get('arguments') or item.get('args') or {}
+    if typ == 'web_search': return 'web search', {'query': item.get('query') or ''}
+    return None
+
+
+def run_cli(profile: dict, prompt: str, trace, resume: str = None, cancel=None):
     """One headless invocation of the configured CLI, output STREAMED line by line into
     the run trace so the Board shows the agent working live. claude's stream-json events
     render as readable tool/text lines; any other CLI's plain stdout streams as-is.
     Returns (result, session_id, diff)."""
     name = profile.get('cmd', 'claude')
-    cmd = _resolve_cmd(name) + list(profile.get('args') or preset_args(name) or ['-p'])
+    args = list(profile.get('args') or preset_args(name) or ['-p'])
+    # Codex's normal exec output is human prose with no boundary between commands, searches,
+    # edits and the final answer. JSONL is an exec-only presentation flag, so add it here (not
+    # to the saved profile, which is also used to open the interactive terminal TUI).
+    is_codex = _cli_name(name) == 'codex' and bool(args) and args[0] in ('exec', 'e')
+    if is_codex and '--json' not in args: args.append('--json')
+    cmd = _resolve_cmd(name) + args
     # which model works it: profile default, or a per-run override from the UI. The flag
     # name is configurable because every CLI spells it differently (claude/codex: --model).
     if profile.get('model'):
@@ -175,6 +197,15 @@ def run_cli(profile: dict, prompt: str, trace, resume: str = None):
     timed = threading.Event()
     killer = threading.Timer(profile.get('timeout', 1200), lambda: (timed.set(), p.kill()))
     killer.start()
+    # A browser Cancel closes the streaming response. Kill the CLI too; otherwise the UI says
+    # stopped while an invisible agent keeps using tools in the background.
+    if cancel is not None:
+        def _cancel():
+            cancel.wait()
+            if cancel.is_set() and p.poll() is None:
+                try: p.kill()
+                except Exception: pass
+        threading.Thread(target=_cancel, daemon=True).start()
     err_buf = []
     err_t = threading.Thread(target=lambda: err_buf.append(p.stderr.read()), daemon=True)
     err_t.start()
@@ -184,7 +215,7 @@ def run_cli(profile: dict, prompt: str, trace, resume: str = None):
         try: p.stdin.write(prompt); p.stdin.close()
         except Exception: pass
     threading.Thread(target=_feed, daemon=True).start()
-    raw, final = [], None
+    raw, final, streamed_out, streamed_sid, open_tools = [], None, '', None, set()
     try:
         for line in p.stdout:
             line = line.rstrip('\n')
@@ -194,6 +225,39 @@ def run_cli(profile: dict, prompt: str, trace, resume: str = None):
             except ValueError: trace('live', name, line[:400]); continue
             if isinstance(j, dict) and (j.get('type') == 'result' or ('result' in j and 'type' not in j)):
                 final = j; continue
+            # Preserve the CLI's structured work for visual clients. The existing readable
+            # `live` line remains for Board traces and the terminal renderer.
+            if isinstance(j, dict) and j.get('type') == 'assistant':
+                for c in (j.get('message') or {}).get('content') or []:
+                    if c.get('type') == 'tool_use':
+                        trace('tool_call', c.get('name') or 'tool', {
+                            'tool_call_id': c.get('id') or f'tool-{len(raw)}', 'args': c.get('input') or {}})
+                    elif c.get('type') == 'text' and str(c.get('text') or '').strip():
+                        trace('progress', 'text', str(c['text']).strip())
+            elif isinstance(j, dict) and j.get('type') == 'user':
+                for c in (j.get('message') or {}).get('content') or []:
+                    if isinstance(c, dict) and c.get('type') == 'tool_result':
+                        trace('tool_result', c.get('tool_use_id') or 'tool', {
+                            'result': _result_text(c), 'is_error': bool(c.get('is_error'))})
+            # Codex `exec --json` speaks item lifecycle events instead of Claude content blocks.
+            # Normalize both into one stream so assistant-ui does not care which CLI is logged in.
+            if isinstance(j, dict) and j.get('type') == 'thread.started':
+                streamed_sid = j.get('thread_id') or streamed_sid
+            if isinstance(j, dict) and j.get('type') in ('item.started', 'item.updated', 'item.completed'):
+                item = j.get('item') or {}
+                iid = item.get('id') or f"item-{len(raw)}"
+                tool = _codex_tool(item)
+                if tool and iid not in open_tools:
+                    trace('tool_call', tool[0], {'tool_call_id': iid, 'args': tool[1]})
+                    open_tools.add(iid)
+                if tool and j.get('type') == 'item.completed':
+                    result = item.get('aggregated_output') or item.get('output') or item.get('status') or ''
+                    failed = item.get('status') == 'failed' or item.get('exit_code') not in (None, 0)
+                    trace('tool_result', iid, {'result': str(result), 'is_error': failed})
+                if item.get('type') in ('agent_message', 'reasoning') and str(item.get('text') or '').strip():
+                    text = str(item['text']).strip()
+                    trace('progress', item.get('type'), text)
+                    if item.get('type') == 'agent_message': streamed_out = text
             shown = _live_line(j) if isinstance(j, dict) else None
             if shown: trace('live', name, shown)
         p.wait()
@@ -201,11 +265,13 @@ def run_cli(profile: dict, prompt: str, trace, resume: str = None):
         killer.cancel()
     err_t.join(5)      # the exit code can land before the stderr reader has appended - 'boom' read as 'no output' on a fast CI box
     if p.returncode != 0:
+        if cancel is not None and cancel.is_set(): raise RuntimeError('cancelled')
         why = f'timed out after {profile.get("timeout", 1200)}s' if timed.is_set() else \
             ((err_buf[0] if err_buf else '') or '\n'.join(raw[-5:]) or 'no output')[:500]
         if _SIGNED_OUT.search(why): raise RuntimeError(signed_out_msg(name, why))
         raise RuntimeError(f'{name} exit {p.returncode}: {why}')
     if final is not None: out, sid = str(final.get('result') or '').strip(), final.get('session_id')
+    elif streamed_out: out, sid = streamed_out, streamed_sid
     else: out, sid = parse_cli_json('\n'.join(raw))
     trace('output', name, out[-1000:])
     diff = ''

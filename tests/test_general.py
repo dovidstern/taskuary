@@ -67,6 +67,29 @@ class SharedSessionTests(unittest.TestCase):
 
 
 class GeneralApiTests(unittest.TestCase):
+    def test_stream_exposes_cli_work_before_the_final_answer(self):
+        store = MemoryStore(); tid = general_task(store)
+        store.upsert_agent('my-claude', 'coding', 'cli', json.dumps({'cmd': 'claude'}))
+
+        def fake_build(*args, trace=None, cancel=None, **kwargs):
+            def brain(system, user, **brain_kwargs):
+                trace('tool_call', 'WebSearch', {'tool_call_id': 'tool-1', 'args': {'query': 'medical facilities'}})
+                trace('tool_result', 'tool-1', {'result': 'three sources', 'is_error': False})
+                trace('progress', 'text', 'Comparing the sources')
+                return 'Here is the researched answer.'
+            return brain
+
+        with mock.patch.object(server, 'store', store), mock.patch.dict(terminal.SESSIONS, {}, clear=True), \
+             mock.patch.object(llm, 'build_llm', side_effect=fake_build):
+            response = TestClient(server.app).post(f'/api/tasks/{tid}/assistant/stream',
+                json={'text': 'Research this', 'pick': 'cli:my-claude'})
+        events = [json.loads(line) for line in response.text.splitlines()]
+        self.assertEqual(response.headers['content-type'].split(';')[0], 'application/x-ndjson')
+        self.assertEqual([e['type'] for e in events],
+                         ['start', 'tool_call', 'tool_result', 'progress', 'done'])
+        self.assertEqual(events[-1]['reply'], 'Here is the researched answer.')
+        self.assertEqual([m['role'] for m in events[-1]['payload']['messages']], ['user', 'assistant'])
+
     def test_api_accepts_the_existing_cli_agent_connection(self):
         store = MemoryStore(); tid = general_task(store)
         store.upsert_agent('my-claude', 'coding', 'cli', json.dumps({'cmd': 'claude'}))

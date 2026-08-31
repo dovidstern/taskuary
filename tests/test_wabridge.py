@@ -4,6 +4,7 @@ import time, unittest
 from unittest import mock
 from fastapi.testclient import TestClient
 from taskuary import server, wabridge
+from taskuary.store import MemoryStore
 
 c_api = TestClient(server.app)
 
@@ -22,6 +23,36 @@ class BridgeManagerTests(unittest.TestCase):
             with mock.patch.object(wabridge, 'start', return_value={'phase': 'starting'}) as st, mock.patch.object(wabridge.time, 'sleep'):
                 self.assertEqual(wabridge.restart()['phase'], 'starting')
             self.assertIn(['taskkill', '/PID', '4242', '/T', '/F'], [c.args[0] for c in run.call_args_list]); st.assert_called_once()
+
+    def test_an_enabled_local_bridge_starts_with_the_app(self):
+        s = MemoryStore()
+        wa = s.get_connector_by_type('whatsapp')
+        s.save_connector({'ConnectorId': wa['ConnectorId'], 'Active': 1}, 'owner')
+        with mock.patch.object(wabridge, '_listening', return_value=False), \
+             mock.patch.object(wabridge, 'start', return_value={'phase': 'starting'}) as start:
+            out = wabridge.start_configured(s)
+        self.assertTrue(out['started']); self.assertEqual(out['connectorId'], wa['ConnectorId'])
+        start.assert_called_once_with()
+
+    def test_an_off_or_external_whatsapp_card_does_not_start_a_local_bridge(self):
+        s = MemoryStore(); wa = s.get_connector_by_type('whatsapp')
+        with mock.patch.object(wabridge, 'start') as start:
+            self.assertFalse(wabridge.start_configured(s)['started'])
+            s.save_connector({'ConnectorId': wa['ConnectorId'], 'Active': 1,
+                              'ConfigJson': '{"bridge_url":"http://wa-box.local:8977"}'}, 'owner')
+            out = wabridge.start_configured(s)
+        self.assertFalse(out['started']); self.assertEqual(out['reason'], 'external bridge URL')
+        start.assert_not_called()
+
+    def test_startup_adopts_a_detached_bridge_that_is_already_running(self):
+        s = MemoryStore(); wa = s.get_connector_by_type('whatsapp')
+        s.save_connector({'ConnectorId': wa['ConnectorId'], 'Active': 1}, 'owner')
+        with mock.patch.object(wabridge, '_listening', return_value=True), \
+             mock.patch.object(wabridge, 'pid_on_port', return_value=4242), \
+             mock.patch.object(wabridge, 'start') as start:
+            out = wabridge.start_configured(s)
+        self.assertTrue(out['started']); self.assertEqual((out['phase'], out['pid']), ('running', 4242))
+        start.assert_not_called()
 
     def test_no_node_is_a_failed_phase_the_owner_can_act_on(self):
         # wait=True runs the worker inline: a threaded worker outlived its mocks on a slow CI box and

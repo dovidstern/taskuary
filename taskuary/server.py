@@ -34,6 +34,9 @@ for name, prof in cfg.get('agents', {}).items():
     store.upsert_agent(name, prof.get('kind', 'coding'), 'cli', json.dumps(prof))
 @asynccontextmanager
 async def _lifespan(_app):
+    from . import wabridge
+    try: wabridge.start_configured(store)
+    except Exception as e: logger.warning(f'wa bridge startup failed: {e}')
     catch_up_on_startup()          # defined below; resolved when the app actually starts
     _heal_owner_docs()
     _refresh_soul_connections()

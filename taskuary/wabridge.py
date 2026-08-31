@@ -9,7 +9,7 @@ bridge. So the card has a button and the API has a verb: start() installs when n
 missing, spawns `node bridge.mjs` detached with its output in a log, and state() says which phase
 it is in. The bridge outlives the request and the browser tab; only the machine rebooting stops it.
 """
-import os, shutil, subprocess, threading, time
+import json, os, shutil, subprocess, threading, time
 from pathlib import Path
 from loguru import logger
 
@@ -35,6 +35,39 @@ def node() -> str:
               Path(os.getenv('APPDATA', '')) / 'nvm' / 'current' / 'node.exe', Path('/usr/local/bin/node'), Path('/opt/homebrew/bin/node')):
         if str(c) not in ('node.exe', 'nodejs') and c.exists(): return str(c)
     return ''
+
+
+def _listening() -> bool:
+    """Is Taskuary's managed local bridge already answering? The bridge is detached, so a
+    Taskuary restart commonly finds the old process still healthy and must adopt it rather than
+    launch a second copy that dies with EADDRINUSE."""
+    import requests
+    try: return requests.get(f'http://127.0.0.1:{port()}/status', timeout=.75).status_code < 300
+    except requests.RequestException: return False
+
+
+def start_configured(store) -> dict:
+    """Start the managed bridge on app startup when WhatsApp is enabled.
+
+    Every install has a seeded, inactive WhatsApp card, so existence alone is not configuration:
+    Active is the owner's explicit on/off switch. A non-default bridge URL is owner-managed and
+    must not cause this machine to launch another local bridge.
+    """
+    c = next((x for x in store.connectors_by_type('whatsapp') if x.get('Active')), None)
+    if not c: return {'started': False, 'reason': 'WhatsApp is off'}
+    try: cfg = json.loads(c.get('ConfigJson') or '{}')
+    except ValueError: cfg = {}
+    raw = str(cfg.get('bridge_url') or '').strip().rstrip('/')
+    managed = {'', f'http://127.0.0.1:{port()}', f'http://localhost:{port()}'}
+    if raw not in managed:
+        return {'started': False, 'reason': 'external bridge URL', 'connectorId': c['ConnectorId']}
+    if _listening():
+        _set('running', f'already listening on http://127.0.0.1:{port()}', pid_on_port())
+        out = state()
+    else:
+        out = start()
+    logger.info(f'wa bridge startup: connector {c["ConnectorId"]}, {out.get("phase")}')
+    return {**out, 'started': True, 'connectorId': c['ConnectorId']}
 
 
 def start(force_install: bool = False, wait: bool = False) -> dict:

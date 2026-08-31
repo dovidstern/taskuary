@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="240" viewBox="0 0 760 240"
+     role="img" aria-label="Daily taskuary downloads from PyPI, mirrors excluded: 8 today · 390 this week · 390 this month">
+  <style>
+    .ink { fill: #24292f; font: 600 12px -apple-system, Segoe UI, Helvetica, Arial, sans-serif; }
+    .dim { fill: #6e7781; font: 400 10.5px -apple-system, Segoe UI, Helvetica, Arial, sans-serif; }
+    .bar { fill: #55697a; }
+    .mean { fill: none; stroke: #b3542f; stroke-width: 1.6; stroke-linejoin: round; }
+    .grid { stroke: #d0d7de; stroke-width: 1; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #e6edf3; } .dim { fill: #9198a1; }
+      .bar { fill: #7d97ab; } .grid { stroke: #30363d; } .mean { stroke: #e08a5c; }
+    }
+  </style>
+  <text x="46" y="15" class="ink">taskuary · installs from PyPI, mirrors excluded</text>
+  <text x="46" y="28" class="dim">8 today · 390 this week · 390 this month</text>
+  <line x1="46" y1="34.00" x2="748" y2="34.00" class="grid"/>
+  <line x1="46" y1="214" x2="748" y2="214" class="grid"/>
+  <text x="40" y="38.00" class="dim" text-anchor="end">200</text>
+  <text x="40" y="218" class="dim" text-anchor="end">0</text>
+  <rect x="60.04" y="87.10" width="72.21" height="126.90" class="bar"/><rect x="160.33" y="198.70" width="72.21" height="15.30" class="bar"/><rect x="260.61" y="127.60" width="72.21" height="86.40" class="bar"/><rect x="360.90" y="198.70" width="72.21" height="15.30" class="bar"/><rect x="461.18" y="143.80" width="72.21" height="70.20" class="bar"/><rect x="561.47" y="184.30" width="72.21" height="29.70" class="bar"/><rect x="661.75" y="206.80" width="72.21" height="7.20" class="bar"/>
+  <polyline points="96.14,87.10 196.43,142.90 296.71,137.80 397.00,153.03 497.29,151.18 597.57,156.70 697.86,163.86" class="mean"/>
+  <text x="46" y="232" class="dim">2026-08-24</text>
+  <text x="748" y="232" class="dim" text-anchor="end">2026-08-30 · 7-day mean in orange</text>
+</svg>

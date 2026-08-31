@@ -123,7 +123,7 @@ def _resolve_cmd(name: str) -> list:
     return [path]
 
 
-def child_env() -> dict:
+def child_env(base: dict = None, home: str = None, windows: bool = None) -> dict:
     """The environment a CLI is entitled to expect.
 
     codex refuses to start without one: `Error finding codex home: Could not find home
@@ -133,17 +133,24 @@ def child_env() -> dict:
     Python can answer the question, so it answers it instead of letting the CLI guess: HOME
     and USERPROFILE where they are missing, and CODEX_HOME - the variable codex checks FIRST,
     before it ever asks the OS - pointed at the same place its own installer would use.
+
+    The three arguments exist so the Windows branch can be exercised from a Linux CI box
+    without patching os.name out from under the interpreter - which is how the first version
+    of this test managed to fail on the platform it was pretending to be.
     """
-    env = dict(os.environ)
-    try: home = str(Path.home())
-    except (RuntimeError, OSError): return env          # nothing better to say than nothing
+    import ntpath                    # a Windows path, split as one wherever this runs
+    env = dict(os.environ if base is None else base)
+    if home is None:
+        try: home = str(Path.home())
+        except (RuntimeError, OSError): return env      # nothing better to say than nothing
     env.setdefault('HOME', home)
-    if os.name == 'nt':
-        import ntpath              # a Windows path, split as one wherever this test runs
+    if (os.name == 'nt') if windows is None else windows:
         env.setdefault('USERPROFILE', home)
-        drive, tail = ntpath.splitdrive(home)
-        if drive: env.setdefault('HOMEDRIVE', drive); env.setdefault('HOMEPATH', tail)
-    env.setdefault('CODEX_HOME', os.path.join(home, '.codex'))
+        drive, rest = ntpath.splitdrive(home)
+        if drive: env.setdefault('HOMEDRIVE', drive); env.setdefault('HOMEPATH', rest)
+        env.setdefault('CODEX_HOME', ntpath.join(home, '.codex'))
+    else:
+        env.setdefault('CODEX_HOME', os.path.join(home, '.codex'))
     return env
 
 

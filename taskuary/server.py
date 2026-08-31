@@ -1993,6 +1993,24 @@ def doc_generate_status():
     from .histgen import STATUS
     return STATUS
 
+# ── SOUL.md from a short interview (interview.py) ────────────────────────────────────────
+class InterviewBody(BaseModel):
+    answers: dict = {}
+
+@app.get('/api/soul/interview')
+def soul_questions():
+    """The questions, and what the app can already see - so it never asks what it can read."""
+    from . import interview
+    return {'questions': interview.QUESTIONS, 'context': interview.context(store),
+            'current': (store.get_doc('soul') or '')[:400], 'owner': store.owner()}
+
+@app.post('/api/soul/interview')
+def soul_write(body: InterviewBody):
+    """Their answers in, SOUL.md out - saved, and theirs to edit like any other document."""
+    from . import interview
+    try: return {'doc': interview.write(store, body.answers or {}, ACTOR)}
+    except ValueError as e: raise HTTPException(422, str(e))
+
 @app.post('/api/doc/{name}/generate')
 def doc_generate(name: str, days: int = 90):
     """The Docs tab's 'Generate from history': read the last N days of the mailbox itself

@@ -12,6 +12,7 @@ import RateReviewIcon from "@mui/icons-material/RateReview";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import api from "./api";
 import LearnedView from "./LearnedView.jsx";
+import SoulInterview from "./SoulInterview.jsx";
 import { FAINT, INK, mono } from "./theme.jsx";
 
 const DOCS = {
@@ -94,6 +95,7 @@ export default function DocsView() {
   const [genWhat, setGenWhat] = useState(""); // live progress while it reads the mailbox
   const [genEv, setGenEv] = useState(null);   // the receipts: what was read, line by line
   const [view, setView] = useState("text");    // LEARNED.md: text, or the picture of what drives what (#27)
+  const [interview, setInterview] = useState(false);   // SOUL.md, asked for rather than guessed
   // the generation is inspectable, not a vibe: poll its status while it runs so the button
   // narrates ("reading you@... — 240 sent so far"), then show the exact evidence it judged
   useEffect(() => {
@@ -159,6 +161,14 @@ export default function DocsView() {
             <Typography sx={{ ...mono, color: INK, fontWeight: 700, fontSize: 17 }}>{DOCS[docName].label}</Typography>
             <Typography variant="body2" sx={{ color: FAINT, pt: 0.75 }}>{DOCS[docName].blurb}</Typography>
           </Box>
+          {/* SOUL.md cannot be distilled from a mailbox - it is what only the owner knows. So it
+              is asked for, in seven questions, and written from the answers (interview.py). */}
+          {docName === "soul" && (
+            <Button size="small" variant="outlined" onClick={() => setInterview(true)}
+              title="Seven short questions - who you are, what an agent may do alone, what must never happen without you - and the AI writes SOUL.md from your answers">
+              Write it from a few questions
+            </Button>
+          )}
           {GEN[docName] && (
             <Button size="small" variant="outlined" disabled={genBusy} title={GEN[docName]}
               startIcon={genBusy ? <CircularProgress size={12} /> : null}
@@ -220,6 +230,8 @@ export default function DocsView() {
           these files live beside your database.
         </Typography>
       </Box>
+      <SoulInterview open={interview} onClose={() => setInterview(false)}
+        onWritten={(doc) => setDocs((d) => ({ ...d, soul: doc }))} />
     </Box>
   );
 }

@@ -1842,16 +1842,14 @@ const AssistantPost = ({ sel, onOpenTask, onChanged }) => {
                       {busy === `${i.id}:task` ? "starting…" : "Make it a task"}</Button>
                   )}
                   {a.tid && <Button size="small" variant="outlined" onClick={() => onOpenTask?.(a.tid)} sx={{ ...btn, ...quiet }}>Open {ref(a.tid)}</Button>}
-                </Box>
-                <Box sx={{ mt: 0.7 }}>
                   <Button size="small" variant="contained" disableElevation disabled={!!busy}
                     onClick={() => discuss(i)} sx={{ ...btn, ...primary }}>
                     {busy === `${i.id}:discuss` ? "opening…" : a.discussion_tid ? `Continue in ${ref(a.discussion_tid)}` : "Discuss in Assistant"}
                   </Button>
-                  <Typography variant="caption" sx={{ display: "block", color: FAINT, mt: 0.35 }}>
-                    Opens the full Assistant chat with this idea and its context carried over.
-                  </Typography>
                 </Box>
+                <Typography variant="caption" sx={{ display: "block", color: FAINT, mt: 0.35 }}>
+                  Opens the full Assistant chat with this idea and its context carried over.
+                </Typography>
               </>
             ) : (
               <Typography variant="caption" sx={{ display: "block", color: FAINT, mt: 0.4 }}>

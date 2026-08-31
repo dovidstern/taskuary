@@ -43,6 +43,14 @@ be made into a task, dismissed, snoozed, or taught away with **Not this**.
 
 ![An Assistant post showing two evidence-backed suggestions and what it reviewed.](https://raw.githubusercontent.com/ldbumble/taskuary/master/docs/screenshot-assistant.png)
 
+It watches the systems you run on, not only the hub. Point it at a Sage Intacct query, a
+database, a file, a REST or MCP tool, a cloud log group, or an agent skill—no saved report has
+to stand behind any of them—and it reads each one silently on every check. That step would
+otherwise ask you to know an object name and a list of field ids, so you can describe what it
+should keep an eye on instead and the AI writes the source cards: it may only choose systems you
+have actually connected, it reads the real schema before writing a query, and it asks rather
+than guessing a filter. The same help sits on every source card in the report builder.
+
 Its voice, schedule, model, and thresholds are yours to change. It leaves a note for its next
 check, does not repeat itself, and stays silent when there is nothing worth interrupting you
 for.

@@ -90,6 +90,19 @@ On first run, connect an AI provider or local Ollama model, add at least one inb
 channel, then choose the coding CLI that should receive tasks. The setup wizards test each
 connection before it goes live.
 
+## Try it without installing anything
+
+```bash
+taskuary --demo                    # or: docker compose --profile demo up
+```
+
+A full Taskuary over invented work — a morning's mail and chats already triaged with the
+reasons attached, drafts waiting in Review, agents on the board with their transcripts
+playing, the wall they leave each other notes on. The AI answers from a script and every door
+to the outside world is shut at the API layer (`taskuary/demo.py`): nothing sends, no
+connection can be made or edited, no tool runs, and no CLI starts. Nobody's real data is in
+it — Dana Whitfield and Northwind Facilities are invented.
+
 ## Installs
 
 ![Daily installs of taskuary from PyPI, mirror traffic excluded](https://raw.githubusercontent.com/ldbumble/taskuary/master/docs/downloads.svg)

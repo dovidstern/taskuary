@@ -73,6 +73,25 @@ function Bell({ onGo }) {
    the bundle it loaded hours ago. Every symptom of that looks like a bug that was already
    fixed. This is the only honest way to tell the difference from inside the page, so it says
    so, quietly, and reloads only when asked. */
+/* A demo has to SAY so - a visitor clicking Approve on an invented refund should never wonder
+   for a second whether it went anywhere. It never does: demo.py refuses at the API layer. */
+function DemoBadge() {
+  const [demo, setDemo] = useState(null);
+  useEffect(() => { api.get("/api/demo").then(({ data }) => setDemo(data)).catch(() => {}); }, []);
+  if (!demo?.demo) return null;
+  return (
+    <Tooltip title="Everything here is invented - the people, the mail, the agents. Nothing sends, nothing connects, and no real system is reachable from this page.">
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, px: 1, py: 0.3, borderRadius: 99,
+        border: "1px solid #d8cfbe", bgcolor: "#f1ead9" }}>
+        <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#8a7a5c" }} />
+        <Typography variant="caption" sx={{ fontWeight: 700, color: "#6b5f45" }}>
+          demo · invented data{demo.owner ? ` · you are ${demo.owner}` : ""}
+        </Typography>
+      </Box>
+    </Tooltip>
+  );
+}
+
 function StaleBuild() {
   const [stale, setStale] = useState(false);
   useEffect(() => {
@@ -238,6 +257,7 @@ export default function TaskHubPage() {
             everything in → one funnel → agents + you
           </Typography>
           <ServerVersion />
+          <DemoBadge />
           <StaleBuild />
 
           {/* Below 900px the full tab strip had no room: it began under the brand and its

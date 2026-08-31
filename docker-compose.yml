@@ -54,6 +54,24 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  # The demo: the whole app over invented work, with every door to the outside world shut at
+  # the API layer (taskuary/demo.py). This is what /demo on the website runs - a throwaway
+  # home in tmpfs, no connectors, a scripted AI and replayed coding sessions, so a restart is
+  # a fresh identical demo and nothing a visitor did survives it.
+  demo:
+    profiles: ["demo"]
+    image: taskuary:local
+    build: .
+    init: true
+    ports:
+      - "127.0.0.1:7788:7787"
+    tmpfs:
+      - /data
+    environment:
+      - TASKUARY_DEMO=1
+      - TASKUARY_HOME=/data
+      - TASKUARY_HOST=0.0.0.0
+
 volumes:
   taskuary-data:
   taskuary-regression:

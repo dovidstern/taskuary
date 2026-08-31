@@ -22,7 +22,7 @@ from . import reshape
 from . import terminal as hub_term
 from .coder import (PAUSE_MARKER, finish as coder_finish, pause_note, reply_target as coder_reply_target,
                     report_from_transcript, resolution_text)
-from . import aisetup, assistant, learn, learnedgraph, outbound, rank, responder, waitroom
+from . import aisetup, assistant, demo, learn, learnedgraph, outbound, rank, responder, waitroom
 
 cfg = config.load()
 store = SQLiteStore(config.db_path())
@@ -34,6 +34,15 @@ for name, prof in cfg.get('agents', {}).items():
     store.upsert_agent(name, prof.get('kind', 'coding'), 'cli', json.dumps(prof))
 @asynccontextmanager
 async def _lifespan(_app):
+    # the demo builds its world and puts agents on the board BEFORE anything else runs - and
+    # never polls, never bridges, never catches up on a mailbox that does not exist
+    if demo.enabled():
+        try:
+            demo.seed(store)
+            demo.start_sessions(store)
+        except Exception as e: logger.warning(f'demo seed failed: {e}')
+        yield
+        return
     from . import wabridge
     try: wabridge.start_configured(store)
     except Exception as e: logger.warning(f'wa bridge startup failed: {e}')
@@ -71,6 +80,11 @@ async def token_gate(request: Request, call_next):
     # /api/health is the Docker / load-balancer pulse - it must work without the LAN token
     if request.url.path == '/api/health':
         return await call_next(request)
+    # the demo is the real app with every door to the outside world shut, and it is shut HERE:
+    # over the method and the path, before a handler exists to be trusted (demo.py)
+    if demo.enabled():
+        why = demo.refuse(request.method, request.url.path)
+        if why: return JSONResponse({'detail': why, 'demo': True}, status_code=403)
     tok = cfg['server'].get('token')
     if tok and request.url.path.startswith('/api') and request.headers.get('X-Taskuary-Token') != tok:
         # an <img src> cannot carry a header, so attachment READS take the token in the query
@@ -2759,6 +2773,11 @@ async def terminal_browser_ws(ws: WebSocket, sid: str):
 def health():
     """Unauthenticated on purpose: a container HEALTHCHECK needs a pulse without the LAN token."""
     return {'ok': True}
+
+@app.get('/api/demo')
+def demo_state():
+    """Is this a demo instance? The banner asks; nothing else depends on it."""
+    return {'demo': demo.enabled(), 'owner': demo.OWNER if demo.enabled() else ''}
 
 @app.get('/api/build')
 def build():

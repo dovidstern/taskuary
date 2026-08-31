@@ -46,6 +46,11 @@ def main():
     # THE WALL (blackboard.py). An agent working in a terminal has a shell and no API token, so
     # this is how it talks to the next agent: two flags, no arguments it has to be told - the
     # session puts its own name, task and checkout in the environment.
+    # try-it-out in one command: a throwaway home, a world of invented work, and every door
+    # to the outside nailed shut (demo.py). This is what /demo on the website runs.
+    ap.add_argument('--demo', action='store_true',
+                    help='run a DEMO instance: invented data, a scripted AI, replayed coding '
+                         'sessions, and nothing that can reach a real system')
     ap.add_argument('--board', action='store_true',
                     help='print the agent wall for this checkout - what the agents before you left here')
     ap.add_argument('--all', action='store_true',
@@ -56,6 +61,13 @@ def main():
                     help='working | note | blocked | ready | done - "ready" is how the next agent '
                          'learns the tree is safe to build on')
     args = ap.parse_args()
+    if args.demo:
+        import os, tempfile
+        from . import demo
+        os.environ[demo.FLAG] = '1'
+        # a throwaway home, so a demo can never be pointed at somebody's real database by accident
+        os.environ.setdefault('TASKUARY_HOME', tempfile.mkdtemp(prefix='taskuary-demo-'))
+        print(f'demo mode: invented data in {os.environ["TASKUARY_HOME"]}, nothing can reach a real system')
     if args.board or args.note:
         import os, sys
         from . import blackboard as bb

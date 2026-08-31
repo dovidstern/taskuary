@@ -92,6 +92,16 @@ def make_cli_llm(store, agent_name: str, model: str = None, cwd: str = None, tra
 
 
 def build_llm(store, pick=None, model=None, trace=None, cancel=None, resume=None):
+    """The brain, or the demo's script. Everything in the app asks for its brain here, which is
+    the one place a demo can be told to answer without a key, a CLI, or a request that leaves
+    the machine (demo.py)."""
+    from . import demo
+    # the demo answers from a script: no key, no CLI, no request leaving the machine
+    if demo.enabled(): return demo.brain()
+    return _build_llm(store, pick, model, trace, cancel, resume)
+
+
+def _build_llm(store, pick=None, model=None, trace=None, cancel=None, resume=None):
     """The brain named by `pick` ('' = first active AI connector, 'connector:<id>',
     'cli:<agent>'), defaulting to the triage_ai setting - callers like reports may name
     their OWN brain and model per job instead of riding the triage tier."""

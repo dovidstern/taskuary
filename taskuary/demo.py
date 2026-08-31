@@ -1,0 +1,337 @@
+"""The demo: the whole app, none of the world.
+
+A product whose point is connectors cannot be shown by screenshots, and cannot be shown by a
+real instance either - a public Taskuary with a mailbox behind it is somebody's mailbox on the
+internet. So the demo is the real application, running on a seeded database of invented work,
+with every door to the outside world nailed shut at the API layer.
+
+NAILED SHUT, not hidden. Buttons that do nothing are a design; a deny list is a control. In
+demo mode nothing sends, no connector can be created, edited or given a secret, no tool runs
+against anything, no shell or CLI starts, and no channel is ever polled - and that is enforced
+by one middleware over the METHOD and PATH, before any handler sees the request, so a
+capability added next month is refused by default rather than discovered later.
+
+What is left is everything worth showing: a timeline of work arriving, triage verdicts with
+their reasons, drafts waiting in Review, a board with agents on it, reports, the assistant's
+posts, the wall. All of it invented, all of it already in the database, and the coding
+sessions REPLAY a recorded transcript so the board is alive without a CLI existing.
+"""
+import json
+import os
+import random
+import re
+import threading
+import time
+from datetime import datetime, timedelta
+
+from loguru import logger
+
+FLAG = 'TASKUARY_DEMO'
+
+
+def enabled() -> bool:
+    return str(os.environ.get(FLAG) or '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+# ── the deny list ────────────────────────────────────────────────────────────────────────
+# Written as what the demo MAY do, not as what it may not: a new endpoint is refused until
+# somebody decides it is safe, which is the only way a list like this survives a year.
+READ_ONLY_METHODS = {'GET', 'HEAD', 'OPTIONS'}
+
+# The methods an allowance can be given for at all: a DELETE is never the demo, and PUT is how
+# agents and connectors are configured. Both fall through to the refusal.
+ALLOWED_METHODS = {'POST', 'PATCH'}
+
+# POSTs that change nothing outside the demo's own database, and are the demo itself
+ALLOWED_WRITES = (
+    r'^/api/tasks$',                                   # make a task
+    r'^/api/tasks/\d+$',                               # ...and change it
+    r'^/api/tasks/\d+/(comments|waitroom|not-a-task|assistant/(session|messages|stream|cancel))$',
+    r'^/api/messages/\d+/(file|promote|read)$',        # the triage verdicts: the whole funnel
+    r'^/api/reviews?/\d+/(hold|drop|edit)$',           # ...but never /send
+    r'^/api/board/notes',                              # the wall
+    r'^/api/settings$',                                # display preferences
+    r'^/api/setup/dismiss$',
+    r'^/api/terminals/\d+/resize$',
+)
+
+# What is refused, and the sentence the visitor sees. Order matters: the first match wins.
+REFUSALS = (
+    (r'^/api/connectors', 'Connections are read-only in the demo - this is invented data, and '
+                          'there is nothing real behind these cards.'),
+    (r'^/api/(tools/run|agents/[^/]+/test)', 'Tools do not run in the demo: they would reach real '
+                                             'systems, and there are none here.'),
+    (r'^/api/(reviews?/\d+/send|tasks/\d+/handoff|board/send)', 'Nothing sends from the demo. In '
+                                                                'your own Taskuary this is where you approve it and it goes.'),
+    (r'^/api/(terminals|agents)(/|$)', 'Coding sessions are replays here - a real one would start a '
+                                       'CLI on the machine this is running on.'),
+    (r'^/api/(sync|ingest|poll|msauth|hooks)', 'Nothing is fetched or received in the demo; the '
+                                               'timeline you see was seeded.'),
+    (r'^/api/(doc|soul|semantic|reports?/[^/]*/(run|preview))', 'Editing the operator documents and '
+                                                                'running reports is disabled here.'),
+)
+
+
+def refuse(method: str, path: str) -> str:
+    """'' when the request may proceed, otherwise the sentence to answer with."""
+    if not enabled(): return ''
+    if method.upper() in READ_ONLY_METHODS: return ''
+    for pattern, why in REFUSALS:
+        if re.match(pattern, path): return why
+    if method.upper() in ALLOWED_METHODS:
+        for pattern in ALLOWED_WRITES:
+            if re.match(pattern, path): return ''
+    return ('That is switched off in the demo - it would reach something real. Everything you can '
+            'see here is invented.')
+
+
+# ── the canned brain ─────────────────────────────────────────────────────────────────────
+CANNED = [
+    "Here is what I would do: read the thread, pull the numbers it refers to, and come back with "
+    "the two lines that decide it. In the demo I answer from a script - in your own Taskuary this "
+    "is your CLI or your API key doing the work.",
+    "I looked at what is on the timeline. Three things are waiting on you and one of them has been "
+    "waiting since Tuesday; the rest is filed. Ask me to draft the chase and it lands in Review.",
+    "That is a report, not a question - give me the schedule and I will write it every morning "
+    "before you are up.",
+]
+
+
+def brain(seed: int = 0):
+    """A model that never leaves the process. Deterministic per conversation, so the demo reads
+    the same for everyone who clicks the same thing."""
+    pick = random.Random(seed)
+    def llm(system, user, max_tokens=None, images=None, **kw):
+        text = str(user or '')
+        if 'JSON' in str(system or '') or 'intent' in str(system or '').lower():
+            return json.dumps({'intent': 'fyi', 'why': 'the demo files everything it is not sure about'})
+        # what the person actually typed, out of a prompt that also carries the task, the
+        # documents and the conversation - quoting the whole thing back reads as a bug
+        asked = [l[6:].strip() for l in text.splitlines() if l.startswith('USER: ')]
+        said = pick.choice(CANNED)
+        if not asked: return said
+        return said + f'\n\n(You asked: "{asked[-1][:160]}" - and this is a scripted answer.)'
+    return llm
+
+
+# ── the world, invented ──────────────────────────────────────────────────────────────────
+# Northwind Facilities: a plausible mid-size operation with a plausible morning. Everything
+# below is written; nobody's mail was borrowed for it.
+OWNER = 'Dana Whitfield'
+PEOPLE = [('Marcus Reed', 'mreed@northwind.example'), ('Priya Shah', 'pshah@northwind.example'),
+          ('Tom Alvarez', 'talvarez@vendor.example'), ('Ruth Bennett', 'rbennett@northwind.example')]
+
+SEEDS = [
+    # (channel, who, subject, body, what triage did, why)
+    ('email', 0, 'Month-end close is short by 4,180',
+     'The GL export and the bank feed disagree for August. Can you look before Thursday?', 'task',
+     'a concrete ask, addressed to you, with a date on it'),
+    ('email', 1, 'New starter on Monday - laptop + accounts',
+     'Sasha starts Monday in Accounts Payable. Usual kit and the AP group, please.', 'task',
+     'onboarding: an ask that has to happen, and a coding agent can do most of it'),
+    ('teams', 3, '', 'did the overnight import finish? the dashboard still says yesterday', 'reply',
+     'a question a sentence settles - answering IS the work'),
+    ('email', 2, 'Invoice 88213 - past due', 'This invoice is 46 days past due. Please advise.',
+     'reply', 'a vendor chasing payment: an answer, not a project'),
+    ('email', 0, 'FW: Quarterly newsletter', 'Sharing for visibility. No action needed.', 'fyi',
+     'cc-for-visibility, nothing asked'),
+    ('teams', 1, '', 'thanks!! that fixed it', 'fyi', 'a thank-you closes a thread, it does not open one'),
+]
+
+TRANSCRIPT = [
+    ('$ claude', .4), ('', .2),
+    ("I'll take the month-end difference. Reading the export first.", 1.1),
+    ('→ Bash: python -m tools.gl_export --month 2026-08 --dry-run', .9),
+    ('  1,284 rows, 4 with no bank reference', 1.0),
+    ('→ Read: tools/gl_export.py', .7),
+    ('The four are inter-company transfers - the export drops them because they have no counterparty', 1.3),
+    ('reference, and the bank feed keeps them. That is the 4,180 exactly.', .9),
+    ('→ Edit: tools/gl_export.py  (keep inter-company rows, flagged)', 1.2),
+    ('→ Bash: pytest tests/test_gl_export.py -q', 1.0),
+    ('  14 passed', .8),
+    ('Fixed and tested. The August export now reconciles to the penny; I have left the four rows', 1.2),
+    ('flagged rather than silently included, so the close can see them.', .9),
+    ('Not pushing - that is yours to approve.', 1.6),
+]
+
+
+def seed(store) -> int:
+    """Build the demo's world. Idempotent: a home that already has work in it is left alone."""
+    from .testing import Factory
+    if store.list_tasks(): return 0
+    f = Factory(store)
+    made = 0
+    for i, (channel, who, subject, body, verdict, why) in enumerate(SEEDS):
+        name, email = PEOPLE[who]
+        hours = 2 + i * 3
+        conv = f'{channel}:{email or name}'
+        # a chat line has no subject of its own, and a timeline row is titled by its subject -
+        # so the row would read as the sender's name and nothing else
+        subject = subject or (body[:60] + ('…' if len(body) > 60 else ''))
+        source = None if channel == 'email' else ('Ops chat' if channel == 'teams' else channel)
+        if verdict == 'task':
+            tid = f.task(title=subject or body[:60], status='open',
+                         kind='coding' if 'starter' in (subject or '') else 'general')
+            mid = f.message(task_id=tid, channel=channel, subject=subject or None, body=body,
+                            from_name=name, from_email=email if channel == 'email' else None,
+                            sent_at=f.ago(hours=hours), status='routed', conversation_id=conv,
+                            source_name=source)
+            f.route(mid, tid, 'create', why)
+        else:
+            mid = f.message(channel=channel, subject=subject or None, body=body, from_name=name,
+                            from_email=email if channel == 'email' else None, conversation_id=conv,
+                            sent_at=f.ago(hours=hours), status='filed' if verdict == 'fyi' else 'routed')
+            f.route(mid, None, 'file' if verdict == 'fyi' else 'reply', why)
+        made += 1
+
+    # ...and the rest of a working morning, out of the same named pictures the regression desk
+    # uses (testing.Factory), so the demo shows every surface with something in it: a draft
+    # waiting in Review, an agent mid-run, a scheduled report that filed, a chat, a thread.
+    # every picture is given its own words: the desk's defaults ("please look", "Sam Delgado")
+    # are placeholders for a test to assert on, and a demo is read by people
+    f.pending_draft(title='Can you confirm the AP cutover date?', subject='AP cutover - Thursday?',
+                    from_name='Ruth Bennett', from_email='rbennett@northwind.example',
+                    body='Are we still moving AP over on Thursday? I need to tell the team.',
+                    draft='Thursday still works - the export will be reconciled by Wednesday night.')
+    f.running(title='Reconcile the August GL export', agent='coder')
+    f.report_row(title='Headcount by site, nightly')
+    f.messenger(channel='whatsapp', title='the badge printer is offline again')
+    f.thread(title='Onboard the new AP clerk - laptop, AP group, PO approval', n=3)
+    f.filed_fyi(subject='Vendor portal maintenance window, Sunday 02:00-04:00')
+    made += 6
+    # the desk's pictures carry placeholder words for a test to assert on ("please look"); a
+    # demo is read by people, so the few that show get real ones
+    for mid, subject in zip([m['MessageId'] for m in store.scan_messages(40)
+                             if (m.get('Subject') or '') == 'please look'],
+                            ('Reconcile the August GL export', 'Can you resend the Q3 numbers?',
+                             'Onboard the new AP clerk - laptop, AP group, PO approval')):
+        store._exec('UPDATE message SET Subject=? WHERE MessageId=?', (subject, mid))
+    for mid, (who, mail) in zip([m['MessageId'] for m in store.scan_messages(40) if not (m.get('FromEmail') or '')
+                                 and not store.get_message(m['MessageId']).get('FromName')],
+                                PEOPLE * 4):
+        store._exec('UPDATE message SET FromName=?, FromEmail=? WHERE MessageId=?', (who, mail, mid))
+
+    # ...and spread across the day: the pictures all stamp themselves 'now', so a demo opened
+    # at 8pm showed a morning's work arriving in the same minute
+    for i, m in enumerate(store.scan_messages(60)):
+        if str(m.get('SentAt') or '')[:10] != datetime.now().strftime('%Y-%m-%d'): continue
+        store._exec('UPDATE message SET SentAt=? WHERE MessageId=?',
+                    ((datetime.now() - timedelta(minutes=37 * i + 11)).strftime('%Y-%m-%d %H:%M:%S'), m['MessageId']))
+
+    store.save_doc('soul', SOUL, 'demo')
+    store.add_comment(next(t['TaskId'] for t in store.list_tasks()), 'assistant', 'assistant_agent',
+                      'The month-end difference is the four inter-company transfers the export drops. '
+                      'I can fix the export, or file it for the close to handle - say which.')
+    for kind, agent, body in (
+        ('working', 'coder', 'on the month-end export - tools/gl_export.py is mine for the next hour'),
+        ('note', 'codex', 'the bank feed keeps inter-company transfers; the export drops them. That is the 4,180'),
+        ('ready', 'coder', 'export fixed, 14 tests green - safe to build on'),
+        ('summary', 'the wall', '2026-08-30 - the AP importer needs pyodbc installed before its tests mean anything; '
+                                'the census sync is behind a VPN and will not run from a laptop'),
+    ):
+        store.add_note({'TaskId': None, 'Agent': agent, 'Cwd': '', 'Kind': kind, 'Body': body, 'Files': ''})
+    logger.info(f'demo: seeded {made} items of invented work')
+    return made
+
+
+SOUL = """# SOUL.md - the operator's document
+
+You work for **Dana Whitfield**, who runs IT and finance systems for Northwind Facilities.
+You are the funnel between everything inbound and Dana's attention.
+**Nothing sends or ships without Dana's approval.**
+
+## What counts as a task
+- A concrete request to DO something: fix, change, build, investigate, produce.
+- A question a sentence settles is a reply, not a task.
+- Cc'd-for-visibility threads, newsletters and thank-yous are fyi.
+
+## How we respond
+- Plain, brief, warm-professional. Sign as Dana. No filler.
+
+## Escalate (a human decides) when
+- Money, vendors, contracts, credentials or an external commitment is involved.
+
+## Systems and repositories
+- The GL export, the census database, the AP importers.
+
+## People
+- The CFO outranks everyone; the helpdesk reports to Dana; vendors get a polite no by default.
+
+<!-- this is a demo: Dana, Northwind and everyone in it are invented -->
+"""
+
+
+class Replay:
+    """A coding session that never was: a recorded transcript, typed out at reading speed.
+
+    It wears the same live-session surface as terminal.Term - the Board, the Wall and the task
+    page ask a session for its scrollback, whether it is alive and what it is doing, and this
+    answers all three - so the demo shows an agent working without a CLI, a repository or a
+    machine to run either on.
+    """
+    mode, argv, cwd, agent, cli = 'demo', [], '', 'coder', 'demo'
+
+    def __init__(self, store, task_id: int, label: str = 'coder', lines=None):
+        import uuid
+        self.sid = uuid.uuid4().hex[:12]
+        self.store, self.task_id, self.label = store, task_id, label
+        self.lines = list(lines or TRANSCRIPT)
+        self.started = datetime.now().isoformat(sep=' ', timespec='seconds')
+        self.buf, self.subs, self.taps = [], [], []
+        self.alive, self.busy, self.ended = True, True, None
+        self.rows, self.cols = 32, 110
+        self.last = time.time()
+        threading.Thread(target=self._play, daemon=True).start()
+
+    def _play(self):
+        for text, pause in self.lines:
+            if not self.alive: return
+            time.sleep(pause)
+            self._emit(f'{text}\r\n')
+        self.busy = False
+        self._emit('\r\n\x1b[2mthe agent is waiting for you - this is a demo, so it waits forever\x1b[0m\r\n')
+
+    def _emit(self, text):
+        self.buf.append(text)
+        self.last = time.time()
+        for loop, q in list(self.subs):
+            try: loop.call_soon_threadsafe(q.put_nowait, text)
+            except RuntimeError: pass
+        for fn in list(self.taps):
+            try: fn(text)
+            except Exception: pass
+
+    def scrollback(self): return ''.join(self.buf)
+    def subscribe(self, loop, q): self.subs.append((loop, q))
+    def unsubscribe(self, q): self.subs = [(l, i) for l, i in self.subs if i is not q]
+    def tap(self, fn): self.taps.append(fn)
+    def untap(self, fn): self.taps = [f for f in self.taps if f is not fn]
+    def write(self, data): pass                      # a replay does not take dictation
+    def resize(self, rows, cols): self.rows, self.cols = rows, cols
+    def idle(self): return time.time() - self.last
+    def phase(self): return 'working' if self.busy else 'parked'
+    def waiting(self): return not self.busy
+    def files(self): return ['tools/gl_export.py'] if not self.busy else []
+    def tail(self, n=3): return [l.strip() for l in ''.join(self.buf).splitlines() if l.strip()][-n:]
+    def close(self):
+        self.alive, self.busy, self.ended = False, False, time.time()
+    def info(self, tail=0):
+        return {'sid': self.sid, 'label': self.label, 'cwd': '~/northwind/importers', 'taskId': self.task_id,
+                'agent': self.agent, 'cli': self.cli, 'mode': self.mode, 'alive': self.alive,
+                'started': self.started, 'idle': self.idle(), 'phase': self.phase(),
+                'waiting': self.waiting(), 'cmd': 'claude (demo replay)', 'files': self.files(),
+                'browser': {'open': False, 'url': '', 'port': 0}, 'work': None,
+                **({'tail': self.tail(tail)} if tail else {})}
+
+
+def start_sessions(store) -> int:
+    """Put a replaying agent on the demo's coding tasks, so the Board is alive on arrival."""
+    from . import terminal
+    n = 0
+    for t in store.list_tasks():
+        if t.get('Kind') != 'coding' or t.get('Status') in ('done', 'dropped'): continue
+        if any(getattr(x, 'task_id', None) == t['TaskId'] for x in terminal.SESSIONS.values()): continue
+        r = Replay(store, t['TaskId'])
+        terminal.SESSIONS[r.sid] = r
+        n += 1
+    return n

@@ -222,14 +222,14 @@ def wa_chats(c) -> list:
 
 
 def _read_media(path: str):
-    """The bridge wrote a voice note to disk beside itself; same machine, so it is read straight
-    off. Missing or oversized (over 25 MB - every transcription API's ceiling) is a warning, not
-    a failed poll."""
+    """The bridge wrote a voice note or a photo to disk beside itself; same machine, so it is
+    read straight off. Missing or oversized (over 25 MB - every transcription and vision API's
+    ceiling) is a warning, not a failed poll."""
     try:
-        if os.path.getsize(path) > 25 * 1024 * 1024: logger.warning(f'voice note too large to transcribe: {path}'); return None
+        if os.path.getsize(path) > 25 * 1024 * 1024: logger.warning(f'media too large to read: {path}'); return None
         with open(path, 'rb') as f: return f.read()
     except OSError as e:
-        logger.warning(f'could not read the voice note the bridge saved ({path}): {e}'); return None
+        logger.warning(f'could not read the media the bridge saved ({path}): {e}'); return None
 
 
 def poll_whatsapp(store, c, sources: list, llm=None, file_only=False) -> int:
@@ -238,7 +238,7 @@ def poll_whatsapp(store, c, sources: list, llm=None, file_only=False) -> int:
     import os
     from datetime import datetime
     from .ingest import ingest_message
-    from .channels import save_attachments
+    from .channels import images_for_triage, save_attachments
     from . import voice
     cfg = _cfg(c)
     # '*' means every DIRECT chat and is itself opt-in (never created by default); a GROUP comes in
@@ -263,8 +263,8 @@ def poll_whatsapp(store, c, sources: list, llm=None, file_only=False) -> int:
         if m.get('group') or jid.endswith('@g.us'):
             if jid not in want: continue                      # groups are opt-in, always
         elif not (star or jid in want): continue              # direct chats ride on '*'
-        body, audio = (m.get('text') or '').strip(), m.get('audio')
-        if not body and not audio: continue
+        body, audio, image = (m.get('text') or '').strip(), m.get('audio'), m.get('image')
+        if not body and not audio and not image: continue
         # a voice note lands like any message: transcribed when a voice connector exists, and
         # otherwise filed with the reason and the audio attached (voice.py) - it never vanishes
         atts, transcribed, why = [], True, ''
@@ -273,20 +273,31 @@ def poll_whatsapp(store, c, sources: list, llm=None, file_only=False) -> int:
             if data is None: continue
             mime, name = (m.get('mime') or 'audio/ogg').split(';')[0], os.path.basename(audio)
             body, transcribed, why = voice.note_body(store, data, mime, name, m.get('seconds') or 0, 'WhatsApp')
-            atts = [{'id': f"voice:{m.get('id')}", 'name': name, 'contentType': mime, 'size': len(data),
-                     'contentBytes': base64.b64encode(data).decode()}]
+            atts.append({'id': f"voice:{m.get('id')}", 'name': name, 'contentType': mime, 'size': len(data),
+                         'contentBytes': base64.b64encode(data).decode()})
+        # ...and a PHOTO is evidence, not decoration: it rides into triage as an image the model
+        # can see, the same way a Telegram photo already does. Without it "words look weird" is a
+        # sentence about nothing and gets filed as nothing (the owner, 2026-08-31).
+        if image:
+            data = _read_media(image)
+            if data is not None:
+                mime, name = (m.get('imageMime') or 'image/jpeg').split(';')[0], os.path.basename(image)
+                atts.append({'id': f"image:{m.get('id')}", 'name': name, 'contentType': mime, 'size': len(data),
+                             'contentBytes': base64.b64encode(data).decode(), 'isInline': True})
         ext_id = f"whatsapp:{jid}:{m.get('id')}"
         r = ingest_message(store, file_only=file_only or not transcribed, msg={
             'external_id': ext_id, 'channel': 'whatsapp',
-            'subject': None, 'body': body, 'from_name': m.get('name') or jid.split('@')[0],
+            'subject': None, 'body': body or '(no text - see the attachment)',
+            'from_name': m.get('name') or jid.split('@')[0],
             'conversation_id': f'whatsapp:{jid}',
             'sent_at': datetime.fromtimestamp(m.get('ts') or 0).strftime('%Y-%m-%d %H:%M:%S'),
             'source_name': ('group chat' if m.get('group') else m.get('name')) or 'WhatsApp',
+            'images': images_for_triage(store, atts),
             **({'file_reason': f'voice note - not transcribed: {why[:160]}'} if not transcribed else {})}, llm=llm)
         n += r['status'] != 'duplicate'
         if atts and r.get('message_id') and r['status'] != 'duplicate':
             try: save_attachments(store, r['message_id'], atts, ext_id)
-            except Exception as e: logger.warning(f'whatsapp voice attachment failed: {e}')
+            except Exception as e: logger.warning(f'whatsapp attachment failed: {e}')
         took.append(m.get('id'))
     # blue ticks on what the funnel took, when the owner asked for it - best effort, and
     # never at the cost of the poll: an unpaired or restarted bridge just does not mark

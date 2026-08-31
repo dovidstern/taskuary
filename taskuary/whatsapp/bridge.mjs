@@ -64,22 +64,29 @@ async function connect() {
     for (const m of ms) {
       const body = text(m.message || {}), quoted = text(context(m.message || {})?.quotedMessage || {});
       if (!body && !m.message) continue;
-      const am = m.message?.audioMessage;
-      let audio = "", mime = "", seconds = 0;
-      if (am && !m.key.fromMe) {
+      const am = m.message?.audioMessage, im = m.message?.imageMessage;
+      // A PHOTO is the message. Downloading only the audio meant a screenshot arrived as its
+      // caption or as nothing at all - "on my laptop, words look weird" with the picture of the
+      // broken words dropped on the floor, and triage ruling on a sentence about nothing.
+      const grab = async (node, fallbackMime, ext) => {
+        if (!node || m.key.fromMe) return ["", ""];
         try {
           const buf = await downloadMediaMessage(m, "buffer", {}, { reuploadRequest: sock.updateMediaMessage });
           fs.mkdirSync(MEDIA_DIR, { recursive: true });
-          mime = String(am.mimetype || "audio/ogg").split(";")[0];
-          audio = path.join(MEDIA_DIR, `${m.key.id}.${mime.includes("ogg") ? "ogg" : mime.includes("mp4") ? "m4a" : "bin"}`);
-          fs.writeFileSync(audio, buf);
-          seconds = Number(am.seconds) || 0;
-        } catch (e) { console.log("voice note download failed:", e?.message || e); audio = ""; }
-      }
+          const mt = String(node.mimetype || fallbackMime).split(";")[0];
+          const file = path.join(MEDIA_DIR, `${m.key.id}.${ext(mt)}`);
+          fs.writeFileSync(file, buf);
+          return [file, mt];
+        } catch (e) { console.log("media download failed:", e?.message || e); return ["", ""]; }
+      };
+      const [audio, mime] = await grab(am, "audio/ogg",
+        (mt) => (mt.includes("ogg") ? "ogg" : mt.includes("mp4") ? "m4a" : "bin"));
+      const [image, imageMime] = await grab(im, "image/jpeg",
+        (mt) => (mt.includes("png") ? "png" : mt.includes("webp") ? "webp" : "jpg"));
       messages.push({ seq: ++seq, id: m.key.id, jid: m.key.remoteJid, group: m.key.remoteJid?.endsWith("@g.us"),
         name: m.pushName || "", text: body, ts: Number(m.messageTimestamp) || Math.floor(Date.now() / 1000),
         fromMe: !!m.key.fromMe, quoted, key: m.key, // quote routes phone answers; key is for read receipts
-        audio, mime, seconds, voice: !!am?.ptt });
+        audio, mime, seconds: Number(am?.seconds) || 0, voice: !!am?.ptt, image, imageMime });
       while (messages.length > MAX_KEPT) messages.shift();
     }
   });

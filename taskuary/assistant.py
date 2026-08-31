@@ -503,10 +503,8 @@ def parse(text: str, cands: list, max_lines: int = MAX_LINES) -> list:
     return out
 
 
-def _watch_ids(store) -> list[int]:
-    src = source(store)
-    raw = ((src or {}).get('cfg') or {}).get('watch_source_ids') or []
-    if not isinstance(raw, list): raw = [raw]
+def _ids(raw) -> list[int]:
+    if not isinstance(raw, list): raw = [] if raw in (None, '') else [raw]
     out = []
     for value in raw:
         try: sid = int(value)
@@ -515,53 +513,69 @@ def _watch_ids(store) -> list[int]:
     return out[:20]
 
 
-def system_checks(store, source_ids=None) -> str:
-    """Silently pull selected report pipelines as the Assistant's live system context.
+def _inline(raw) -> list[dict]:
+    """Data views written ON the Assistant report itself. Checking a system must never require
+    saving a standalone report first (the owner, 2026-08-31) - a source card here is pulled the
+    same way a chosen saved view is, and an Assistant still cannot watch itself."""
+    if isinstance(raw, dict): raw = [raw]
+    if not isinstance(raw, list): return []
+    return [dict(x) for x in raw if isinstance(x, dict) and x.get('type') and x.get('type') != 'assistant'][:20]
 
-    A saved report is the generic data-view contract: Intacct, REST, MCP, SQL, cloud, files,
-    and future connectors all already know how to execute there. We reuse the executor without
-    filing its result, touching its schedule, delivering it, or applying its own AI summary.
+
+def _watch(store) -> tuple[list[int], list[dict]]:
+    """(saved view ids, own source cards) the Assistant report says to pull on every check."""
+    c = (source(store) or {}).get('cfg') or {}
+    return _ids(c.get('watch_source_ids')), _inline(c.get('watch_sources'))
+
+
+def system_checks(store, source_ids=None, inline=None) -> str:
+    """Silently pull this check's data views as the Assistant's live system context.
+
+    Two kinds, neither of which files a report: sources written on the Assistant itself, and saved
+    report pipelines chosen by id (whose query and credentials stay owned by that view). A saved
+    report is the generic data-view contract - Intacct, REST, MCP, SQL, cloud, files and every
+    future connector already know how to execute there - so both kinds run through that same
+    executor, without touching a schedule, delivering anything, or applying a view's own AI summary.
     """
-    ids = _watch_ids(store) if source_ids is None else source_ids
-    if not isinstance(ids, list): ids = [ids]
-    wanted = []
-    for value in ids:
-        try: sid = int(value)
-        except (TypeError, ValueError): continue
-        if sid not in wanted: wanted.append(sid)
-    if not wanted:
-        return '(none selected - choose saved data views on Reports -> Assistant)'
+    saved, own = _watch(store)
+    ids = saved if source_ids is None else _ids(source_ids)
+    subs = own if inline is None else _inline(inline)
+    if not ids and not subs:
+        return '(none selected - add a data source, or choose saved data views, on Reports -> Assistant)'
     from . import reports
     found = {s['SourceId']: s for s in store.list_sources(active_only=False) if s.get('Channel') == 'report'}
-    blocks, used = [], 0
-    for sid in wanted[:20]:
+    jobs = []                                     # (title, cfg to render, or a note to print instead)
+    for sid in ids:
         src = found.get(sid)
-        if not src:
-            block = f'=== missing report source {sid} ===\nThis saved data view no longer exists.'
+        if not src: jobs.append((f'missing report source {sid}', None, 'This saved data view no longer exists.')); continue
+        try: cfg_ = json.loads(src.get('ConfigJson') or '{}')
+        except ValueError: cfg_ = {}
+        title = str(cfg_.get('title') or src.get('Address') or f'report {sid}')
+        if cfg_.get('type') == 'assistant': jobs.append((title, None, 'Skipped: an Assistant cannot watch itself.'))
+        else: jobs.append((title, cfg_, None))
+    for i, sub in enumerate(subs, 1):
+        jobs.append((str(sub.get('label') or sub.get('title') or '').strip() or f"{sub.get('type')} #{i}", sub, None))
+    blocks, used = [], 0
+    for title, cfg_, note in jobs:
+        if note: block = f'=== {title} ===\n{note}'
         else:
-            try: cfg_ = json.loads(src.get('ConfigJson') or '{}')
-            except ValueError: cfg_ = {}
-            title = str(cfg_.get('title') or src.get('Address') or f'report {sid}')
-            if cfg_.get('type') == 'assistant':
-                block = f'=== {title} ===\nSkipped: an Assistant cannot watch itself.'
-            else:
-                # Its prompt controls the report when it runs independently. Here the Assistant
-                # needs the underlying current facts so one cross-system instruction can judge them.
-                raw_cfg = {k: v for k, v in cfg_.items() if k not in ('ai_prompt', 'ai_brain', 'ai_model')}
-                try:
-                    headline, body = reports.render_report(store, raw_cfg, None)
-                    block = f'=== {title} ({headline}) ===\n{str(body or "(no data returned)")[:WATCH_SOURCE_CHARS]}'
-                except Exception as e:
-                    block = f'=== {title} (FAILED) ===\n{str(e)[:500]}'
-                    logger.warning(f'assistant system check "{title}" failed: {e}')
+            # Its prompt controls the report when it runs independently. Here the Assistant
+            # needs the underlying current facts so one cross-system instruction can judge them.
+            raw_cfg = {k: v for k, v in cfg_.items() if k not in ('ai_prompt', 'ai_brain', 'ai_model')}
+            try:
+                headline, body = reports.render_report(store, raw_cfg, None)
+                block = f'=== {title} ({headline}) ===\n{str(body or "(no data returned)")[:WATCH_SOURCE_CHARS]}'
+            except Exception as e:
+                block = f'=== {title} (FAILED) ===\n{str(e)[:500]}'
+                logger.warning(f'assistant system check "{title}" failed: {e}')
         if used + len(block) > WATCH_TOTAL_CHARS:
-            blocks.append(f'({len(wanted) - len(blocks)} additional configured views omitted by the context limit)')
+            blocks.append(f'({len(jobs) - len(blocks)} additional configured views omitted by the context limit)')
             break
         blocks.append(block); used += len(block)
     return '\n\n'.join(blocks)
 
 
-def inputs(store, cands: list, head: str = 'CANDIDATES', watch_source_ids=None) -> str:
+def inputs(store, cands: list, head: str = 'CANDIDATES', watch_source_ids=None, watch_sources=None) -> str:
     """Everything one check reads, as the model sees it - the same text is the Reports tab's Preview
     (facts) and the run record (reports.run_report_source), so what it was given is never a guess."""
     now = datetime.now()
@@ -570,7 +584,7 @@ def inputs(store, cands: list, head: str = 'CANDIDATES', watch_source_ids=None) 
     facts_text = ' '.join(str(c.get('facts') or '') for c in cands)[:4000]
     return (f"NOW: {now.strftime('%A %d %B %Y %H:%M')}\n\n{head}:\n" + ('\n'.join(f"[{c['key']}] {c['facts']}" for c in cands) or '(none)')
             + knowledge.block(store, facts_text)
-            + f"\n\nCONFIGURED SYSTEM CHECKS (pulled live for this check; failures are also worth noticing):\n{system_checks(store, watch_source_ids)}"
+            + f"\n\nCONFIGURED SYSTEM CHECKS (pulled live for this check; failures are also worth noticing):\n{system_checks(store, watch_source_ids, watch_sources)}"
             + f"\n\nWHAT PEOPLE SAID (the last two days, by thread, newest first; the last lines of each, oldest first):\n{_people(store)}"
             + '\n\nOUT OF OFFICE (from their auto-replies):\n' + ('\n'.join(f'- {k}: {v}' for k, v in away.items()) or '(nobody)')
             + f"\n\nCALENDAR (the next two days):\n{_calendar(store)}"
@@ -593,12 +607,12 @@ def think(store, cands: list, llm, instruction: str = None, max_lines: int = MAX
     return parse(text, cands, max_lines), _notes(text), user
 
 
-def facts(store, watch_source_ids=None) -> str:
+def facts(store, watch_source_ids=None, watch_sources=None) -> str:
     """What a run would hand the model, as text - the Reports tab's Preview (reports.run_assistant)."""
     c = cfg(store); now = datetime.now()
     state = {i['Key']: i for i in store.list_ideas()}
     return inputs(store, [x for x in candidates(store, c) if fresh(state, x, now)],
-                  'CANDIDATES (new since the last post)', watch_source_ids)
+                  'CANDIDATES (new since the last post)', watch_source_ids, watch_sources)
 
 
 # ── the note to the next check ───────────────────────────────────────────────────────────────
@@ -749,7 +763,7 @@ def _run(store, llm, instruction) -> dict:
             logger.debug(f'assistant: no model - {e}'); llm = None
     # Selecting system views is itself an explicit request for model judgement. It must keep
     # working even if the owner turns off the free-form "idea" producer in Settings.
-    used, note, read = bool(llm and ('idea' in c['producers'] or _watch_ids(store))), '', ''
+    used, note, read = bool(llm and ('idea' in c['producers'] or any(_watch(store)))), '', ''
     if used:
         try: say, note, read = think(store, cands, llm, instruction, c['max'])
         except Exception as e:

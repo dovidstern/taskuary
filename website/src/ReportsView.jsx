@@ -353,6 +353,8 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
   const saved = cur ? { ...BLANK, ...parse(cur.ConfigJson) } : { ...BLANK, ...(draft || {}) };
   const [cfg, setCfg] = useState(saved);
   const [srcs, setSrcs] = useState(toSources(saved));   // the funnel's inputs, in order
+  // the Assistant's OWN data sources: a system it checks without a saved report standing behind it
+  const [watchSrcs, setWatchSrcs] = useState(() => (Array.isArray(saved.watch_sources) ? saved.watch_sources : []));
   const [drag, setDrag] = useState(null);
   const [step, setStep] = useState(0);
   const [test, setTest] = useState(null);
@@ -380,6 +382,10 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
     for (const k of Object.keys(c)) if (c[k] === "" || c[k] == null) delete c[k];
     if (c.every_minutes) c.every_minutes = Number(c.every_minutes);
     const list = srcs.map(cleanSource).filter((x) => x.type);
+    // the Assistant's own sources ride alongside, never in sources[] - that array IS the report's
+    // pipeline, and the Assistant's pipeline is itself; these are systems it reads before it thinks
+    const watch = watchSrcs.map(cleanSource).filter((x) => x.type);
+    if (watch.length) c.watch_sources = watch; else delete c.watch_sources;
     // a single source still writes the flat shape too, so a config saved here stays
     // readable by anything (and by an older Taskuary) that expects one source
     return list.length === 1 ? { ...c, ...list[0] } : { ...c, sources: list };
@@ -446,7 +452,7 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
           <StepContent>
             <Typography variant="body2" sx={{ color: DIM, mt: 0.5, mb: 1.5 }}>
               {isAssistant
-                ? "Choose the saved data views it should pull on every check, then tell it what deserves your attention across all of them."
+                ? "Point it at the systems it should read on every check — write the query here, or reuse a data view you already saved — then tell it what deserves your attention across all of them."
                 : "Sources at the top feed one prompt at the bottom. Add as many as you want — the same connection twice with different queries is fine, and every source's rows reach the summary together."}
             </Typography>
             <TextField required label="title — becomes the Timeline headline" value={cfg.title || ""} sx={{ bgcolor: "#fff", maxWidth: 560, mb: 2 }}
@@ -456,7 +462,31 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
               <Box sx={{ ...card, p: 1.5, mb: 1.5, maxWidth: 720, bgcolor: PANEL2 }}>
                 <Typography sx={{ color: INK, fontWeight: 700, fontSize: 13, mb: 0.4 }}>Systems and data views to check</Typography>
                 <Typography variant="caption" sx={{ color: DIM, display: "block", mb: 1 }}>
-                  These are existing report pipelines—Intacct queries, databases, REST or MCP tools, cloud systems, files, and agent skills. The Assistant pulls them silently on its own schedule; it does not file each intermediate report.
+                  Anything a report can read — Intacct queries, databases, REST or MCP tools, cloud systems, files, agent skills. Add it here and nothing else needs to exist: the Assistant pulls it silently on its own schedule and files no intermediate report.
+                </Typography>
+                {/* "we don't have to choose a pre-existing report to ask the Assistant about other
+                    data" - right, and the picker below made that a lie. A source card here IS a
+                    source: the same types, the same Test button, owned by this check alone. */}
+                <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "stretch", mb: 1.25 }}>
+                  {watchSrcs.map((src, i) => (
+                    <SourceCard key={i} src={src} index={i} count={watchSrcs.length} removable
+                      typeOptions={typeOptions.filter((t) => t.type !== "assistant")} connectors={connectors}
+                      onChange={(patch) => setWatchSrcs((cur) => cur.map((x, k) => (k === i ? { ...x, ...patch } : x)))}
+                      onRetype={(t) => setWatchSrcs((cur) => cur.map((x, k) => (k === i ? { type: t, label: x.label } : x)))}
+                      onCopy={() => setWatchSrcs((cur) => [...cur.slice(0, i + 1), { ...src, label: `${src.label || src.type} copy` }, ...cur.slice(i + 1)])}
+                      onRemove={() => setWatchSrcs((cur) => cur.filter((_, k) => k !== i))} />
+                  ))}
+                  <Box onClick={() => setWatchSrcs((cur) => [...cur, { type: "mssql" }])}
+                    sx={{ ...card, width: 300, minHeight: 108, display: "flex", flexDirection: "column", alignItems: "center",
+                      justifyContent: "center", gap: 0.5, cursor: "pointer", borderStyle: "dashed", bgcolor: "#fff",
+                      color: DIM, "&:hover": { borderColor: "#d8cfbe", color: "#55697a" } }}>
+                    <AddIcon sx={{ fontSize: 20 }} />
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>add a data source</Typography>
+                    <Typography variant="caption" sx={{ color: FAINT }}>no saved report needed</Typography>
+                  </Box>
+                </Box>
+                <Typography variant="caption" sx={{ color: INK, fontWeight: 700, display: "block", mb: 0.5 }}>
+                  …and pull these saved data views too (optional)
                 </Typography>
                 <Autocomplete multiple options={watchChoices} value={watchChoices.filter((o) => watchedIds.includes(o.id))}
                   getOptionLabel={(o) => o.title || ""} isOptionEqualToValue={(o, v) => o.id === v.id}
@@ -935,8 +965,10 @@ function SourceTest({ src }) {
 const FILE_FIELD_FOR = { tail: ['', '.log', '.txt', '.md', '.out', '.err'], sheet: ['.xlsx'],
   path_expr: ['.json'] };
 
+/* `removable` is the Assistant's case: every one of its own sources can go, including the last,
+   because zero of them is a valid Assistant - a report with zero sources is not a report. */
 function SourceCard({ src, index, count, typeOptions, connectors, dragging, onDragStart, onDragEnd,
-                      onDropHere, onChange, onRetype, onCopy, onRemove }) {
+                      onDropHere, onChange, onRetype, onCopy, onRemove, removable = count > 1 }) {
   const fields = (FIELDS[src.type] || []).filter(([, key]) => {
     if (key === "ai_prompt") return false;
     if (src.type !== "local_file") return true;
@@ -956,16 +988,16 @@ function SourceCard({ src, index, count, typeOptions, connectors, dragging, onDr
     "exa", "tavily", "firecrawl"].includes(cardType);   // reader works with no key at all
   const connOk = conn?.LastSyncAt && !conn?.LastError;
   return (
-    <Box draggable onDragStart={onDragStart} onDragEnd={onDragEnd}
+    <Box draggable={!!onDragStart} onDragStart={onDragStart} onDragEnd={onDragEnd}
       onDragOver={(e) => e.preventDefault()} onDrop={onDropHere}
       sx={{ ...card, width: 300, p: 1.25, display: "flex", flexDirection: "column", gap: 1,
-        opacity: dragging ? 0.45 : 1, cursor: "grab", "&:active": { cursor: "grabbing" } }}>
+        opacity: dragging ? 0.45 : 1, ...(onDragStart ? { cursor: "grab", "&:active": { cursor: "grabbing" } } : {}) }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-        <DragIndicatorIcon sx={{ fontSize: 16, color: "#cfc9bf" }} />
+        {onDragStart && <DragIndicatorIcon sx={{ fontSize: 16, color: "#cfc9bf" }} />}
         <Typography variant="caption" sx={{ ...mono, color: FAINT, flex: 1 }}>source {index + 1} of {count}</Typography>
         <ContentCopyIcon onClick={onCopy} titleAccess="Duplicate — same connection, different query"
           sx={{ fontSize: 14, color: FAINT, cursor: "pointer", "&:hover": { color: "#55697a" } }} />
-        {count > 1 && <CloseIcon onClick={onRemove} titleAccess="Remove this source"
+        {removable && <CloseIcon onClick={onRemove} titleAccess="Remove this source"
           sx={{ fontSize: 15, color: FAINT, cursor: "pointer", "&:hover": { color: "#6b2733" } }} />}
       </Box>
       <Select size="small" value={src.type || "mssql"} onChange={(e) => onRetype(e.target.value)}
@@ -1001,7 +1033,7 @@ function SourceCard({ src, index, count, typeOptions, connectors, dragging, onDr
           </Typography>
         </>
       )}
-      {count > 1 && (
+      {(count > 1 || removable) && (
         <TextField size="small" label="label" value={src.label || ""} sx={{ bgcolor: "#fff" }}
           placeholder="cash balances" onChange={(e) => onChange({ label: e.target.value })} />
       )}

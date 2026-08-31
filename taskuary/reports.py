@@ -350,7 +350,7 @@ def run_assistant(cfg):
     due run to assistant.run, which posts ideas with buttons and state. This executor is what
     PREVIEW shows - the facts a run would hand the model. `store` arrives via resolve_cfg."""
     from .assistant import facts
-    return 'what the assistant would read right now', facts(cfg['store'], cfg.get('watch_source_ids'))
+    return 'what the assistant would read right now', facts(cfg['store'], cfg.get('watch_source_ids'), cfg.get('watch_sources'))
 
 
 def run_automate(cfg):

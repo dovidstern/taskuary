@@ -108,6 +108,36 @@ class PostTests(unittest.TestCase):
         self.assertIsNone(s.get_source(watched).get('LastPolledAt'))
         self.assertFalse(any(m.get('Channel') == 'report' for m in s.recent_messages(_ago(1), limit=20)))
 
+    def test_the_assistant_reads_its_own_sources_without_a_saved_report_behind_them(self):
+        """The owner (2026-08-31): asking the Assistant about another system must not require
+        first saving a report or view for it."""
+        from taskuary import reports
+        s = _store(); seen = {}
+        reports.REGISTRY['_beds'] = lambda cfg: (f"rows for {cfg['query']}", 'open_beds=4')
+        try:
+            own = [{'type': '_beds', 'label': 'Open beds', 'query': 'SELECT open FROM beds'}]
+            src = assistant.source(s)
+            s.save_source({'SourceId': src['SourceId'], 'ConfigJson': json.dumps(src['cfg'] | {'watch_sources': own})}, 't')
+            s.set_setting('assistant_producers', 'followup', 't')
+            _, preview = reports.run_assistant(reports.resolve_cfg(s, {'type': 'assistant', 'watch_sources': own}))
+            def llm(system, user, **kwargs):
+                seen['user'] = user
+                return json.dumps({'say': [], 'notes': ''})
+            assistant.run(s, llm=llm, force=True)
+        finally:
+            reports.REGISTRY.pop('_beds', None)
+        for text in (preview, seen['user']):
+            self.assertIn('=== Open beds (rows for SELECT open FROM beds) ===', text)
+            self.assertIn('open_beds=4', text)
+        # no standalone report was created to make that possible
+        self.assertEqual([x for x in s.list_sources(active_only=False)
+                          if json.loads(x['ConfigJson'] or '{}').get('type') == '_beds'], [])
+
+    def test_an_assistant_with_neither_kind_of_view_says_both_ways_to_add_one(self):
+        s = _store()
+        self.assertIn('add a data source', assistant.system_checks(s))
+        self.assertEqual(assistant._inline([{'type': 'assistant'}, {'label': 'no type'}, 'nonsense']), [])
+
     def test_the_post_is_one_row_with_its_ideas_in_the_brief_and_never_repeats(self):
         s = self._seed()
         seen = []

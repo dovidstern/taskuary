@@ -175,6 +175,64 @@ def send_out(store, channel: str, to, subject: str, body: str) -> dict:
     raise RuntimeError(f'cannot send on {ch} - email, Teams, Telegram, WhatsApp, Apple Messages and Discord can carry a report out')
 
 
+# ── where a report may be SENT: the destinations the builder is allowed to offer ────────
+# A chat id is a Graph id or a WhatsApp JID - nothing anyone can look up, and a typo is a
+# silent failure at 6am - so the report builder PICKS both the channel and the destination
+# out of what Taskuary can actually reach today. A channel with no connection behind it, or
+# one switched off under Settings → Replies, is not an option at all.
+REPORTABLE = ('email', 'teams', 'telegram', 'whatsapp', 'imessage', 'discord')   # what send_out can carry
+MAILBOXES = ('outlook', 'gmail', 'imap')
+
+
+def send_channels(store) -> list:
+    """The channels a report can go out on right now: send_out can carry them, replies are on
+    for them, and a connector of that kind is active."""
+    live = {c['Type'] for c in store.list_connectors() if c['Active']}
+    have = lambda ch: bool(live.intersection(MAILBOXES)) if ch == 'email' else ch in live
+    return [ch for ch in REPORTABLE if can_reply(store, ch) and have(ch)]
+
+
+def _chat_id(channel: str, cid) -> str:
+    """'whatsapp:1555...@s.whatsapp.net' -> the JID; 'teams:19:x@thread.v2' -> '19:x@thread.v2'."""
+    cid = str(cid or '')
+    return cid[len(channel) + 1:] if cid.lower().startswith(f'{channel}:') else cid
+
+
+def send_targets(store) -> list:
+    """[{'channel', 'to': [{'to', 'name', 'hint'}]}] - every destination known on every
+    channel a report can go out on: your own notify chat first, then the chats you already
+    take messages from, then everything else that has written in. Email also gets the
+    address book, and is the one channel where typing a new address still makes sense."""
+    from .channels import _cfg
+    seen = {ch: {} for ch in send_channels(store)}
+
+    def add(ch, to, name='', hint=''):
+        to = str(to or '').strip()
+        if not to or ch not in seen: return
+        r = seen[ch].setdefault(to, {'to': to, 'name': '', 'hint': ''})
+        if name and not r['name']: r['name'] = name
+        if hint and not r['hint']: r['hint'] = hint
+
+    for c in store.list_connectors():
+        if not c['Active']: continue
+        ch = 'email' if c['Type'] in MAILBOXES else c['Type']
+        cfg = _cfg(c)
+        add(ch, cfg.get('notify_chat'), f'you — your own {ch}', f"the notify chat on the {c['Name']} card")
+        if ch == 'email': add(ch, cfg.get('address'), f"you — {cfg.get('address')}", f"the mailbox on the {c['Name']} card")
+    for s in store.list_sources():
+        add((s.get('Channel') or '').lower(), s.get('Address'), '', 'a chat you already take messages from')
+    for r in store.chats():
+        ch = (r['Channel'] or '').lower()
+        add(ch, _chat_id(ch, r['Cid']), r['Name'], f"{r['N']} message{'' if r['N'] == 1 else 's'}, last {(r['Last'] or '')[:16]}")
+    if 'email' in seen:
+        for p in store.people(30):
+            add('email', p['Email'], p['Name'], f"{p['N']} message{'' if p['N'] == 1 else 's'}, last {(p['Last'] or '')[:16]}")
+    for tos in seen.values():
+        for r in tos.values():
+            if not r['name']: r['name'] = r['to']
+    return [{'channel': ch, 'to': list(tos.values())} for ch, tos in seen.items()]
+
+
 def reply_to_message(store, msg: dict, body: str, to: list = None) -> dict:
     """Answer wherever the request came from. The message row carries everything needed:
     the mailbox it arrived in, the Graph id for threading, or the chat id."""

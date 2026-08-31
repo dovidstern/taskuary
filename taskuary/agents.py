@@ -75,6 +75,19 @@ def _shim_target(path: str) -> list:
     return []
 
 
+def _programs_copy(base: str) -> str:
+    """The ordinary per-user install of a CLI that is ALSO published as a Store app - codex ships
+    both. which() returns whichever comes first on PATH, and on some machines that is a stub this
+    account may not execute at all."""
+    root = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs')
+    want = base.lower()
+    for dirpath, dirs, files in os.walk(root):       # a missing root simply yields nothing
+        for f in files:
+            if f.lower() == want: return os.path.join(dirpath, f)
+        if dirpath.count(os.sep) - root.count(os.sep) >= 3: dirs.clear()   # vendor/app/bin is deep enough
+    return ''
+
+
 def _resolve_cmd(name: str) -> list:
     """Windows can't CreateProcess a bare 'claude': npm installs it as claude.cmd, which only
     PATH-resolves via which(). Reaching THROUGH the shim beats running it under cmd /c - see
@@ -84,13 +97,19 @@ def _resolve_cmd(name: str) -> list:
         raise FileNotFoundError(f"'{name}' not found on PATH - is the CLI installed?")
     if os.name == 'nt' and path.lower().endswith(('.cmd', '.bat')):
         return _shim_target(path) or ['cmd', '/c', path]
-    if os.name == 'nt' and '\\windowsapps\\' in path.lower() and '\\microsoft\\windowsapps\\' not in path.lower():
+    if os.name == 'nt' and '\\windowsapps\\' in path.lower():
         # which() walked into C:\Program Files\WindowsApps\<package>\...\codex.EXE - a Store package
         # folder, which CreateProcess is refused ([WinError 5] Access is denied). The runnable
         # thing is the execution ALIAS in the user's own WindowsApps folder; fall back to the
         # shell, which resolves aliases the way a typed command does.
         import ntpath   # a Windows path, split as one wherever this runs (CI is Linux and macOS)
-        alias = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'WindowsApps', ntpath.basename(path))
+        base = ntpath.basename(path)
+        # An ordinary install beats either stub: the alias itself answers "Access is denied." when
+        # the package is not registered for this account, and cmd only forwards that refusal.
+        real = _programs_copy(base)
+        if real: return [real]
+        if '\\microsoft\\windowsapps\\' in path.lower(): return [path]     # the alias, and nothing better
+        alias = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'WindowsApps', base)
         return [alias] if os.path.exists(alias) else ['cmd', '/c', name]
     return [path]
 
@@ -146,6 +165,24 @@ def signed_out_msg(name: str, why: str) -> str:
     return f"{name} is signed out on this machine ({why.strip()[:160]}). Open a terminal, {how}, then come back here and try again."
 
 
+# Windows refuses to START some installs rather than failing inside them, and says only
+# "Access is denied." - which reads as an account or billing problem with the AI provider and is
+# nothing of the kind: the CLI never ran. Reported on another owner's machine (2026-08-31) as
+# `codex exit 1: Access is denied.` with no other output.
+_DENIED = re.compile(r'access is denied|winerror 5|permission denied|operation not permitted', re.I)
+
+
+def denied_msg(name: str, path: str, why: str) -> str:
+    where = f' ({path})' if path else ''
+    return (f'Windows would not start {name}{where}: "{str(why).strip()[:120]}". The CLI never ran, so '
+            f'this is not a sign-in or billing problem. Usual causes, in order: {name} came from the '
+            'Microsoft Store and its app-execution alias does not work for this account (install the '
+            'ordinary build instead, or reinstall it for this user); antivirus or an AppLocker policy is '
+            'blocking the executable; the folder the agent works in is not readable by this account. '
+            f'`where {name}` shows which copy is being found - running that exact path by hand '
+            'reproduces it in one line.')
+
+
 def _cli_name(cmd: str) -> str:
     """Executable name for either a bare command or a Windows/POSIX path."""
     return re.split(r'[\\/]', str(cmd or ''))[-1].lower().rsplit('.', 1)[0]
@@ -192,8 +229,9 @@ def run_cli(profile: dict, prompt: str, trace, resume: str = None, cancel=None):
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              text=True, encoding='utf-8', errors='replace', cwd=cwd, shell=False)
     except PermissionError as e:
-        # to the user this IS "not installed": whatever which() found, it cannot be run from here
-        raise FileNotFoundError(f"'{name}' is not installed or not on PATH - install it, then try again.") from e
+        # which() found something that cannot be executed from here. "Not installed" sent people
+        # off to reinstall a CLI that was already there; the reason is in denied_msg.
+        raise FileNotFoundError(denied_msg(name, cmd[0] if cmd else '', e)) from e
     timed = threading.Event()
     killer = threading.Timer(profile.get('timeout', 1200), lambda: (timed.set(), p.kill()))
     killer.start()
@@ -269,6 +307,9 @@ def run_cli(profile: dict, prompt: str, trace, resume: str = None, cancel=None):
         why = f'timed out after {profile.get("timeout", 1200)}s' if timed.is_set() else \
             ((err_buf[0] if err_buf else '') or '\n'.join(raw[-5:]) or 'no output')[:500]
         if _SIGNED_OUT.search(why): raise RuntimeError(signed_out_msg(name, why))
+        # a refusal to START, not a failed run: the CLI produced no output of its own and the
+        # only thing on stderr is the refusal
+        if _DENIED.search(why) and not raw: raise RuntimeError(denied_msg(name, cmd[0] if cmd else '', why))
         raise RuntimeError(f'{name} exit {p.returncode}: {why}')
     if final is not None: out, sid = str(final.get('result') or '').strip(), final.get('session_id')
     elif streamed_out: out, sid = streamed_out, streamed_sid

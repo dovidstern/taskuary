@@ -280,8 +280,10 @@ export default function ReportsView() {
         : !list.length && <Empty>Nothing here.</Empty>}
       {list.map((s) => {
         const c = parse(s.ConfigJson);
-        const sched = c.on_startup ? "on startup" : c.cron ? `cron ${c.cron}`
-          : c.every_minutes ? `every ${c.every_minutes}m` : c.daily_at ? `daily ${c.daily_at}` : "daily";
+        // both halves, not the first one: "on startup" alone hid the Monday cron behind it
+        const sched = [c.on_startup && "on startup", c.cron && `cron ${c.cron}`,
+          c.every_minutes && `every ${c.every_minutes}m`, c.daily_at && `daily ${c.daily_at}`]
+          .filter(Boolean).join(" + ") || "daily";
         return (
           <Box key={s.SourceId} sx={{ borderBottom: `1px solid ${BORDER}` }}>
           <Box onClick={() => { setQ(""); setBucket(s.SourceId); }}
@@ -317,6 +319,62 @@ export default function ReportsView() {
 }
 
 /* ── the pipeline wizard: source → configure → test & preview → schedule ── */
+/* WHERE a report goes. A chat id is a Graph id, a WhatsApp JID, a Discord channel number -
+   nothing anyone types from memory, and a typo is a report that quietly goes nowhere at 6am.
+   So both halves are PICKED out of what Taskuary can actually reach today (/api/send-targets:
+   the channels with a live connector and replies switched on, and the destinations already seen
+   on each). Email is the one exception - an address you have never had mail from is still a real
+   address - so there, and only there, you may type one as well. */
+function Destination({ dest, onChange, targets }) {
+  const chans = targets.map((t) => t.channel);
+  const ch = dest.channel || chans[0] || "";
+  const opts = targets.find((t) => t.channel === ch)?.to || [];
+  const picked = String(dest.to || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const named = (to) => opts.find((o) => o.to === to)?.name || to;
+  const empty = ch ? `no ${ch} chat seen yet` : "connect a channel first";
+  return (
+    <>
+      <Select size="small" value={ch} sx={{ bgcolor: "#fff", fontSize: 12.5, minWidth: 130 }} displayEmpty
+        onChange={(e) => onChange({ channel: e.target.value, to: "" })}>
+        {(!ch || chans.includes(ch) ? chans : [...chans, ch]).map((c) => (
+          <MenuItem key={c} value={c} sx={{ fontSize: 12 }}>{c}{chans.includes(c) ? "" : " — not set up"}</MenuItem>
+        ))}
+        {!chans.length && <MenuItem value="" sx={{ fontSize: 12, color: FAINT }}>nothing can send yet</MenuItem>}
+      </Select>
+      {ch === "email" ? (
+        <Autocomplete multiple freeSolo size="small" sx={{ flex: 1, minWidth: 240 }} options={opts.map((o) => o.to)}
+          value={picked} onChange={(_e, v) => onChange({ to: v.map((x) => String(x).trim()).filter(Boolean).join(", ") })}
+          renderOption={(props, o) => (
+            <li {...props} style={{ fontSize: 12.5 }}>{named(o)}{named(o) !== o && <span style={{ color: FAINT }}>&nbsp;&middot; {o}</span>}</li>
+          )}
+          renderInput={(params) => <TextField {...params} sx={{ bgcolor: "#fff" }} label="to — who gets it"
+            placeholder={picked.length ? "" : "pick, or type an address"} />} />
+      ) : (
+        <Select size="small" displayEmpty value={picked[0] || ""} sx={{ bgcolor: "#fff", flex: 1, minWidth: 240, fontSize: 12.5 }}
+          onChange={(e) => onChange({ to: e.target.value })}
+          renderValue={(v) => (v ? named(v) : <span style={{ color: FAINT }}>{opts.length ? "to — the chat it lands in" : empty}</span>)}>
+          {opts.map((o) => (
+            <MenuItem key={o.to} value={o.to} sx={{ fontSize: 12, display: "block", py: 0.5 }}>
+              <Typography variant="body2" sx={{ fontSize: 12.5, color: INK, fontWeight: 600 }}>{o.name}</Typography>
+              <Typography variant="caption" sx={{ ...mono, color: FAINT, fontSize: 10 }}>
+                {[o.name === o.to ? "" : o.to, o.hint].filter(Boolean).join(" · ")}
+              </Typography>
+            </MenuItem>
+          ))}
+          {picked.filter((t) => !opts.some((o) => o.to === t)).map((t) => (
+            <MenuItem key={t} value={t} sx={{ fontSize: 12 }}>{t} &mdash; saved, not seen lately</MenuItem>
+          ))}
+          {!opts.length && (
+            <MenuItem value="" disabled sx={{ fontSize: 11.5, color: FAINT }}>
+              {empty} &mdash; write something in the chat you want and it appears here
+            </MenuItem>
+          )}
+        </Select>
+      )}
+    </>
+  );
+}
+
 function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, onSaved, draft }) {
   const cur = sources.find((s) => s.SourceId === sourceId);
   // a composed draft is a STARTING POINT, not a saved report: it lands in the same boxes the
@@ -333,6 +391,12 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
   const [busy, setBusy] = useState("");
   const [brains, setBrains] = useState([]);   // which AI writes THIS summary - same roster as triage
   useEffect(() => { api.get("/api/brains").then(({ data }) => setBrains(data.data || [])).catch(() => {}); }, []);
+  // where it may be SENT: only live channels, only destinations Taskuary knows (see Destination)
+  const [targets, setTargets] = useState([]);
+  useEffect(() => { api.get("/api/send-targets").then(({ data }) => setTargets(data.data || [])).catch(() => {}); }, []);
+  // switching one of these blocks on should leave a config that works: the first live channel,
+  // addressed to your own notify chat - not an empty box beside a channel you never connected
+  const firstDest = () => ({ channel: targets[0]?.channel || "email", to: targets[0]?.to?.[0]?.to || "" });
   const mssqlConn = connectors.find((c) => c.Type === "mssql");
   const mssqlOk = mssqlConn?.LastSyncAt && !mssqlConn?.LastError;
   const winrmConn = connectors.find((c) => c.Type === "winrm");
@@ -581,7 +645,7 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
                   SEND IT SOMEWHERE (OPTIONAL)
                 </Typography>
                 <Switch size="small" checked={!!cfg.deliver}
-                  onChange={(e) => setCfg({ ...cfg, deliver: e.target.checked ? { channel: "email", to: "", gate: "review" } : undefined })} />
+                  onChange={(e) => setCfg({ ...cfg, deliver: e.target.checked ? { ...firstDest(), gate: "review" } : undefined })} />
               </Box>
               {!cfg.deliver ? (
                 <Typography variant="caption" sx={{ color: FAINT }}>
@@ -590,16 +654,8 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
               ) : (
                 <>
                   <Box sx={{ display: "flex", gap: 1, mt: 1, flexWrap: "wrap" }}>
-                    <Select size="small" value={cfg.deliver.channel || "email"} sx={{ bgcolor: "#fff", fontSize: 12.5, minWidth: 130 }}
-                      onChange={(e) => setCfg({ ...cfg, deliver: { ...cfg.deliver, channel: e.target.value } })}>
-                      {["email", "teams", "telegram", "whatsapp", "imessage", "discord"].map((ch) => (
-                        <MenuItem key={ch} value={ch} sx={{ fontSize: 12 }}>{ch}</MenuItem>
-                      ))}
-                    </Select>
-                    <TextField size="small" sx={{ bgcolor: "#fff", flex: 1, minWidth: 220 }}
-                      label={cfg.deliver.channel === "email" ? "to — addresses, comma separated" : "to — the chat id it lands in"}
-                      value={cfg.deliver.to || ""}
-                      onChange={(e) => setCfg({ ...cfg, deliver: { ...cfg.deliver, to: e.target.value } })} />
+                    <Destination dest={cfg.deliver} targets={targets}
+                      onChange={(d) => setCfg({ ...cfg, deliver: { ...cfg.deliver, ...d } })} />
                     <TextField size="small" sx={{ bgcolor: "#fff", flex: 1, minWidth: 180 }}
                       label="subject (blank = the report's headline)" value={cfg.deliver.subject || ""}
                       onChange={(e) => setCfg({ ...cfg, deliver: { ...cfg.deliver, subject: e.target.value } })} />
@@ -628,7 +684,7 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
                   TELL ME WHEN IT LOOKS WRONG (OPTIONAL)
                 </Typography>
                 <Switch size="small" checked={!!cfg.alert}
-                  onChange={(e) => setCfg({ ...cfg, alert: e.target.checked ? { when: "nothing_came_back", channel: "whatsapp", to: "" } : undefined })} />
+                  onChange={(e) => setCfg({ ...cfg, alert: e.target.checked ? { when: "nothing_came_back", ...firstDest() } : undefined })} />
               </Box>
               {!cfg.alert ? (
                 <Typography variant="caption" sx={{ color: FAINT }}>
@@ -659,23 +715,15 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
                     )}
                   </Box>
                   <Box sx={{ display: "flex", gap: 1, mt: 1, flexWrap: "wrap" }}>
-                    <Select size="small" value={cfg.alert.channel || "whatsapp"} sx={{ bgcolor: "#fff", fontSize: 12.5, minWidth: 130 }}
-                      onChange={(e) => setCfg({ ...cfg, alert: { ...cfg.alert, channel: e.target.value } })}>
-                      {["whatsapp", "telegram", "teams", "imessage", "discord", "email"].map((ch) => (
-                        <MenuItem key={ch} value={ch} sx={{ fontSize: 12 }}>{ch}</MenuItem>
-                      ))}
-                    </Select>
-                    <TextField size="small" sx={{ bgcolor: "#fff", flex: 1, minWidth: 200 }}
-                      label={cfg.alert.channel === "email" ? "to — addresses, comma separated" : "to — the chat id it lands in"}
-                      value={cfg.alert.to || ""}
-                      onChange={(e) => setCfg({ ...cfg, alert: { ...cfg.alert, to: e.target.value } })} />
+                    <Destination dest={cfg.alert} targets={targets}
+                      onChange={(d) => setCfg({ ...cfg, alert: { ...cfg.alert, ...d } })} />
                     <TextField size="small" sx={{ bgcolor: "#fff", flex: 1, minWidth: 200 }}
                       label="what to say (optional)" value={cfg.alert.note || ""}
                       onChange={(e) => setCfg({ ...cfg, alert: { ...cfg.alert, note: e.target.value } })} />
                   </Box>
                   <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 1 }}>
                     Sent the moment the rule trips — no Review step, because an alert waiting for approval is not an alert.
-                    The channel still has to be on under Settings → Replies.
+                    Only channels with a live connection and replies on (Settings → Replies) are offered, and only chats Taskuary has already seen.
                   </Typography>
                 </>
               )}

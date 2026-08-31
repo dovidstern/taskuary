@@ -296,13 +296,24 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
   }, [loadDetail, loadTasks, onChanged]);
   const generalSession = useCallback((session) => setTerm(session), []);
   // "New task -> live session" lands here: put the CLI on it once we know this task has no
-  // session already, so a reload never spawns a second one
+  // session already, so a reload never spawns a second one.
+  // A GENERAL task has no repository and no CLI - it is a question, worked in the assistant's
+  // own chat below. Starting a terminal on it was the bug behind "why did this open in a
+  // terminal?": the prompt is handed to the chat instead, which asks it as the first message.
+  const [chatSeed, setChatSeed] = useState("");
   useEffect(() => {
-    if (!autostart || autostart.taskId !== selected || term !== null || !detail) return;
+    if (!autostart || autostart.taskId !== selected || !detail) return;
+    const general = GENERAL_KINDS.has(String(detail.task?.Kind || "general").toLowerCase());
+    // an existing CLI session is the reason not to start a second one; the chat has no such
+    // problem - its own thread decides whether the question has already been asked
+    if (!general && term !== null) return;
     onAutostarted?.();
+    if (general) { setChatSeed(String(detail.task?.Summary || "").trim()); return; }
     openTerm({ agent: autostart.agent || run.agent, model: autostart.model || run.model || null,
       task_id: selected, repo: repoOf(detail.task), seed: true });
   }, [autostart, selected, term, detail, openTerm, onAutostarted, run.agent]);
+  // one ask per arrival: the seed is spent the moment the chat has it
+  useEffect(() => { setChatSeed(""); }, [selected]);
 
 
   // the pane shows the selected task or nothing - never the previous one while this loads
@@ -518,7 +529,8 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
                 )}
                 {isGeneral ? (
                   <React.Suspense fallback={<Box sx={{ flex: 1, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}>
-                    <GeneralWorkspace task={t} onSession={generalSession} onOpenReports={onGoReports} />
+                    <GeneralWorkspace task={t} onSession={generalSession} onOpenReports={onGoReports}
+                      seed={chatSeed} onSeeded={() => setChatSeed("")} />
                   </React.Suspense>
                 ) : wrapping && !wrapped ? (
                   <Box sx={{ ...card, bgcolor: "#e3e6e1", border: "1px solid #d2d6cf" }}>

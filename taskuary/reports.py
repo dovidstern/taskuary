@@ -753,6 +753,13 @@ def _ran_today(last_polled) -> bool:
     except (TypeError, ValueError): return False
 
 
+def _ran_this_week(last_polled) -> bool:
+    """A WEEKLY brief should also greet you when you open the app - but the same brief seven
+    launches running is the noise once_per_day was invented to stop, one rung up."""
+    try: return (datetime.now() - datetime.fromisoformat(str(last_polled)[:19].replace(' ', 'T'))).days < 7
+    except (TypeError, ValueError): return False
+
+
 def is_due(cfg: dict, last_polled, startup: bool = False) -> bool:
     # on_startup is local-first scheduling: the app is a window you open, so "when I open
     # it" is a real schedule. Due exactly once per launch - never on the 10-minute auto-sync,
@@ -764,7 +771,9 @@ def is_due(cfg: dict, last_polled, startup: bool = False) -> bool:
     # owner, 2026-08-30). once_per_day keeps the "you opened the app, here is today's" behaviour
     # and drops every repeat: a launch fires it only when today has not had one yet.
     if cfg.get('on_startup'):
-        if startup and not (cfg.get('once_per_day') and _ran_today(last_polled)): return True
+        stale = not ((cfg.get('once_per_day') and _ran_today(last_polled))
+                     or (cfg.get('once_per_week') and _ran_this_week(last_polled)))
+        if startup and stale: return True
         if not any(cfg.get(k) for k in ('cron', 'every_minutes', 'daily_at')): return False
     now = datetime.now()
     if not last_polled: return True

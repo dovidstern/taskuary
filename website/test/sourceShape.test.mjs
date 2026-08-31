@@ -26,7 +26,8 @@ test("a composed filter shows as lines and survives a round trip", () => {
 
 test("showValue knows a filter list from any other list", () => {
   assert.equal(showValue([["A", "=", "1"]], "filter_lines"), "A = 1");
-  assert.equal(showValue(["RECORDNO", "VENDORID"], "csv_list"), "RECORDNO" + NL + "VENDORID");
+  assert.equal(showValue(["RECORDNO", "VENDORID"], "csv_list"), "RECORDNO, VENDORID");
+  assert.equal(showValue(["a", "b"], "multiline"), "a" + NL + "b");
   assert.equal(showValue({ Authorization: "Bearer x" }, "multiline"), '{"Authorization":"Bearer x"}');
   assert.equal(showValue(undefined, "text"), "");
 });

@@ -53,6 +53,27 @@ def preset_args(cmd: str) -> list:
     return next((list(k['args']) for k in KNOWN if k['cmd'] == base), [])
 
 
+def store_app(path: str) -> bool:
+    """Is this the Microsoft Store copy of the CLI?
+
+    It is found by `where`, it prints its version when you type it, and it still cannot be
+    launched from a background process: CreateProcess is refused inside the package folder, and
+    the execution alias only runs for the account the package is registered to. What comes back
+    is "Access is denied." and nothing else - so it has to be named BEFORE a scheduled run at 6am
+    is the thing that finds out (an owner's machine, 2026-08-31).
+    """
+    return '\\windowsapps\\' in str(path or '').lower()
+
+
+def runnable(cmd: str) -> tuple:
+    """(what will actually run, is it the blocked Store copy). agents._resolve_cmd already
+    prefers an ordinary install when both exist, so a Store path here means there is no other."""
+    from .agents import _resolve_cmd
+    try: resolved = _resolve_cmd(cmd)[0]
+    except (FileNotFoundError, IndexError): return '', False
+    return resolved, store_app(resolved)
+
+
 def detect(store=None) -> list:
     """Every known CLI found on PATH, plus anything already configured here.
 
@@ -66,7 +87,8 @@ def detect(store=None) -> list:
         # agent runner will use too, so the two agree
         found = shutil.which(k['cmd'])
         if not found and k['name'] not in have: continue
-        out.append({**k, 'installed': bool(found), 'path': found or '',
+        runs, blocked = runnable(k['cmd']) if found else ('', False)
+        out.append({**k, 'installed': bool(found), 'path': found or '', 'runs': runs, 'store': blocked,
                     'configured': k['name'] in have})
     import json, os
     labels = {k['cmd']: k['label'] for k in KNOWN}
@@ -79,6 +101,8 @@ def detect(store=None) -> list:
         found = shutil.which(cmd) if cmd else None
         # the row is about the CLI, not the profile's nickname: 'coder' running claude is Claude
         # Code - and "already configured" said nothing about whether claude is even on this machine
+        runs, blocked = runnable(cmd) if found else ('', False)
         out.append({'name': name, 'cmd': cmd, 'label': labels.get(base) or cmd or name, 'profile': name,
-                    'args': list(prof.get('args') or []), 'installed': bool(found), 'path': found or '', 'configured': True})
+                    'args': list(prof.get('args') or []), 'installed': bool(found), 'path': found or '',
+                    'runs': runs, 'store': blocked, 'configured': True})
     return out

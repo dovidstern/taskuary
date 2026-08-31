@@ -60,7 +60,7 @@ const AssistantMessage = () => (
   </MessagePrimitive.Root>
 );
 
-function AssistantThread({ task, messages, selectionRef, attachmentsRef, onSent, onClearAttachments, onAttach, onReport, reportBusy }) {
+function AssistantThread({ task, messages, seed, onSeeded, selectionRef, attachmentsRef, onSent, onClearAttachments, onAttach, onReport, reportBusy }) {
   const modelAdapter = useMemo(() => ({
     async *run({ messages: runMessages, abortSignal }) {
       const prompt = textOf([...runMessages].reverse().find((m) => m.role === "user"));
@@ -114,6 +114,17 @@ function AssistantThread({ task, messages, selectionRef, attachmentsRef, onSent,
     },
   }), [attachmentsRef, onClearAttachments, onSent, selectionRef, task.TaskId]);
   const runtime = useLocalRuntime(modelAdapter, { initialMessages: initial(messages) });
+  /* "New task for the agent" with no repository: the prompt the owner typed is the first thing
+     said here, appended through the same streaming runtime as anything they type - so they watch
+     the answer arrive instead of finding a task with their own words sitting in it, unanswered.
+     Only into an EMPTY thread, and only once: reopening a discussion must not re-ask it. */
+  const asked = useRef(false);
+  useEffect(() => {
+    if (asked.current || !seed || messages?.length) return;
+    asked.current = true;
+    onSeeded?.();
+    runtime.thread.append(seed);
+  }, [seed, messages, runtime, onSeeded]);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -161,7 +172,7 @@ function AssistantThread({ task, messages, selectionRef, attachmentsRef, onSent,
   );
 }
 
-export function GeneralWorkspace({ task, onSession, onOpenReports, compact = false }) {
+export function GeneralWorkspace({ task, onSession, onOpenReports, seed, onSeeded, compact = false }) {
   const [data, setData] = useState(null);
   const [view, setView] = useState(savedView);
   const [connectorId, setConnectorId] = useState("");
@@ -284,7 +295,8 @@ export function GeneralWorkspace({ task, onSession, onOpenReports, compact = fal
           <TerminalPane sid={session.sid} height="100%" />
         ) : session ? (
           <SessionPane sid={session.sid} height="100%">
-            <AssistantThread key={`${task.TaskId}-${threadKey}`} task={task} messages={data.messages} selectionRef={selectionRef}
+            <AssistantThread key={`${task.TaskId}-${threadKey}`} task={task} messages={data.messages}
+              seed={seed} onSeeded={onSeeded} selectionRef={selectionRef}
               attachmentsRef={attachmentsRef} onSent={sent} onClearAttachments={clearAttachments}
               onAttach={() => fileRef.current?.click()} onReport={makeReport} reportBusy={reportBusy} />
           </SessionPane>

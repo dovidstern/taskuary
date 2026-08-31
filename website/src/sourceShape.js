@@ -40,9 +40,11 @@ export const filterLines = (v) => (Array.isArray(v)
     : String(r))).join(NL)
   : (v ?? ""));
 
-// what one field of one card shows, whatever the config happens to hold there
+// what one field of one card shows, whatever the config happens to hold there. A csv_list is
+// ONE line, so joining it with newlines showed "RECORDNOVENDORIDVENDORNAME" - a single-line
+// input swallows them - and the field the label calls comma separated has to arrive that way.
 export const showValue = (v, kind) => (kind === "filter_lines" ? filterLines(v)
-  : Array.isArray(v) ? v.join(NL)
+  : Array.isArray(v) ? v.join(kind === "csv_list" ? ", " : NL)
     : (typeof v === "object" && v ? JSON.stringify(v) : (v ?? "")));
 
 export const toShape = (src) => {

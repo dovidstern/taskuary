@@ -90,6 +90,17 @@ On first run, connect an AI provider or local Ollama model, add at least one inb
 channel, then choose the coding CLI that should receive tasks. The setup wizards test each
 connection before it goes live.
 
+## Installs
+
+![Daily installs of taskuary from PyPI, mirror traffic excluded](https://raw.githubusercontent.com/ldbumble/taskuary/master/docs/downloads.svg)
+
+Redrawn every morning by [`downloads.yml`](.github/workflows/downloads.yml) from PyPI's own
+numbers, with mirror traffic excluded — a full PyPI mirror pulls every release, so counting it
+would let a handful of real users read as hundreds. What it does **not** claim is that CI
+installs have been removed: the field that would separate `pip install` in a build runner from
+one on somebody's laptop is in PyPI's BigQuery dataset, not in the public API. The daily series
+is [docs/downloads.csv](docs/downloads.csv).
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md)—installation, first-run setup, Docker, and data

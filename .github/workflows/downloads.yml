@@ -1,0 +1,41 @@
+# The installs chart in the README, refreshed once a day from PyPI's own numbers.
+#
+# Mirror traffic is excluded (pypistats' own split): a full PyPI mirror pulls every release, so
+# counting it would let three real users read as hundreds. CI installs are a different problem
+# and the public API cannot separate them - the `installer` field that would live in BigQuery,
+# not here - so the chart says "mirrors excluded" and claims nothing more. See tools/pypi_downloads.py.
+name: downloads
+
+on:
+  schedule: [{ cron: '17 7 * * *' }]      # after PyPI's stats settle for the previous UTC day
+  workflow_dispatch:
+
+permissions: { contents: write }          # it commits the chart it just drew
+
+concurrency:
+  group: downloads
+  cancel-in-progress: false
+
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.12' }
+      - run: pip install pypistats
+
+      # The CSV is the long memory: the API only keeps 180 days, and merging into a committed
+      # history is what lets the series outlive that window.
+      - run: python tools/pypi_downloads.py --package taskuary --history docs/downloads.csv --out docs/downloads.svg
+
+      - name: Commit the chart if it moved
+        run: |
+          set -euo pipefail
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/downloads.csv docs/downloads.svg
+          # nothing new from PyPI is the normal case on a quiet day, not a failure
+          if git diff --quiet --cached; then echo 'no change'; exit 0; fi
+          git commit -m "Downloads: $(date -u +%Y-%m-%d)"
+          git push

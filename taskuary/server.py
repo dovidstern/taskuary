@@ -951,6 +951,13 @@ class HandoffBody(BaseModel):
 @app.get('/api/people')
 def people(): return {'data': store.people()}
 
+@app.get('/api/send-targets')
+def send_targets():
+    """Where a report is allowed to be sent: the live channels, and the destinations known on
+    each. The builder offers these and nothing else - a WhatsApp JID typed from memory is a
+    report that quietly goes nowhere."""
+    return {'data': outbound.send_targets(store)}
+
 @app.post('/api/tasks/{task_id}/handoff')
 def handoff(task_id: int, body: HandoffBody):
     """Hand the task to a PERSON: the AI writes the forward message from the task's own

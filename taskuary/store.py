@@ -479,13 +479,17 @@ class SQLiteStore:
                                              'on_startup': True, 'once_per_day': True, 'ai_prompt': PROMPT})))
                 self.cx.execute("INSERT INTO setting (Name, Value, UpdatedBy) VALUES ('digest_report_seeded', '1', 'template')")
             # ...and its sibling: the weekly 'what should you automate next' brief (toil.py) -
-            # same deal: a real report, prompt on the Reports tab, deleting it turns it off
+            # same deal: a real report, prompt on the Reports tab, deleting it turns it off.
+            # It also runs on startup, once a WEEK: seeded on cron alone, a fresh install saw
+            # nothing from it until the following Monday, so the third shipped report was
+            # invisible on the day someone was actually looking at the tab.
             if not self.cx.execute("SELECT 1 FROM setting WHERE Name='automate_report_seeded'").fetchone():
                 from .toil import PROMPT as AUTOMATE_PROMPT
                 self.cx.execute('INSERT INTO source (Channel, Address, Owner, Active, ConfigJson) VALUES (?,?,?,?,?)',
                                 ('report', 'Automation ideas', 'template', 1,
                                  json.dumps({'type': 'automate', 'title': 'Automation ideas', 'days': 30,
-                                             'cron': '0 8 * * 1', 'ai_prompt': AUTOMATE_PROMPT})))
+                                             'cron': '0 8 * * 1', 'on_startup': True, 'once_per_week': True,
+                                             'ai_prompt': AUTOMATE_PROMPT})))
                 self.cx.execute("INSERT INTO setting (Name, Value, UpdatedBy) VALUES ('automate_report_seeded', '1', 'template')")
             # ...and the Assistant (assistant.py): its post on the Timeline is scheduled and worded HERE
             # too - every 30 minutes and on startup by default (a quiet check posts nothing), the
@@ -502,6 +506,7 @@ class SQLiteStore:
             # current one (same deal the template docs get) - an owner-edited prompt is never touched
             from .digest import OLD_PROMPTS, PROMPT as DIGEST_PROMPT
             from .assistant import OLD_PROMPT_HEADS, PROMPT as ASSISTANT_PROMPT
+            from .toil import PROMPT as AUTOMATE_PROMPT
             for sid_, cj in self.cx.execute("SELECT SourceId, ConfigJson FROM source WHERE Channel='report'").fetchall():
                 try: c = json.loads(cj or '{}')
                 except ValueError: continue
@@ -512,6 +517,12 @@ class SQLiteStore:
                     if c.get('every_minutes') in (60, 20): c['every_minutes'] = 30
                     c.setdefault('on_startup', True)
                     self.cx.execute('UPDATE source SET ConfigJson=? WHERE SourceId=?', (json.dumps(c), sid_))
+                # the stock Automation ideas was seeded on Mondays only; unedited, it also greets
+                # a launch - at most once a week (an owner-set cadence is kept as it is)
+                if c.get('type') == 'automate' and c.get('ai_prompt') == AUTOMATE_PROMPT and c.get('cron') == '0 8 * * 1':
+                    if not c.get('on_startup'):
+                        c['on_startup'], c['once_per_week'] = True, True
+                        self.cx.execute('UPDATE source SET ConfigJson=? WHERE SourceId=?', (json.dumps(c), sid_))
                 if c.get('type') == 'digest' and (c.get('ai_prompt') in OLD_PROMPTS or c.get('ai_prompt') == DIGEST_PROMPT):
                     c['ai_prompt'] = DIGEST_PROMPT
                     # a stock digest on the old default clock (none, or the three-hourly one) becomes the
@@ -1281,6 +1292,16 @@ class SQLiteStore:
         return self._rows("""SELECT FromEmail Email, MAX(FromName) Name, COUNT(*) N, MAX(SentAt) Last
                              FROM message WHERE FromEmail LIKE '%@%' AND Status<>'context'
                              GROUP BY LOWER(FromEmail) ORDER BY Last DESC LIMIT ?""", (int(limit),))
+
+    def chats(self, limit=200):
+        """Every chat Taskuary has seen, newest first: the id a message can be SENT to, and a
+        name to recognise it by. The id is whatever the channel itself uses - a Graph chat id,
+        a WhatsApp JID - which is exactly why nobody can type it from memory."""
+        return self._rows("""SELECT Channel, ConversationId Cid,
+                                    MAX(CASE WHEN IFNULL(Direction,'in')<>'out' THEN FromName END) Name,
+                                    COUNT(*) N, MAX(SentAt) Last
+                             FROM message WHERE ConversationId IS NOT NULL AND IFNULL(Channel,'')<>'email'
+                             GROUP BY Channel, ConversationId ORDER BY Last DESC LIMIT ?""", (int(limit),))
 
     def task_detail(self, task_id):
         t = self.get_task(task_id)

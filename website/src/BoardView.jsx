@@ -15,6 +15,7 @@ import AddIcon from "@mui/icons-material/Add";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
 import api from "./api";
+import { NO_REPO, planTask } from "./newTask.js";
 import { pollWhileVisible } from "./visible.js";
 import { ALERT, PANEL, PANEL2, BORDER, CATPPUCCIN, DIM, FAINT, INK, card, hoverable, mono } from "./theme.jsx";
 import { ChannelIcon, ActionChip, AgentPicker, useAgents, timeAgo, Empty, IDLE_WAITING, isWaiting, PromptThumbs, TellAgent, WorkPane, usePromptImages } from "./ui.jsx";
@@ -23,7 +24,6 @@ import { ChannelIcon, ActionChip, AgentPicker, useAgents, timeAgo, Empty, IDLE_W
 // me for this meeting". The task carries `repo:none`, which is the one answer the picker could
 // never give before: with the field left blank Taskuary still GUESSED a checkout, so a general
 // question opened in whichever repo scored highest and the agent went looking for code to change.
-const NO_REPO = "none";
 
 // "coder · running" says nothing you can act on. How long it has been going, and what it is
 // touching right now, is what tells you whether to leave it alone or go look.
@@ -281,7 +281,9 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
       const gh = (data.data || []).filter((s) => s.Channel === "github" && s.Active).map((s) => s.Address);
       setRepos(gh);
       const def = data.default_repo && gh.includes(data.default_repo) ? data.default_repo : gh[0];
-      if (def) setNt((cur) => ({ ...cur, repo: def }));
+      // no repositories discovered: the box says General rather than sitting blank, because
+      // that IS the only thing it can be on a machine with no checkout connected
+      setNt((cur) => ({ ...cur, repo: def || NO_REPO }));
     }).catch(() => {});
   }, []);
 
@@ -291,10 +293,13 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
     setDragId(null); load();
   };
 
+  // one reading of the repository box (newTask.js): who works it, and what the two fields
+  // under it should say about that
+  const plan = planTask(nt.repo, nt.how);
   const create = async () => {
-    const repo = nt.repo && nt.repo !== NO_REPO ? nt.repo : null;
-    const { data } = await api.post("/api/tasks", { Title: nt.Title, Summary: nt.Summary || null, Kind: "coding",
-      Tags: nt.repo ? `repo:${nt.repo}` : null });
+    const { repo, kind, chat, tags } = plan;
+    const { data } = await api.post("/api/tasks",
+      { Title: nt.Title, Summary: nt.Summary || null, Kind: kind, Tags: tags });
     // The images can only be stored against a task, so they upload now and the prompt gains the
     // sentence that names them - the seed reads Summary, so this has to land before the session.
     try {
@@ -303,9 +308,15 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
     } catch (e) { setErr(e?.response?.data?.detail || "Task created, but the images could not be attached"); }
     shots.clear();
     setNewOpen(false); setNt((cur) => ({ ...cur, Title: "", Summary: "" }));
-    // The details field IS the prompt - it gets typed into the session. A task born on the
-    // Board stays on the Board: start its terminal here, whichever board view is showing.
-    if (nt.how === "live") {
+    // The details field IS the prompt - it gets typed into the session. A CODING task born on
+    // the Board stays on the Board: start its terminal here, whichever board view is showing.
+    if (plan.start && chat) {
+      // the chat IS the page for a general task, and it lives on the Tasks tab - open it there
+      // with the prompt as the first thing said
+      onOpenTask(data.taskId, { start: true });
+      return;
+    }
+    if (plan.start) {
       try {
         await api.post("/api/terminals", { agent: nt.agent, model: nt.model || null, task_id: data.taskId, repo, seed: true });
         setBoardTick((n) => n + 1);
@@ -508,11 +519,13 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
               Repository — the issue lands here and the agent works in this context
             </Typography>
             <Select fullWidth size="small" value={nt.repo} onChange={(e) => setNt({ ...nt, repo: e.target.value })}>
+              {/* the choice here decides WHO works it: a repository means a CLI in that checkout,
+                  General means the assistant's chat. Everything below this box follows from it. */}
               {repos.map((r) => <MenuItem key={r} value={r} sx={{ fontSize: 12.5 }}>{r}</MenuItem>)}
               <MenuItem value={NO_REPO} sx={{ fontSize: 12.5 }}>General — no repository, just a question to answer</MenuItem>
             </Select>
           </Box>
-          <Box>
+          <Box sx={{ display: plan.chat ? "none" : "block" }}>
             <Typography variant="caption" sx={{ color: FAINT, display: "block", mb: 0.5 }}>
               Agent and model — which CLI works it, and which model that CLI runs
             </Typography>
@@ -531,7 +544,9 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
               How it gets worked — one agent, one way
             </Typography>
             <Select fullWidth size="small" value={nt.how} onChange={(e) => setNt({ ...nt, how: e.target.value })}>
-              <MenuItem value="live" sx={{ fontSize: 12.5 }}>Start {nt.agent} on it — stays on the board with the prompt typed in</MenuItem>
+              <MenuItem value="live" sx={{ fontSize: 12.5 }}>{plan.chat
+                ? "Ask the assistant — opens the chat on the Tasks tab with your prompt as the first message"
+                : `Start ${nt.agent} on it — stays on the board with the prompt typed in`}</MenuItem>
               <MenuItem value="file" sx={{ fontSize: 12.5 }}>Just file it — nobody starts working yet</MenuItem>
             </Select>
           </Box>

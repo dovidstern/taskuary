@@ -1,7 +1,7 @@
 // Getting started, done here rather than described here.
 //
 // A fresh install opens on an empty Timeline that looks exactly like a working install on a quiet
-// morning, and the three things standing between those two states live on three different tabs.
+// morning, and the few things standing between those two states live on different tabs.
 // The first version of this pointed at those tabs. Pointing is not setting up: it hands the work
 // back with directions attached.
 //
@@ -21,6 +21,13 @@ import CloseIcon from "@mui/icons-material/Close";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import api from "./api";
 import { BORDER, DIM, FAINT, INK, PANEL2 } from "./theme.jsx";
+
+// "Three things and Taskuary works" was prose. Steps were added to the wizard and it went on
+// saying three, because a number written as a word is a number nobody updates. Counted now -
+// and counted over the SAME list the panel shows and the top-bar pill tracks (the guided steps),
+// so the headline, the pill and the rows can never disagree again.
+const COUNT = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
+const spell = (n) => COUNT[n] || String(n);
 
 export const useSetup = (tick) => {
   const [state, setState] = useState(null);
@@ -175,6 +182,14 @@ const CliPicker = ({ asBrain, onDone }) => {
                 : cli.configured ? `configured here${cli.cmd ? ` as “${cli.cmd}”` : ""}, but not found on this machine — install it, or fix the command in Connectors → AI CLI agents`
                 : cli.cmd}
             </Typography>
+            {/* found, runnable by hand, and still refused from a background process - so it is
+                said here rather than at 6am as "Access is denied." */}
+            {cli.store && (
+              <Typography variant="caption" sx={{ color: "#8a3646", display: "block", fontWeight: 600 }}>
+                This is the Microsoft Store copy. Taskuary cannot start it in the background
+                (“Access is denied.”) — install the ordinary build from the vendor and it will be picked up here.
+              </Typography>
+            )}
           </Box>
           <Button size="small" variant="outlined" disabled={!!busy} onClick={() => use(cli)}
             sx={{ fontSize: 11.5, whiteSpace: "nowrap" }}>
@@ -475,8 +490,9 @@ export const SetupPanel = ({ open, state, onClose, onGo, onDismiss, onRefresh })
       && (!s.optional || s.recommended)) || {}).key || null);
   }, [open, steps, state?.complete]);
   if (!state) return null;
-  const left = state.total - state.done;
-  const guideLeft = (state.guide_total ?? state.total) - (state.guide_done ?? state.done);
+  const guideTotal = state.guide_total ?? state.total;
+  const guideDone = state.guide_done ?? state.done;
+  const guideLeft = guideTotal - guideDone;
   // finishing hands you the next thing to do: closing to nothing makes you hunt for the button
   // you were always going to press
   const done = async () => { setOpenKey(null); await onRefresh(); };
@@ -488,15 +504,16 @@ export const SetupPanel = ({ open, state, onClose, onGo, onDismiss, onRefresh })
             <Typography sx={{ fontWeight: 800, fontSize: 17, color: INK }}>
               {state.complete ? "Taskuary is ready for you"
                 : state.ready ? "The essentials work — make it yours"
-                  : "Three things and Taskuary works"}
+                  : `${spell(guideTotal)} steps and Taskuary is yours`}
             </Typography>
             <Typography variant="body2" sx={{ color: DIM, mt: 0.5 }}>
               {state.complete
                 ? "Connections and personalization are complete. It will keep learning from your verdicts."
                 : state.ready
                   ? `${guideLeft} recommended ${guideLeft === 1 ? "step" : "steps"} left to personalize Taskuary. Each is generated from your own history and remains editable.`
-                : `${state.done} of ${state.total} done${left ? ` — ${left} to go` : ""}. `
-                  + "Without these the Timeline stays empty and looks like a quiet day."}
+                : `${guideDone} of ${guideTotal} done${guideLeft ? ` — ${guideLeft} to go` : ""}. `
+                  + `The first ${state.total} are what make the funnel work at all: without them the `
+                  + "Timeline stays empty and looks like a quiet day."}
             </Typography>
           </Box>
           <CloseIcon onClick={onClose} sx={{ fontSize: 18, color: FAINT, cursor: "pointer", mt: 0.5 }} />

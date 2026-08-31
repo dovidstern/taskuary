@@ -948,6 +948,28 @@ class HandoffBody(BaseModel):
     to: str | None = None; channel: str = 'email'; note: str | None = None
     text: str | None = None; draft_only: bool = False
 
+# ── the agent wall (blackboard.py): what the agents leave for each other ─────────────────
+class NoteBody(BaseModel):
+    body: str; kind: str = 'note'; agent: str | None = None
+    cwd: str | None = None; task_id: int | None = None; files: str | None = None
+
+@app.get('/api/board/notes')
+def board_notes(cwd: str = '', limit: int = 60):
+    """Everything by default - the Board is one wall - or one checkout's own when cwd is given."""
+    return {'data': blackboard.wall(store, cwd, limit), 'kinds': list(blackboard.KINDS)}
+
+@app.post('/api/board/notes')
+def board_post(body: NoteBody):
+    try:
+        return blackboard.post(store, body.body, body.kind, body.agent or ACTOR, body.cwd or '',
+                               body.task_id, body.files or '')
+    except ValueError as e: raise HTTPException(422, str(e))
+
+@app.post('/api/board/notes/{note_id}/read')
+def board_read(note_id: int, who: str = ''):
+    store.mark_note_read(note_id, who or ACTOR)
+    return {'ok': True}
+
 @app.get('/api/people')
 def people(): return {'data': store.people()}
 
@@ -2680,6 +2702,22 @@ async def terminal_browser_ws(ws: WebSocket, sid: str):
 def health():
     """Unauthenticated on purpose: a container HEALTHCHECK needs a pulse without the LAN token."""
     return {'ok': True}
+
+@app.get('/api/build')
+def build():
+    """Which UI bundle is on disk right now.
+
+    Taskuary updates underneath an open tab - a git pull, a rebuild, `pip install -U` - and the
+    tab goes on running the JavaScript it loaded at breakfast. Every symptom of that looks like
+    a bug that was already fixed, and the owner has no way to tell the difference from inside
+    the page. So the page asks, and says "reload" when the answer stops matching what it loaded.
+    """
+    try:
+        html = (_web_root / 'index.html').read_text(encoding='utf-8')
+        return {'asset': (re.search(r'assets/(index-[A-Za-z0-9_-]+\.js)', html) or [None, ''])[1],
+                'version': _ver}
+    except OSError:
+        return {'asset': '', 'version': _ver}
 
 @app.get('/api/settings')
 def settings():

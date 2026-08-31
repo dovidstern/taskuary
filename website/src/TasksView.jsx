@@ -37,6 +37,7 @@ import { TerminalPane } from "./TerminalView.jsx";
 // Recover once automatically; a real module error still reaches the view boundary on retry.
 const GENERAL_CHUNK_RELOAD = "tq-general-chunk-reload";
 import { autostartPlan, isGeneralKind } from "./autostart.js";
+import { ASK_TAG } from "./newTask.js";
 
 const loadGeneralWorkspace = () => import("./GeneralWorkspace.jsx").then((module) => {
   try { sessionStorage.removeItem(GENERAL_CHUNK_RELOAD); } catch { /* storage disabled */ }
@@ -180,7 +181,11 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
 
   const patch = async (fields) => { await api.patch(`/api/tasks/${selected}`, fields); loadDetail(selected); loadTasks(); onChanged?.(); };
   const create = async () => {
-    const { data } = await api.post("/api/tasks", nt);
+    // A general task made HERE is the same thing the Board makes: a question with an answer
+    // wanted. It gets the same ask tag, so the chat opens with the question already asked
+    // instead of with the owner's own words sitting in a box above an empty thread.
+    const ask = isGeneralKind(nt.Kind) && String(nt.Summary || "").trim();
+    const { data } = await api.post("/api/tasks", { ...nt, ...(ask ? { Tags: ASK_TAG } : {}) });
     setNewOpen(false); setNt({ Title: "", Summary: "", Kind: "general", Priority: "normal" });
     setFilter("live"); loadTasks(); onSelect(data.taskId);
   };

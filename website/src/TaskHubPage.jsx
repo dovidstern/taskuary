@@ -19,6 +19,7 @@ import ReportsView from "./ReportsView.jsx";
 import DocsView from "./DocsView.jsx";
 import SettingsView from "./SettingsView.jsx";
 import { SetupChip, SetupPanel, useSetup } from "./SetupWizard.jsx";
+import { isStale, loadedAsset } from "./staleBuild.js";
 import { useHandRaise, playSound, desktopNotify } from "./handraise.js";
 import { dismissHandRaise, enqueueHandRaise, handRaiseWhat, isWatchingTask } from "./handraiseState.js";
 
@@ -64,6 +65,34 @@ function Bell({ onGo }) {
         ))}
       </Popover>
     </>
+  );
+}
+
+/* The tab can be older than the app. Taskuary updates underneath an open page - a pull and a
+   rebuild, pip install -U, the coding agent shipping its own fix - and the page keeps running
+   the bundle it loaded hours ago. Every symptom of that looks like a bug that was already
+   fixed. This is the only honest way to tell the difference from inside the page, so it says
+   so, quietly, and reloads only when asked. */
+function StaleBuild() {
+  const [stale, setStale] = useState(false);
+  useEffect(() => {
+    const mine = loadedAsset();
+    const check = () => api.get("/api/build")
+      .then(({ data }) => setStale(isStale(mine, data.asset))).catch(() => {});
+    check();
+    const t = setInterval(check, 60000);
+    return () => clearInterval(t);
+  }, []);
+  if (!stale) return null;
+  return (
+    <Tooltip title="Taskuary has been updated on disk since this page was opened. Nothing is lost by reloading.">
+      <Box onClick={() => window.location.reload()}
+        sx={{ display: "flex", alignItems: "center", gap: 0.6, cursor: "pointer", px: 1, py: 0.3,
+          borderRadius: 99, border: "1px solid #d8cfbe", bgcolor: "#f1ead9" }}>
+        <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#6f8a6e" }} />
+        <Typography variant="caption" sx={{ fontWeight: 700, color: "#55697a" }}>update ready — reload</Typography>
+      </Box>
+    </Tooltip>
   );
 }
 
@@ -209,6 +238,7 @@ export default function TaskHubPage() {
             everything in → one funnel → agents + you
           </Typography>
           <ServerVersion />
+          <StaleBuild />
 
           {/* Below 900px the full tab strip had no room: it began under the brand and its
               off-screen pages had no visible affordance. One labelled selector keeps the

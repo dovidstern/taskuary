@@ -62,6 +62,14 @@ def clean_env(extra: dict = None) -> dict:
     return env
 
 
+def session_env(agent: str = '', task_id=None, cwd: str = '') -> dict:
+    """What a CLI needs to know about ITSELF. `taskuary --note "..."` inside an agent's terminal
+    should not have to be told which agent or which task it is - the session already knows, so
+    it says so in the environment."""
+    return {k: str(v) for k, v in (('TASKUARY_AGENT', agent), ('TASKUARY_TASK', task_id or ''),
+                                   ('TASKUARY_CWD', cwd)) if v}
+
+
 class _WinPty:
     def __init__(self, argv, cwd, rows, cols, env=None):
         try:
@@ -129,7 +137,10 @@ class Term:
         self.witness, self.ext_id = _w.Witness(), ''     # what the agent said and did (hooks / rollout), and the CLI's own session id once a hook names it
         # the browser this session may open is named after it, so the pane can find it (browserview)
         from . import browserview as _bv
-        self.pty = (_WinPty if os.name == 'nt' else _UnixPty)(argv, cwd, rows, cols, _bv.env(self.sid))
+        # the pane's browser name, and who this session IS - so `taskuary --note` inside it needs
+        # no arguments to know which agent, task and checkout it is speaking for
+        self.pty = (_WinPty if os.name == 'nt' else _UnixPty)(
+            argv, cwd, rows, cols, {**_bv.env(self.sid), **session_env(agent or label, task_id, cwd)})
         self.alive = True
         # started LAST, and store comes in through the constructor: a CLI that dies immediately
         # used to reach keep() before the caller had handed the session anywhere to file itself
@@ -742,6 +753,12 @@ def seed_text(store, tid: int, instruction: str = None, repo: str = None, cwd: s
     from . import blackboard as bb
     aware = bb.briefing(store, cwd, exclude_tid=tid) if cwd else ''
     if aware: parts.append(aware)
+    # ...and what those agents SAID, which is the half no amount of reading git can reconstruct.
+    # It rides even when nobody else is running: the last session's "ready to push, tests green"
+    # is exactly what the next one needs, and by then that session is gone.
+    if cwd:
+        said = bb.wall_text(store, cwd)
+        if said: parts.append(said)
     if instruction and instruction.strip(): parts.append(f'ASK: {instruction.strip()}')
     from .triage import strip_boilerplate
     if m: parts.append(f"FROM {m.get('FromName') or m.get('FromEmail')} on {m.get('Channel')}, "

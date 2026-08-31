@@ -11,7 +11,9 @@ from loguru import logger
 from .store import task_ref
 
 
-def norm(p): return os.path.normcase(os.path.normpath(p or ''))
+# normpath('') is '.', which is a real relative path and would make every checkout-less note
+# look like it belonged to whatever directory the reader happens to be standing in
+def norm(p): return os.path.normcase(os.path.normpath(p)) if str(p or '').strip() else ''
 
 
 def dirty(cwd) -> set:
@@ -64,6 +66,65 @@ def peers(store, cwd, exclude_tid=None) -> list:
             out.append({'tid': r['TaskId'], 'ref': task_ref(r['TaskId']), 'title': task.get('Title') or '',
                         'agent': r['AgentName'], 'files': trace_files(r.get('TraceJson')), 'started': r.get('StartedAt')})
     return out
+
+
+# ── the wall: what agents tell EACH OTHER ────────────────────────────────────────────────
+# peers() and dirty() are facts read off git and the run trace - true, and about as expressive
+# as a security camera. They cannot say "the migration is half-applied, do not run the tests
+# yet" or "this is ready, push it". Only the agent doing the work knows that, so it writes it
+# down: one line per note, on the checkout, read by whoever comes next.
+KINDS = ('working', 'note', 'blocked', 'ready', 'done')
+KIND_HINT = {'working': 'what it is doing right now', 'note': 'anything the next agent needs',
+             'blocked': 'waiting on something or someone', 'ready': 'finished and safe to push',
+             'done': 'pushed or closed out'}
+
+
+def post(store, body: str, kind: str = 'note', agent: str = '', cwd: str = '', tid: int = None,
+         files: str = '') -> dict:
+    """One note on the wall. Everything but the words is optional: an agent that knows only what
+    it wants to say still gets to say it."""
+    body = ' '.join(str(body or '').split())[:1200]
+    if not body: raise ValueError('a note with no words is not a note')
+    kind = str(kind or 'note').lower().strip()
+    if kind not in KINDS: raise ValueError(f"kind must be one of {', '.join(KINDS)}")
+    nid = store.add_note({'TaskId': tid, 'Agent': agent or 'agent', 'Cwd': norm(cwd), 'Kind': kind,
+                          'Body': body, 'Files': files or ''})
+    return dict(store.get_note(nid))
+
+
+def wall(store, cwd: str = '', limit: int = 12) -> list:
+    return store.notes(norm(cwd) if cwd else None, limit)
+
+
+def _ago(stamp) -> str:
+    from datetime import datetime
+    try: mins = (datetime.now() - datetime.fromisoformat(str(stamp)[:19].replace(' ', 'T'))).total_seconds() / 60
+    except (TypeError, ValueError): return ''
+    if mins < 1: return 'just now'
+    if mins < 60: return f'{int(mins)}m ago'
+    if mins < 48 * 60: return f'{int(mins // 60)}h ago'
+    return f'{int(mins // 1440)}d ago'
+
+
+HOW_TO_POST = ('Post your own with `taskuary --note "..."` (--kind working|note|blocked|ready|done): '
+               'when you start, when you find something the next agent would waste an hour on, and '
+               '`--kind ready` before you push.')
+
+
+def wall_text(store, cwd: str, limit: int = 8) -> str:
+    """The wall, for the seed prompt: a POINTER, not a transcript.
+
+    A seed is typed into a TUI on one line, and the whole document does not belong there - the
+    newest note plus the command that shows the rest is what makes an agent go and read it.
+    CODER.md carries the full etiquette; this is the nudge that says there is something to read
+    RIGHT NOW. Nothing at all when the wall is empty: a paragraph saying "no notes" is tokens
+    spent to say nothing."""
+    rows = wall(store, cwd, limit)
+    if not rows: return ''
+    top = rows[0]
+    return (f'THE WALL: {len(rows)} note(s) the agents before you left on this checkout - read them '
+            f'before you touch anything: `taskuary --board`. Newest, {top["Agent"]} '
+            f'({_ago(top["CreatedAt"])}) [{top["Kind"]}]: {top["Body"][:220]} ' + HOW_TO_POST)
 
 
 def briefing(store, cwd, exclude_tid=None) -> str:

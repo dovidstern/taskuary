@@ -11,10 +11,12 @@ import ViewInArIcon from "@mui/icons-material/ViewInAr";
 import StudioView from "./StudioView.jsx";
 import WallView from "./WallView.jsx";
 import GridViewIcon from "@mui/icons-material/GridView";
+import ForumIcon from "@mui/icons-material/Forum";
 import AddIcon from "@mui/icons-material/Add";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
 import api from "./api";
+import AgentWall from "./AgentWall.jsx";
 import { NO_REPO, planTask } from "./newTask.js";
 import { pollWhileVisible } from "./visible.js";
 import { ALERT, PANEL, PANEL2, BORDER, CATPPUCCIN, DIM, FAINT, INK, card, hoverable, mono } from "./theme.jsx";
@@ -336,6 +338,9 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
       {err && <Alert severity="error" onClose={() => setErr("")} sx={{ mb: 1.5 }}>{err}</Alert>}
       <Box sx={{ display: "flex", alignItems: "center", mb: 1.25, gap: 1.5 }}>
         <Typography sx={{ color: INK, fontWeight: 800, fontSize: 15, flex: 1 }}>Agent board</Typography>
+        {view === "notes" && <Typography variant="caption" sx={{ color: FAINT, fontSize: 10.5 }}>
+          What the agents leave for each other — they read it before they start, and post before they push.
+        </Typography>}
         {view === "floor" && <Typography variant="caption" sx={{ color: FAINT, fontSize: 10.5 }}>
           One desk per agent that can run at once — an empty desk is capacity you are not using.
         </Typography>}
@@ -344,7 +349,8 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
         <Box sx={{ display: "flex", gap: 0.25, bgcolor: "#e7eae2", borderRadius: 2, p: "3px" }}>
           {[{ k: "columns", label: "Columns", icon: <ViewKanbanIcon sx={{ fontSize: 14 }} /> },
             { k: "studio", label: "Studio", icon: <ViewInArIcon sx={{ fontSize: 14 }} /> },
-            { k: "wall", label: "Wall", icon: <GridViewIcon sx={{ fontSize: 14 }} /> }].map((o) => (
+            { k: "wall", label: "Wall", icon: <GridViewIcon sx={{ fontSize: 14 }} /> },
+            { k: "notes", label: "Notes", icon: <ForumIcon sx={{ fontSize: 14 }} /> }].map((o) => (
               <Box key={o.k} onClick={() => setView(o.k)}
                 sx={{ display: "flex", alignItems: "center", gap: 0.6, height: 24, px: 1.1, borderRadius: 1.5,
                   fontSize: 12, fontWeight: view === o.k ? 700 : 500, cursor: "pointer",
@@ -386,6 +392,8 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
         </DialogContent>
       </Dialog>
 
+      {/* what the agents are telling EACH OTHER - the half of the board git cannot show */}
+      {view === "notes" && <AgentWall onOpenTask={onOpenTask} refresh={boardTick} />}
       {view === "studio" && <StudioView onOpenTask={onOpenTask} refresh={boardTick} />}
       {view === "wall" && <WallView onOpenTask={onOpenTask} onOpenReports={onOpenReports} refresh={boardTick} />}
 

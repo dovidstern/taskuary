@@ -43,7 +43,38 @@ def main():
                     help='triage dataset: build (labelled cases from your verdicts -> ~/.taskuary/eval), '
                          'evaluate (score the configured AI over them), ablate (score with and without memory), '
                          'share (anonymised copy for tests/data)')
+    # THE WALL (blackboard.py). An agent working in a terminal has a shell and no API token, so
+    # this is how it talks to the next agent: two flags, no arguments it has to be told - the
+    # session puts its own name, task and checkout in the environment.
+    ap.add_argument('--board', action='store_true',
+                    help='print the agent wall for this checkout - what the agents before you left here')
+    ap.add_argument('--note', metavar='TEXT',
+                    help='leave a line on the wall for the next agent (see --kind)')
+    ap.add_argument('--kind', default='note', metavar='KIND',
+                    help='working | note | blocked | ready | done - "ready" is how the next agent '
+                         'learns the tree is safe to build on')
     args = ap.parse_args()
+    if args.board or args.note:
+        import os, sys
+        from . import blackboard as bb
+        from .store import SQLiteStore, task_ref
+        try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, OSError): pass
+        store = SQLiteStore(config.db_path())
+        cwd = os.environ.get('TASKUARY_CWD') or os.getcwd()
+        who = os.environ.get('TASKUARY_AGENT') or 'agent'
+        tid = os.environ.get('TASKUARY_TASK')
+        if args.note:
+            try: n = bb.post(store, args.note, args.kind, who, cwd, int(tid) if str(tid).isdigit() else None)
+            except ValueError as e: print(f'not posted: {e}'); return
+            print(f"posted to the wall as {n['Agent']} [{n['Kind']}]")
+            return
+        rows = bb.wall(store, cwd, 20)
+        print(f'the wall - {cwd}' if rows else f'the wall is empty for {cwd} - you are first')
+        for r in reversed(rows):
+            ref = f" {task_ref(r['TaskId'])}" if r.get('TaskId') else ''
+            print(f"  [{r['Kind']}] {r['Agent']}{ref} {bb._ago(r['CreatedAt'])}: {r['Body']}")
+        return
     if args.evalset:
         import sys
         from . import evalset

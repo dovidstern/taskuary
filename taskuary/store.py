@@ -148,6 +148,13 @@ CREATE TABLE IF NOT EXISTS dispatchq (QId INTEGER PRIMARY KEY, TaskId INTEGER, B
   Agent TEXT, Reason TEXT, CreatedAt TEXT);
 CREATE TABLE IF NOT EXISTS waitroom (WId INTEGER PRIMARY KEY, TaskId INTEGER, Note TEXT, CreatedBy TEXT,
   CreatedAt TEXT, DeliveredAt TEXT, How TEXT);
+-- The agent wall (blackboard.py): what one agent leaves for the next one in the same
+-- checkout. Derived facts (who holds which file) are read off git and the run trace and are
+-- never stored; this is the part only the agent knows - what it is doing, what it found, what
+-- it is about to push, and what the next one must not touch.
+CREATE TABLE IF NOT EXISTS boardnote (NoteId INTEGER PRIMARY KEY, TaskId INTEGER, Agent TEXT,
+  Cwd TEXT, Kind TEXT, Body TEXT, Files TEXT, CreatedAt TEXT, ReadBy TEXT);
+CREATE INDEX IF NOT EXISTS idx_boardnote_cwd ON boardnote(Cwd, NoteId);
 CREATE TABLE IF NOT EXISTS learned_history (Id INTEGER PRIMARY KEY, Key TEXT, Text TEXT, Status TEXT, Score INTEGER,
   Ev TEXT, Action TEXT, Actor TEXT, At TEXT);
 CREATE TABLE IF NOT EXISTS idea (IdeaId INTEGER PRIMARY KEY, Key TEXT UNIQUE, Kind TEXT, Text TEXT, ActionJson TEXT, Sig TEXT,
@@ -1078,6 +1085,25 @@ class SQLiteStore:
             self._exec(f"UPDATE policy SET {','.join(f'{c}=?' for c in cols)} WHERE PolicyId=?", [fields[c] for c in cols] + [pid])
             return pid
         return self._insert('policy', fields, POLICY_COLS, {'CreatedBy': actor})
+    # ── the agent wall (blackboard.py) ──────────────────────────────────────────────────
+    def add_note(self, fields) -> int:
+        return self._insert('boardnote', {**fields, 'CreatedAt': _now()},
+                            ('TaskId', 'Agent', 'Cwd', 'Kind', 'Body', 'Files', 'CreatedAt', 'ReadBy'))
+    def notes(self, cwd: str = None, limit: int = 60) -> list:
+        """Newest first. A checkout's own wall when cwd is given - a peer in another repo is
+        none of this agent's business - and everything when it is not (the Board shows all)."""
+        if cwd: return self._rows('SELECT * FROM boardnote WHERE Cwd=? ORDER BY NoteId DESC LIMIT ?', (cwd, int(limit)))
+        return self._rows('SELECT * FROM boardnote ORDER BY NoteId DESC LIMIT ?', (int(limit),))
+    def mark_note_read(self, note_id: int, who: str):
+        """Who has actually read it - the Board shows an unread note differently, and an agent
+        that says it read the wall can be taken at its word."""
+        row = self.get_note(note_id)
+        if not row: return
+        seen = [w for w in str(row.get('ReadBy') or '').split(',') if w]
+        if who in seen: return
+        self._exec('UPDATE boardnote SET ReadBy=? WHERE NoteId=?', (','.join(seen + [who]), note_id))
+    def get_note(self, note_id: int): return self._one('SELECT * FROM boardnote WHERE NoteId=?', (note_id,))
+
     def list_sources(self, active_only=True):
         return self._rows('SELECT * FROM source' + (' WHERE Active=1' if active_only else ''))
     def save_source(self, fields, actor):

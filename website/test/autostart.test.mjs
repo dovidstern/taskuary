@@ -1,0 +1,65 @@
+// "New task → Ask the assistant" opened the chat on the right task and left it EMPTY: the
+// prompt the owner typed never got asked (TQ-0275 "Whats up", 2026-08-31).
+//
+// Two faults, both of them about a task's data belonging to that task:
+//   1. `detail` is not cleared when the selection changes, so for one render it still holds the
+//      PREVIOUS task - and the decision was made from that one's Kind, Summary and repo.
+//   2. the seed was cleared "whenever the selection changes", which is the very event that
+//      produced it: set and wiped in the same commit, gone before the chat mounted.
+import assert from "node:assert/strict";
+import test from "node:test";
+import { autostartPlan, isGeneralKind, seedFor } from "../src/autostart.js";
+
+const detailOf = (TaskId, Kind, Summary = "") => ({ task: { TaskId, Kind, Summary } });
+
+test("a general task hands its prompt to the chat", () => {
+  const plan = autostartPlan({ autostart: { taskId: 7 }, selected: 7,
+    detail: detailOf(7, "general", "Whats up"), hasSession: false });
+  assert.equal(plan.do, "chat");
+  assert.deepEqual(plan.seed, { taskId: 7, text: "Whats up" });
+});
+
+test("the PREVIOUS task's detail decides nothing", () => {
+  // the exact window that broke it: selection has moved to 7, detail still holds 6
+  const plan = autostartPlan({ autostart: { taskId: 7 }, selected: 7,
+    detail: detailOf(6, "general", "the last task's prompt"), hasSession: false });
+  assert.equal(plan.do, "wait");
+});
+
+test("the seed is only ever handed to the task it came from", () => {
+  const seed = { taskId: 7, text: "Whats up" };
+  assert.equal(seedFor(seed, 7), "Whats up");
+  assert.equal(seedFor(seed, 8), "");        // moved on: the next task must not inherit the ask
+  assert.equal(seedFor(null, 7), "");
+});
+
+test("a coding task starts a terminal, and never a second one", () => {
+  const args = { autostart: { taskId: 7 }, selected: 7, detail: detailOf(7, "coding", "fix the thing") };
+  assert.equal(autostartPlan({ ...args, hasSession: false }).do, "terminal");
+  assert.equal(autostartPlan({ ...args, hasSession: true }).do, "wait");
+});
+
+test("a chat that already has a session is still asked - its thread decides, not us", () => {
+  const plan = autostartPlan({ autostart: { taskId: 7 }, selected: 7,
+    detail: detailOf(7, "general", "Whats up"), hasSession: true });
+  assert.equal(plan.do, "chat");
+});
+
+test("nothing happens without an autostart, or for a different task", () => {
+  const detail = detailOf(7, "general", "Whats up");
+  assert.equal(autostartPlan({ autostart: null, selected: 7, detail }).do, "wait");
+  assert.equal(autostartPlan({ autostart: { taskId: 9 }, selected: 7, detail }).do, "wait");
+  assert.equal(autostartPlan({ autostart: { taskId: 7 }, selected: 7, detail: null }).do, "wait");
+});
+
+test("a task with no prompt still opens the chat, with nothing to ask", () => {
+  const plan = autostartPlan({ autostart: { taskId: 7 }, selected: 7, detail: detailOf(7, "general", "") });
+  assert.deepEqual(plan.seed, { taskId: 7, text: "" });
+});
+
+test("every kind the assistant workspace handles is a chat", () => {
+  for (const k of ["general", "Research", "marketing", "triage", "assistant", undefined])
+    assert.equal(isGeneralKind(k), true, String(k));
+  assert.equal(isGeneralKind("coding"), false);
+  assert.equal(isGeneralKind("reply"), false);
+});

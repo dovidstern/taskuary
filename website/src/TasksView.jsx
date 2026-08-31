@@ -36,6 +36,8 @@ import { TerminalPane } from "./TerminalView.jsx";
 // chunks by content, so that tab asks the new server for a filename the build no longer has.
 // Recover once automatically; a real module error still reaches the view boundary on retry.
 const GENERAL_CHUNK_RELOAD = "tq-general-chunk-reload";
+import { autostartPlan, isGeneralKind, seedFor } from "./autostart.js";
+
 const loadGeneralWorkspace = () => import("./GeneralWorkspace.jsx").then((module) => {
   try { sessionStorage.removeItem(GENERAL_CHUNK_RELOAD); } catch { /* storage disabled */ }
   return module;
@@ -57,7 +59,6 @@ const repoOf = (t) => (String(t?.Tags || "").match(/repo:([^\s,]+)/) || [])[1] |
 const STATUSES = ["open", "in_progress", "waiting", "done", "dropped"];
 // `assistant` is a legacy alias from Timeline discussions. New discussions use `general`, but
 // old ones must still open here instead of falling through to the coding terminal.
-const GENERAL_KINDS = new Set(["general", "research", "marketing", "triage", "assistant"]);
 // CATEGORY is where a task is; the chip on the row says what it needs. Filtering by "needs
 // you" and "working" separately made those two look like opposites, so a task whose agent
 // picked it up vanished out of the bucket you were watching - and a task sitting in "needs
@@ -300,25 +301,20 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
   // A GENERAL task has no repository and no CLI - it is a question, worked in the assistant's
   // own chat below. Starting a terminal on it was the bug behind "why did this open in a
   // terminal?": the prompt is handed to the chat instead, which asks it as the first message.
-  const [chatSeed, setChatSeed] = useState("");
+  const [chatSeed, setChatSeed] = useState(null);      // {taskId, text} - see autostart.js
   useEffect(() => {
-    if (!autostart || autostart.taskId !== selected || !detail) return;
-    const general = GENERAL_KINDS.has(String(detail.task?.Kind || "general").toLowerCase());
-    // an existing CLI session is the reason not to start a second one; the chat has no such
-    // problem - its own thread decides whether the question has already been asked
-    if (!general && term !== null) return;
+    const plan = autostartPlan({ autostart, selected, detail, hasSession: term !== null });
+    if (plan.do === "wait") return;
     onAutostarted?.();
-    if (general) { setChatSeed(String(detail.task?.Summary || "").trim()); return; }
+    if (plan.do === "chat") { setChatSeed(plan.seed); return; }
     openTerm({ agent: autostart.agent || run.agent, model: autostart.model || run.model || null,
       task_id: selected, repo: repoOf(detail.task), seed: true });
   }, [autostart, selected, term, detail, openTerm, onAutostarted, run.agent]);
-  // one ask per arrival: the seed is spent the moment the chat has it
-  useEffect(() => { setChatSeed(""); }, [selected]);
 
 
   // the pane shows the selected task or nothing - never the previous one while this loads
   const t = detail?.task?.TaskId === selected ? detail.task : null;
-  const isGeneral = GENERAL_KINDS.has(String(t?.Kind || "general").toLowerCase());
+  const isGeneral = isGeneralKind(t?.Kind);
   const search = query.trim();
   // Search means the whole archive, regardless of the selected state pill or today's cutoff. That
   // is what makes a completed PR/task discoverable instead of merely searching the visible rows.
@@ -530,7 +526,7 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
                 {isGeneral ? (
                   <React.Suspense fallback={<Box sx={{ flex: 1, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}>
                     <GeneralWorkspace task={t} onSession={generalSession} onOpenReports={onGoReports}
-                      seed={chatSeed} onSeeded={() => setChatSeed("")} />
+                      seed={seedFor(chatSeed, selected)} onSeeded={() => setChatSeed(null)} />
                   </React.Suspense>
                 ) : wrapping && !wrapped ? (
                   <Box sx={{ ...card, bgcolor: "#e3e6e1", border: "1px solid #d2d6cf" }}>

@@ -85,6 +85,49 @@ def run_intacct_fields(cfg):
     return rows_out(fields_of(cfg, obj), lim, unit='fields', mine=mine)
 
 
+def run_metric(cfg):
+    """{"name": "ebitdar", "scope": "NORFOLK", "period": "2026-07"} - ONE certified number.
+
+    This is the semantic layer's front door (semantic.py): the metric's definition was proved
+    against numbers the owner already knew, so the answer is the company's number and not a
+    plausible one. A metric that is not verified refuses rather than answering.
+    """
+    from . import semantic
+    st = cfg.get('store')
+    if st is None: raise RuntimeError('the metric tool reads the saved definitions - it needs the store')
+    name = (cfg.get('name') or cfg.get('metric') or '').strip()
+    if not name: raise RuntimeError('which metric? e.g. {"type": "metric", "name": "ebitdar", "scope": "NORFOLK", "period": "2026-07"}')
+    r = semantic.resolve(st, name, cfg.get('scope'), cfg.get('period'))
+    head = f"{r['label']} · {r.get('scope') or 'all'} · {r.get('period') or 'all time'} = {r['value']:,.2f}"
+    body = (f"{head}\n\n{r['definition']}\n\nVerified {r.get('verifiedAt') or ''} · {r['rows']} row(s) from "
+            f"{r['object']} · filters {json.dumps(r['filters'])}")
+    return head, body
+
+
+def run_metric_check(cfg):
+    """{"name": "ebitdar"} or {} for all of them - re-prove the definitions against their known
+    numbers. Scheduled, this is the tripwire: a chart-of-accounts change stops reconciling and
+    the metric is demoted to broken on the timeline instead of quietly returning a wrong figure."""
+    from . import semantic
+    st = cfg.get('store')
+    if st is None: raise RuntimeError('the metric check reads the saved definitions - it needs the store')
+    name = (cfg.get('name') or '').strip()
+    rows = [st.metric_by_name(name)] if name else st.list_metrics()
+    if not rows or rows == [None]: raise RuntimeError(f'no metric called {name!r}' if name else 'no metrics defined yet')
+    out, bad = [], 0
+    for m in rows:
+        r = semantic.check(st, m['MetricId'], cfg.get('actor') or 'schedule')
+        bad += r['status'] != 'verified'
+        out.append(f"{r['status'].upper():9} {r['name']} — {r['passed']}/{r['of']} known numbers reconcile"
+                   + (f" · {r['note']}" if r['note'] else ''))
+        out += [f"    {x['scope']} {x['period']}: expected {x['expected']:,.2f}, got "
+                + (f"{x['got']:,.2f} (off {x['off']:,.2f})" if x.get('got') is not None else f"ERROR {x.get('error')}")
+                for x in r['results'] if not x['pass']]
+    head = (f"{len(rows) - bad}/{len(rows)} metric(s) still reconcile"
+            + (f" · {bad} need attention" if bad else ''))
+    return head, '\n'.join(out)
+
+
 AGENT_SYSTEM = ('You are running a SCHEDULED REPORT for a busy operator. Do exactly what the instruction '
                 'says - use your tools, read what you need to read - and then answer with the report itself: '
                 'plain text or markdown, concrete (numbers, names, dates, deltas), no preamble and no '
@@ -445,6 +488,8 @@ REGISTRY = {'sqlite': run_sqlite, 'mssql': run_mssql, 'database': run_database,
             'prometheus': run_prometheus, 'datadog': run_datadog,
             'winrm': run_winrm, 'mcp': run_mcp, 'rest': run_rest,
             'intacct': run_intacct, 'intacct_fields': run_intacct_fields,
+            # the semantic layer over the ERP: a number that was PROVED, and the check that keeps it proved
+            'metric': run_metric, 'metric_check': run_metric_check,
             'rss': run_rss, 'digest': run_digest, 'automate': run_automate, 'assistant': run_assistant,
             'calendar': _calendar,       # the owner's busy times, off the Outlook (and Google) cards - read-only
             'agent': run_agent,          # the AI itself: a saved skill or a prompt, run by a CLI agent on the schedule
@@ -566,7 +611,8 @@ CONNECTION_OF = {'mssql': mssql_connection, 'winrm': winrm_connection, 'database
 
 
 def resolve_cfg(store, cfg: dict) -> dict:
-    if cfg.get('type') in ('digest', 'automate', 'assistant', 'agent', 'calendar', 'kb_search', 'kb_reindex'):
+    if cfg.get('type') in ('digest', 'automate', 'assistant', 'agent', 'calendar', 'kb_search', 'kb_reindex',
+                           'metric', 'metric_check'):
         return {**cfg, 'store': store}   # their data IS the store (the agent's: its profile; the calendar's: the cards; the knowledge base: its index)
     conn = CONNECTION_OF.get(cfg.get('type'))
     if conn:

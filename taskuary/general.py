@@ -34,6 +34,33 @@ Never copy secrets, access tokens, incidental debugging, old findings, or the pr
 Do not mention this conversation. Do not add a schedule; the user chooses that separately."""
 
 
+# The conversation IS the teaching surface. An assistant that quietly guesses at a customised
+# ERP is worse than one that says "I do not know this number yet, let us prove it" - so the
+# route from "I asked for EBITDAR" to "EBITDAR is now a certified metric" is written out here,
+# in the prompt, rather than left for the owner to know about.
+TEACH_ME = """TEACHING YOU A NUMBER
+When the owner asks for a figure out of a customised system and there is no certified definition
+for it, do not guess and do not present an unverified figure as the answer. Say what you do not
+know yet, then walk this through with them:
+1. Look at the real schema first - POST /api/tools/run {"type": "intacct_fields", "object": "GLENTRY"}
+   tells you what this company's copy of the object actually has, custom fields included.
+2. Propose a definition in plain words (what it means, what one row is), and a spec:
+   {"object": "...", "value_field": "...", "aggregate": "sum", "filters": [["LOCATIONID", "=", "{scope}"],
+    ["BATCH_DATE", ">=", "{period_start}"], ["BATCH_DATE", "<=", "{period_end}"]]}.
+   Save it: POST /api/semantic/metrics {"Name": "...", "Label": "...", "Grain": "...",
+   "Definition": "...", "Spec": {...}}.
+3. Try it: POST /api/semantic/metrics/<id>/try {"scope": "...", "period": "2026-07"} - this records
+   nothing, it just shows you the number so you can adjust the spec and try again.
+4. ASK THE OWNER for a few facilities and periods whose correct numbers they already know, and save
+   each: POST /api/semantic/metrics/<id>/fixtures {"Scope": "...", "Period": "2026-07",
+   "Expected": 123456.78, "Source": "where they got it"}. Never invent one of these.
+5. Prove it: POST /api/semantic/metrics/<id>/check. It becomes verified only when every known
+   number reconciles - and it will tell you which ones did not, so you can fix the spec and
+   re-check. Write what you learned into the metric's Notes as you go.
+Once verified it is frozen into a skill and every later run uses it, so this is worth doing
+properly once rather than approximately every time."""
+
+
 def handles(task: dict | None) -> bool:
     """Kinds that belong to the conversational agent rather than a coding or reply workflow."""
     return str((task or {}).get('Kind') or 'general').lower() in GENERAL_KINDS
@@ -96,13 +123,19 @@ def _prompt(store, tid: int) -> tuple[str, str]:
     task = detail.get('task') or {}
     soul = _cut(store.doc('soul') or '', 4_000)
     counsel = _cut(store.doc('counsel') or '', 3_000)
+    # What is CERTIFIED about the company's own systems. Without it the assistant writes a
+    # plausible ERP query, gets a plausible number, and states it with the confidence of a
+    # proved one - which is the failure the semantic layer exists to prevent.
+    from . import semantic
+    layer = semantic.block(store)
     system = (
         "You are the Taskuary general-work assistant. Help complete research, planning, writing, "
         "marketing, operational, and other non-coding work. The task and source material below are "
         "authoritative. Be direct and useful. Never claim you searched the web, opened a system, sent "
         "something, or changed a record unless a tool actually did it. Ask when a necessary fact is "
         "missing. Do not turn this into a coding task or instruct a coding CLI.\n\n"
-        f"OPERATOR RULES\n{_cut(soul, 4_000)}\n\nASSISTANT STYLE\n{_cut(counsel, 3_000)}"
+        + (f'{layer}\n\n{TEACH_ME}\n\n' if layer else f'{TEACH_ME}\n\n')
+        + f"OPERATOR RULES\n{_cut(soul, 4_000)}\n\nASSISTANT STYLE\n{_cut(counsel, 3_000)}"
     )
     sources = []
     for m in (detail.get('messages') or [])[-12:]:

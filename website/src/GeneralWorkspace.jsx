@@ -10,10 +10,12 @@ import SmartToyIcon from "@mui/icons-material/SmartToy";
 import EventRepeatIcon from "@mui/icons-material/EventRepeat";
 import TerminalIcon from "@mui/icons-material/Terminal";
 import ViewDayIcon from "@mui/icons-material/ViewDay";
+import FunctionsIcon from "@mui/icons-material/Functions";
 import api from "./api.js";
 import { streamAssistant, toolTarget } from "./assistantStream.js";
 import { Md } from "./md.jsx";
 import { SessionPane, TerminalPane } from "./TerminalView.jsx";
+import SemanticPanel from "./SemanticPanel.jsx";
 import { BORDER, DIM, FAINT, INK, PANEL, PANEL2, mono } from "./theme.jsx";
 import "./generalWorkspace.css";
 
@@ -267,13 +269,18 @@ export function GeneralWorkspace({ task, onSession, onOpenReports, compact = fal
           onClick={() => chooseView("assistant")} sx={{ minWidth: 0, fontSize: 11 }}>Assistant</Button>
         <Button size="small" startIcon={<TerminalIcon sx={{ fontSize: 14 }} />} variant={view === "terminal" ? "contained" : "text"}
           onClick={() => chooseView("terminal")} sx={{ minWidth: 0, fontSize: 11 }}>Terminal</Button>
+        {/* what it is ALLOWED to state as fact about our own numbers - the chat teaches it, this shows it */}
+        <Button size="small" startIcon={<FunctionsIcon sx={{ fontSize: 14 }} />} variant={view === "numbers" ? "contained" : "text"}
+          onClick={() => chooseView("numbers")} sx={{ minWidth: 0, fontSize: 11 }}>Numbers</Button>
       </Box>
       {error && <Alert severity="error" sx={{ borderRadius: 0, py: 0 }}>{error}</Alert>}
       {!data?.providers?.length && <Alert severity="info" sx={{ borderRadius: 0, py: 0 }}>Add a CLI agent in Settings to run this work. API providers are optional.</Alert>}
       <input ref={fileRef} hidden type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onChange={(e) => upload(e.target.files)} />
       {uploading && <Box sx={{ px: 1, py: 0.5, color: FAINT, fontSize: 11 }}>Attaching image…</Box>}
       <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-        {session && view === "terminal" ? (
+        {view === "numbers" ? (
+          <SemanticPanel />
+        ) : session && view === "terminal" ? (
           <TerminalPane sid={session.sid} height="100%" />
         ) : session ? (
           <SessionPane sid={session.sid} height="100%">

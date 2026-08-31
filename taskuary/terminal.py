@@ -745,6 +745,11 @@ def seed_text(store, tid: int, instruction: str = None, repo: str = None, cwd: s
     # unrelated copies in Downloads and concluded it had been told to consult a document it is
     # structurally incapable of seeing. It was right. These docs live in Taskuary's database;
     # if the prompt does not carry them, nothing does.
+    # what is CERTIFIED about the company's own systems - a coder asked a finance question on a
+    # general task would otherwise write its own ERP query and be plausibly wrong
+    from . import semantic
+    layer = ' '.join(semantic.block(store).split())
+    if layer: parts.append(layer)
     soul = ' '.join(str(store.doc('soul') or '').split())[:SOUL_CHARS]
     if soul: parts.append(f'OPERATOR RULES (SOUL.md - authoritative): {no_emails(soul)}')
     rules = rules_text(store)

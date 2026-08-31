@@ -158,6 +158,13 @@ CREATE TABLE IF NOT EXISTS report_run (RunId INTEGER PRIMARY KEY, SourceId INTEG
 CREATE TABLE IF NOT EXISTS kb_doc (DocId INTEGER PRIMARY KEY, ConnectorId INTEGER, Source TEXT, Path TEXT, Name TEXT, Modified TEXT,
   Size INTEGER, Chars INTEGER, IndexedAt TEXT);
 CREATE TABLE IF NOT EXISTS kb_chunk (ChunkId INTEGER PRIMARY KEY, DocId INTEGER, Seq INTEGER, Text TEXT);
+CREATE TABLE IF NOT EXISTS metric (MetricId INTEGER PRIMARY KEY, Name TEXT UNIQUE, Label TEXT, Grain TEXT,
+  Definition TEXT, SpecJson TEXT, Notes TEXT, Status TEXT DEFAULT 'draft', ConnectorId INTEGER,
+  Skill TEXT, LastCheckAt TEXT, LastCheckPass INTEGER, LastCheckNote TEXT,
+  CreatedBy TEXT, CreatedAt TEXT, UpdatedBy TEXT, UpdatedAt TEXT);
+CREATE TABLE IF NOT EXISTS metric_fixture (FixtureId INTEGER PRIMARY KEY, MetricId INTEGER, Scope TEXT,
+  Period TEXT, Expected REAL, Tolerance REAL, Source TEXT, LastGot REAL, LastAt TEXT, LastPass INTEGER,
+  LastError TEXT, CreatedBy TEXT, CreatedAt TEXT);
 """
 # the knowledge base's search index (knowledge.py). A VIRTUAL table, kept out of SCHEMA: a Python
 # built without FTS5 must still open the store - search then falls back to LIKE over kb_chunk.
@@ -1353,6 +1360,52 @@ class SQLiteStore:
                         'seq': r['Seq'], 'score': round(-float(r['score']), 3), 'snippet': ' '.join(str(r['snip'] or '').split())})
             if len(out) >= limit: break
         return out
+
+    # ── the semantic layer (semantic.py): what a business number MEANS in this company's books ──
+    # A metric is a definition plus the known-good numbers it was proved against. It is only
+    # 'verified' while every fixture still reconciles, so a chart-of-accounts change demotes it
+    # rather than quietly returning a wrong number.
+    METRIC_COLS = ('Name', 'Label', 'Grain', 'Definition', 'SpecJson', 'Notes', 'Status', 'ConnectorId', 'Skill')
+    def list_metrics(self, status=None) -> list:
+        w, p = (' WHERE Status=?', (status,)) if status else ('', ())
+        return self._rows(f'SELECT * FROM metric{w} ORDER BY Name', p)
+    def get_metric(self, mid: int): return self._one('SELECT * FROM metric WHERE MetricId=?', (mid,))
+    def metric_by_name(self, name: str): return self._one('SELECT * FROM metric WHERE Name=?', (str(name or '').strip().lower(),))
+    def save_metric(self, fields: dict, actor: str) -> int:
+        name = str(fields.get('Name') or '').strip().lower()
+        if not name: raise ValueError('a metric needs a name')
+        old = self.metric_by_name(name)
+        if old:
+            self.update_metric(old['MetricId'], {k: v for k, v in fields.items() if k != 'Name'}, actor)
+            return old['MetricId']
+        mid = self._insert('metric', {**fields, 'Name': name}, self.METRIC_COLS,
+                           {'CreatedBy': actor, 'CreatedAt': _now(), 'UpdatedBy': actor, 'UpdatedAt': _now()})
+        self._bump_snapshots()
+        return mid
+    def update_metric(self, mid: int, fields: dict, actor: str):
+        d = {k: v for k, v in fields.items() if k in self.METRIC_COLS + ('LastCheckAt', 'LastCheckPass', 'LastCheckNote') and v is not None}
+        if not d: return
+        d |= {'UpdatedBy': actor, 'UpdatedAt': _now()}
+        self._exec(f"UPDATE metric SET {','.join(f'{k}=?' for k in d)} WHERE MetricId=?", [*d.values(), mid])
+        self._bump_snapshots()
+    def delete_metric(self, mid: int):
+        self._exec('DELETE FROM metric_fixture WHERE MetricId=?', (mid,))
+        self._exec('DELETE FROM metric WHERE MetricId=?', (mid,))
+        self._bump_snapshots()
+
+    def list_fixtures(self, mid: int) -> list:
+        return self._rows('SELECT * FROM metric_fixture WHERE MetricId=? ORDER BY Scope, Period', (mid,))
+    def add_fixture(self, mid: int, fields: dict, actor: str) -> int:
+        fid = self._insert('metric_fixture', {**fields, 'MetricId': mid},
+                           ('MetricId', 'Scope', 'Period', 'Expected', 'Tolerance', 'Source'),
+                           {'CreatedBy': actor, 'CreatedAt': _now()})
+        self._bump_snapshots()
+        return fid
+    def record_fixture(self, fid: int, got, passed: bool, error: str = None):
+        self._exec('UPDATE metric_fixture SET LastGot=?, LastAt=?, LastPass=?, LastError=? WHERE FixtureId=?',
+                   (got, _now(), 1 if passed else 0, error, fid))
+    def delete_fixture(self, fid: int):
+        self._exec('DELETE FROM metric_fixture WHERE FixtureId=?', (fid,)); self._bump_snapshots()
 
 
 class MemoryStore(SQLiteStore):

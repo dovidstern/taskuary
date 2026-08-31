@@ -2530,6 +2530,82 @@ def knowledge_search(q: str, limit: int = 8, connector_id: int | None = None):
     from . import knowledge
     return {'data': knowledge.search(store, q, max(1, min(50, limit)), connector_id)}
 
+# ── the semantic layer (semantic.py): business numbers proved against known ones ──
+class MetricBody(BaseModel):
+    Name: str | None = None; Label: str | None = None; Grain: str | None = None
+    Definition: str | None = None; Spec: dict | None = None; Notes: str | None = None
+    ConnectorId: int | None = None
+
+class FixtureBody(BaseModel):
+    """One number the owner already knows is right - the only thing that can prove a definition."""
+    Scope: str | None = None; Period: str | None = None
+    Expected: float; Tolerance: float | None = None; Source: str | None = None
+
+class TryBody(BaseModel): scope: str | None = None; period: str | None = None
+
+def _metric_row(m: dict) -> dict:
+    return {**m, 'Spec': json.loads(m.get('SpecJson') or '{}'), 'fixtures': store.list_fixtures(m['MetricId'])}
+
+@app.get('/api/semantic/metrics')
+def metrics_list(status: str = None):
+    """Every definition with its known numbers and whether they still reconcile."""
+    from . import semantic
+    return {'data': [_metric_row(m) for m in store.list_metrics(status)], 'minFixtures': semantic.MIN_FIXTURES}
+
+@app.post('/api/semantic/metrics')
+def metric_save(body: MetricBody):
+    """Write (or rewrite) a definition. Saving NEVER makes it trusted - only check() does, and
+    editing the spec of a verified metric puts it back to draft, because the proof was of the
+    old query and nothing has proved the new one."""
+    if not (body.Name or '').strip(): raise HTTPException(422, 'a metric needs a name')
+    old = store.metric_by_name(body.Name)
+    fields = {'Name': body.Name, 'Label': body.Label, 'Grain': body.Grain, 'Definition': body.Definition,
+              'Notes': body.Notes, 'ConnectorId': body.ConnectorId}
+    if body.Spec is not None: fields['SpecJson'] = json.dumps(body.Spec)
+    if old and body.Spec is not None and json.dumps(body.Spec) != (old.get('SpecJson') or ''):
+        fields['Status'] = 'draft'
+    mid = store.save_metric({k: v for k, v in fields.items() if v is not None}, ACTOR)
+    store.audit('metric', mid, 'save', ACTOR, detail={'name': body.Name, 'respec': bool(old and fields.get('Status'))})
+    return _metric_row(store.get_metric(mid))
+
+@app.delete('/api/semantic/metrics/{mid}')
+def metric_delete(mid: int):
+    if not store.get_metric(mid): raise HTTPException(404, 'no such metric')
+    store.delete_metric(mid); store.audit('metric', mid, 'delete', ACTOR)
+    return {'ok': True}
+
+@app.post('/api/semantic/metrics/{mid}/fixtures')
+def metric_add_fixture(mid: int, body: FixtureBody):
+    if not store.get_metric(mid): raise HTTPException(404, 'no such metric')
+    fid = store.add_fixture(mid, body.dict(), ACTOR)
+    store.audit('metric', mid, 'fixture_add', ACTOR, detail={'scope': body.Scope, 'period': body.Period, 'expected': body.Expected})
+    return _metric_row(store.get_metric(mid)) | {'fixtureId': fid}
+
+@app.delete('/api/semantic/fixtures/{fid}')
+def metric_drop_fixture(fid: int):
+    store.delete_fixture(fid)
+    return {'ok': True}
+
+@app.post('/api/semantic/metrics/{mid}/try')
+def metric_try(mid: int, body: TryBody = None):
+    """Run the definition once WITHOUT recording anything - the exploration step. This is how a
+    definition gets to the point of being worth proving: try it on a facility, look at the
+    number, adjust the spec, try again."""
+    from . import semantic
+    m = store.get_metric(mid)
+    if not m: raise HTTPException(404, 'no such metric')
+    body = body or TryBody()
+    try: return semantic.evaluate(store, m, body.scope, body.period)
+    except Exception as e: raise HTTPException(422, str(e)[:400])
+
+@app.post('/api/semantic/metrics/{mid}/check')
+def metric_check(mid: int):
+    """Re-prove it against every known number. The only road to 'verified' - and the road back."""
+    from . import semantic
+    if not store.get_metric(mid): raise HTTPException(404, 'no such metric')
+    try: return semantic.check(store, mid, ACTOR)
+    except ValueError as e: raise HTTPException(422, str(e))
+
 # ── the agent's browser, beside its terminal (browserview.py) ──
 @app.get('/api/terminals/{sid}/browser')
 def terminal_browser(sid: str):

@@ -90,6 +90,12 @@ const FIELDS = {
     ["filters, one per line: FIELD op value", "filters", "filter_lines",
       "WHENDUE <= 08/31/2026\nSTATE = Posted"], AI_FIELD],
   intacct_fields: [["object", "object", "text", "APBILL \u2014 what does this object actually carry?"], AI_FIELD],
+  // the semantic layer (Assistant \u2192 Numbers): a number that was PROVED against numbers the owner
+  // already knew, and the scheduled check that demotes it the day it stops reconciling
+  metric: [["metric name", "name", "text", "ebitdar"],
+    ["facility \u2014 or whatever names one row of the grain", "scope", "text", "NORFOLK"],
+    ["period", "period", "text", "2026-07 \u00b7 2026 \u00b7 2026-07-01..2026-07-31"], AI_FIELD],
+  metric_check: [["metric name (blank = check every one)", "name", "text", "ebitdar"], AI_FIELD],
   // the AI itself as the source: a coding CLI agent runs a saved skill (a slash command) and/or a
   // prompt on the schedule, and what it answers IS the report - "run my weekly user-management
   // review every Monday". The summary pass is optional: the agent already wrote prose.
@@ -122,6 +128,7 @@ const TYPE_LABELS = {
   entra_signins: "Entra ID — sign-ins", entra_licenses: "Entra ID — licence seats",
   prometheus: "Prometheus", datadog: "Datadog monitors",
   intacct: "Sage Intacct", intacct_fields: "Intacct \u2014 what fields exist",
+  metric: "A certified number (Assistant \u2192 Numbers)", metric_check: "Re-prove the certified numbers",
   digest: "Taskuary digest", automate: "Automation ideas (own data)", assistant: "Assistant — its post on the Timeline (its voice: COUNSEL.md, Docs tab)",
   agent: "AI agent — run a skill or a prompt",
   local_file: "File on this computer",
@@ -142,7 +149,7 @@ const TYPE_GROUPS = [
   ["Azure", ["azure", "azure_blob", "azure_logs"]],
   ["Microsoft 365 — Entra ID", ["entra_users", "entra_groups", "entra_signins", "entra_licenses"]],
   ["Monitoring", ["prometheus", "datadog"]],
-  ["Corporate systems", ["intacct", "intacct_fields"]],
+  ["Corporate systems", ["intacct", "intacct_fields", "metric", "metric_check"]],
   ["The AI itself", ["agent"]],
   ["Research the web", ["tavily", "exa", "reader", "firecrawl"]],
   ["The web", ["rest", "rss"]],

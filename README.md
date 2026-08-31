@@ -26,9 +26,10 @@ reply, and every available next step.
 
 ![The Timeline with mail, chats, reports, active tasks, and an Assistant post on one rail.](https://raw.githubusercontent.com/ldbumble/taskuary/master/docs/screenshot-timeline-crop.png)
 
-Real work can go straight to Claude Code, Codex, Gemini, Cursor, Copilot, or any CLI that
+Coding work can go straight to Claude Code, Codex, Gemini, Cursor, Copilot, or any CLI that
 accepts a prompt on stdin. You watch the live terminal, answer questions, review the diff,
-and approve what happens next.
+and approve what happens next. Research, marketing, and other general work belong in a
+conversational workspace designed around the task rather than a coding terminal.
 
 ## An assistant that notices what falls between tasks
 
@@ -84,6 +85,7 @@ connection before it goes live.
 - [Product guide](docs/product-guide.md)—the workflow, learning loop, agents, and operator documents
 - [Integrations](docs/integrations.md)—channels, AI providers, work systems, and report sources
 - [Status and roadmap](docs/roadmap.md)—what works today and what is next
+- [Taskuary Agent design](docs/taskuary-agent.md)—the separate customizable CopilotKit/AG-UI app agent
 - [Contributing](CONTRIBUTING.md)—development setup and contribution guide
 
 Taskuary is free and open source under the [MIT License](LICENSE). Issues and pull requests

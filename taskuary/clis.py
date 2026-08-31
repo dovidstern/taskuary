@@ -20,8 +20,6 @@ KNOWN = [
      'args': ['exec', '--dangerously-bypass-approvals-and-sandbox'], 'timeout': 1500},
     {'name': 'gemini', 'cmd': 'gemini', 'label': 'Gemini CLI',
      'args': ['-p', '--yolo'], 'timeout': 1500},
-    {'name': 'opencode', 'cmd': 'opencode', 'label': 'OpenCode',
-     'args': ['run'], 'timeout': 1500},
     {'name': 'aider', 'cmd': 'aider', 'label': 'Aider',
      'args': ['--yes-always', '--no-auto-commits', '--message'], 'timeout': 1500},
 ]

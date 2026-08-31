@@ -162,7 +162,7 @@ const CliPicker = ({ asBrain, onDone }) => {
     <Box>
       {list.length === 0 ? (
         <Typography variant="caption" sx={{ color: FAINT }}>
-          No AI CLI found on your PATH. Claude Code, Codex, Gemini CLI and OpenCode are all detected automatically once installed.
+          No AI CLI found on your PATH. Claude Code, Codex, and Gemini CLI are detected automatically once installed.
         </Typography>
       ) : list.map((cli) => (
         <Box key={cli.name} sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.5 }}>

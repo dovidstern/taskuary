@@ -450,7 +450,9 @@ def set_task_repo(task_id: int, body: RepoBody):
         config.save(cfg)
         store.upsert_agent(body.agent, row.get('Kind') or 'coding', 'cli', json.dumps(prof))
     store.add_comment(task_id, ACTOR, 'human',
-                      f'Repo set to {body.repo} - the session works there and the prompt says so.'
+                      'Marked general - no repository. The session opens in the agent\'s own folder '
+                      'and the prompt says there is no codebase to change.' if body.repo == hub_term.NO_REPO
+                      else f'Repo set to {body.repo} - the session works there and the prompt says so.'
                       if body.repo else 'Cleared the repo - Taskuary picks it from the ask again.')
     store.audit('task', task_id, 'set_repo', ACTOR, detail={'repo': body.repo, 'path': body.path})
     out = {'ok': True, 'repo': body.repo}
@@ -1120,6 +1122,34 @@ def calendar_today():
     from . import calendar as cal
     try: return cal.today(store)
     except Exception as e: return {'date': None, 'now': None, 'events': [], 'tz': None, 'errors': [str(e)[:200]]}
+
+class MeetingPrepBody(BaseModel):
+    """The event as the Timeline panel already has it, plus what the owner wants done about it."""
+    subject: str | None = None; start: str | None = None; end: str | None = None
+    where: str | None = None; organizer: str | None = None; who: list[str] = []
+    about: str | None = None; link: str | None = None; status: str | None = None
+    all_day: bool = False
+    instruction: str | None = None; agent: str = 'coder'; model: str | None = None
+
+@app.post('/api/calendar/prep')
+def calendar_prep(body: MeetingPrepBody):
+    """"Get me ready for this one": the meeting on the Timeline, handed to an agent with your
+    own prompt. The invite (when, where, who, what it says) becomes the task's context and your
+    prompt is the ask, so the session opens already knowing which meeting it is about.
+
+    It is tagged `repo:none` - preparing for a meeting is not a change to a codebase, and
+    without the tag the router would pick whichever checkout the words happened to match.
+    """
+    from . import calendar as cal
+    if not store.get_agent(body.agent): raise HTTPException(422, f'unknown agent: {body.agent}')
+    subject = (body.subject or 'the meeting').strip()[:120]
+    brief = cal.prep_brief(body.dict())
+    tid = store.create_task({'Title': f'Prep: {subject}'[:200], 'Summary': brief, 'Kind': 'coding',
+                             'Tags': f'repo:{hub_term.NO_REPO}', 'Source': 'calendar',
+                             'SourceRef': f"calendar:{body.start or ''}:{subject}"[:200]}, ACTOR)
+    store.audit('task', tid, 'create_from_meeting', ACTOR, detail={'subject': subject, 'start': body.start})
+    ses = start_session(store, tid, body.agent, body.model, body.instruction)
+    return {'taskId': tid, 'ref': task_ref(tid), 'agent': body.agent, 'session': ses}
 
 @app.get('/api/calendar/upcoming')
 def calendar_upcoming(hours: int = 72, force: bool = False):

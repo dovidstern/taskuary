@@ -702,7 +702,14 @@ def seed_text(store, tid: int, instruction: str = None, repo: str = None, cwd: s
     msgs = [m for m in store.list_messages(tid) if m.get('Status') != 'context']
     m = msgs[-1] if msgs else None
     parts = [f"TASK {task_ref(tid)} - {t.get('Title') or ''}."]
-    if repo or cwd: parts.append(f"REPO: {repo or cwd} - you are already in it; work only here.")
+    # A general question is told so out loud. Without this the folder the CLI happens to have
+    # started in was announced as "REPO: ... work only here", and an agent asked to prepare for a
+    # meeting went reading that codebase for the answer.
+    if repo_tag(t) == NO_REPO:
+        parts.append('NO REPOSITORY - this is a general question, not a change to a codebase. '
+                     'Answer it from what you are given and what you can look up; do not go '
+                     'hunting for code to edit.')
+    elif repo or cwd: parts.append(f"REPO: {repo or cwd} - you are already in it; work only here.")
     # the blackboard: agents sharing THIS checkout, told to a newcomer once, up front. Another
     # repo's agents are deliberately absent - awareness costs prompt tokens, so it is spent
     # only where a collision is physically possible.
@@ -894,6 +901,15 @@ def remember_path(store, agent: str, repo: str, path: str):
         logger.warning(f'could not persist the found path to config: {e}')
 
 
+# The tag a task carries when the owner said "this one is not about a codebase".
+NO_REPO = 'none'
+
+
+def repo_tag(task: dict) -> str | None:
+    """The `repo:` tag on a task, if it has one - the override that always wins over the guess."""
+    return (re.search(r'repo:([^\s,]+)', str((task or {}).get('Tags') or '')) or [None, None])[1]
+
+
 def guess_repo(store, tid: int, profile: dict) -> tuple:
     """Which checkout does this task belong in? The tag on the task wins - that is the override,
     and the only thing that always does what it says.
@@ -907,7 +923,12 @@ def guess_repo(store, tid: int, profile: dict) -> tuple:
     Taskuary deciding this is the point: an agent left to work it out reads SOUL.md over the API,
     or guesses from the folder it happens to have started in."""
     t = store.get_task(tid) or {}
-    tag = (re.search(r'repo:([^\s,]+)', str(t.get('Tags') or '')) or [None, None])[1]
+    tag = repo_tag(t)
+    # "no repository" is an ANSWER, not a missing one: a general question ("what does this mean",
+    # "prepare me for this meeting") has no checkout, and leaving the field blank used to hand it
+    # to the guess below - which then opened the highest-scoring repo and set an agent looking for
+    # code to change. Only the explicit tag stops that.
+    if tag == NO_REPO: return None, 'a general question - no repository'
     if tag: return tag, 'tagged on the task'
     paths = profile.get('cwd_map') or {}
     # no repo paths at all = this agent does not do repo routing. Naming one anyway would put a

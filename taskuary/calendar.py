@@ -175,6 +175,29 @@ def span(start: str, end: str) -> str:
     return f"{_h12(a, not same)}-{_h12(b)}"
 
 
+def prep_brief(e: dict) -> str:
+    """Everything the invite knows, as the opening context of a "get me ready for this" task.
+
+    The panel already has the event, so the brief is built from what it sends rather than read
+    back off Graph - the meeting may be on any of several mailboxes and a second lookup would
+    have to find it again. Nothing here is the ask; the owner's own prompt is that.
+    """
+    e = e or {}
+    day = str(e.get('start') or '')[:10]
+    when = 'all day' if e.get('all_day') else span(str(e.get('start') or ''), str(e.get('end') or ''))
+    lines = [f"MEETING: {e.get('subject') or '(no title)'}",
+             f"WHEN: {day} {when}".rstrip()]
+    if e.get('where'): lines.append(f"WHERE: {e['where']}")
+    if e.get('status') and e['status'] not in ('busy', ''): lines.append(f"MY RSVP: {e['status']}")
+    if e.get('organizer'): lines.append(f"ORGANIZER: {e['organizer']}")
+    who = [w for w in (e.get('who') or []) if w]
+    lines.append(f"WHO ELSE IS IN IT: {', '.join(who)}" if who else 'WHO ELSE IS IN IT: nobody else is listed on the invite')
+    lines.append(f"WHAT THE INVITE SAYS: {e['about']}" if e.get('about')
+                 else 'WHAT THE INVITE SAYS: nothing beyond the title')
+    if e.get('link'): lines.append(f"IN THE CALENDAR: {e['link']}")
+    return '\n'.join(lines)
+
+
 def render(ag: dict) -> str:
     """The agenda as a prompt reads it: one line per event, grouped by day, free days named."""
     if not ag['sources']: return ''

@@ -12,11 +12,18 @@ import StudioView from "./StudioView.jsx";
 import WallView from "./WallView.jsx";
 import GridViewIcon from "@mui/icons-material/GridView";
 import AddIcon from "@mui/icons-material/Add";
+import AttachFileIcon from "@mui/icons-material/AttachFile";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
 import api from "./api";
 import { pollWhileVisible } from "./visible.js";
 import { ALERT, PANEL, PANEL2, BORDER, CATPPUCCIN, DIM, FAINT, INK, card, hoverable, mono } from "./theme.jsx";
-import { ChannelIcon, ActionChip, AgentPicker, useAgents, timeAgo, Empty, IDLE_WAITING, isWaiting, TellAgent, WorkPane } from "./ui.jsx";
+import { ChannelIcon, ActionChip, AgentPicker, useAgents, timeAgo, Empty, IDLE_WAITING, isWaiting, PromptThumbs, TellAgent, WorkPane, usePromptImages } from "./ui.jsx";
+
+// Not every ask is about a codebase - "what does this policy mean", "draft me a note", "prepare
+// me for this meeting". The task carries `repo:none`, which is the one answer the picker could
+// never give before: with the field left blank Taskuary still GUESSED a checkout, so a general
+// question opened in whichever repo scored highest and the agent went looking for code to change.
+const NO_REPO = "none";
 
 // "coder · running" says nothing you can act on. How long it has been going, and what it is
 // touching right now, is what tells you whether to leave it alone or go look.
@@ -251,6 +258,7 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
   // how = does an agent start on it now, or does it just get filed. There is no third
   // option: work always happens in a session you can watch and talk to.
   const [nt, setNt] = useState({ Title: "", Summary: "", how: "live", repo: "", agent: "coder", model: "" });
+  const shots = usePromptImages();      // screenshots on the new task's prompt, same as the Wall's queue box
 
   const load = useCallback(async () => {
     try { setTasks(((await api.get("/api/tasks", { params: { active: 1 } })).data.data || []).filter((t) => t.Status !== "dropped")); }
@@ -284,14 +292,22 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
   };
 
   const create = async () => {
+    const repo = nt.repo && nt.repo !== NO_REPO ? nt.repo : null;
     const { data } = await api.post("/api/tasks", { Title: nt.Title, Summary: nt.Summary || null, Kind: "coding",
       Tags: nt.repo ? `repo:${nt.repo}` : null });
+    // The images can only be stored against a task, so they upload now and the prompt gains the
+    // sentence that names them - the seed reads Summary, so this has to land before the session.
+    try {
+      const ref = await shots.upload(data.taskId);
+      if (ref) await api.patch(`/api/tasks/${data.taskId}`, { Summary: [nt.Summary || "", ref].filter(Boolean).join("\n\n") });
+    } catch (e) { setErr(e?.response?.data?.detail || "Task created, but the images could not be attached"); }
+    shots.clear();
     setNewOpen(false); setNt((cur) => ({ ...cur, Title: "", Summary: "" }));
     // The details field IS the prompt - it gets typed into the session. A task born on the
     // Board stays on the Board: start its terminal here, whichever board view is showing.
     if (nt.how === "live") {
       try {
-        await api.post("/api/terminals", { agent: nt.agent, model: nt.model || null, task_id: data.taskId, repo: nt.repo || null, seed: true });
+        await api.post("/api/terminals", { agent: nt.agent, model: nt.model || null, task_id: data.taskId, repo, seed: true });
         setBoardTick((n) => n + 1);
       } catch (e) {
         // The task was created successfully, so keep it visible on the Board and explain only
@@ -473,19 +489,29 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
         <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 1.5, pt: "8px !important" }}>
           <TextField label="Task name — how it reads on the board" value={nt.Title}
             onChange={(e) => setNt({ ...nt, Title: e.target.value })} />
-          <TextField label="Prompt — what you want the agent to do" multiline minRows={4} maxRows={12} value={nt.Summary}
-            placeholder="Exactly what to do, where to look, what done means. This text is sent to the agent as its instruction."
-            onChange={(e) => setNt({ ...nt, Summary: e.target.value })} />
-          {repos.length > 0 && (
-            <Box>
-              <Typography variant="caption" sx={{ color: FAINT, display: "block", mb: 0.5 }}>
-                Repository — the issue lands here and the agent works in this context
-              </Typography>
-              <Select fullWidth size="small" value={nt.repo} onChange={(e) => setNt({ ...nt, repo: e.target.value })}>
-                {repos.map((r) => <MenuItem key={r} value={r} sx={{ fontSize: 12.5 }}>{r}</MenuItem>)}
-              </Select>
+          <Box>
+            <TextField fullWidth label="Prompt — what you want the agent to do" multiline minRows={4} maxRows={12} value={nt.Summary}
+              placeholder="Exactly what to do, where to look, what done means. This text is sent to the agent as its instruction. Paste a screenshot to send it along."
+              onChange={(e) => setNt({ ...nt, Summary: e.target.value })} onPaste={shots.onPaste} />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5 }}>
+              <Button size="small" component="label" startIcon={<AttachFileIcon sx={{ fontSize: 14 }} />} sx={{ fontSize: 10.5, color: DIM }}>
+                attach images
+                <input hidden multiple type="file" accept="image/*"
+                  onChange={(e) => { shots.add(e.target.files); e.target.value = ""; }} />
+              </Button>
+              <Typography variant="caption" sx={{ color: FAINT, fontSize: 10 }}>or paste one straight into the prompt</Typography>
             </Box>
-          )}
+            <PromptThumbs imgs={shots.imgs} onDrop={shots.drop} />
+          </Box>
+          <Box>
+            <Typography variant="caption" sx={{ color: FAINT, display: "block", mb: 0.5 }}>
+              Repository — the issue lands here and the agent works in this context
+            </Typography>
+            <Select fullWidth size="small" value={nt.repo} onChange={(e) => setNt({ ...nt, repo: e.target.value })}>
+              {repos.map((r) => <MenuItem key={r} value={r} sx={{ fontSize: 12.5 }}>{r}</MenuItem>)}
+              <MenuItem value={NO_REPO} sx={{ fontSize: 12.5 }}>General — no repository, just a question to answer</MenuItem>
+            </Select>
+          </Box>
           <Box>
             <Typography variant="caption" sx={{ color: FAINT, display: "block", mb: 0.5 }}>
               Agent and model — which CLI works it, and which model that CLI runs

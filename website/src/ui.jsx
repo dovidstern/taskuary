@@ -993,6 +993,49 @@ export const scoreBar = (v) => (
 // Compact filter pill row used across views.
 // Segmented control: one contained housing, obviously interactive; the active segment
 // fills with its muted color pair {bg, fg, bd} (indigo default), the rest stay quiet.
+// Screenshots on a prompt box, wherever there is one. A pty carries text only, so the image
+// goes to disk when you send and the NOTE names the file - a coding CLI reads images from a
+// path (Claude Code's Read does), which is how it gets to see what you pasted. Shared, because
+// "paste a screenshot" that works in one prompt box and silently does nothing in the next is
+// the bug: the Wall's queue had it, the New task dialog did not.
+export const usePromptImages = () => {
+  const [imgs, setImgs] = React.useState([]);
+  const add = (files) => setImgs((s) => [...s, ...[...(files || [])].filter((f) => f && /^image\//.test(f.type))
+    .map((f) => ({ id: Math.random().toString(36).slice(2), file: f, url: URL.createObjectURL(f) }))]);
+  const onPaste = (e) => {
+    const files = [...(e.clipboardData?.items || [])].filter((i) => i.kind === "file" && /^image\//.test(i.type)).map((i) => i.getAsFile()).filter(Boolean);
+    if (!files.length) return;
+    e.preventDefault(); add(files);
+  };
+  const drop = (id) => setImgs((s) => { const g = s.find((x) => x.id === id); if (g) URL.revokeObjectURL(g.url); return s.filter((x) => x.id !== id); });
+  const clear = () => setImgs((s) => { s.forEach((x) => URL.revokeObjectURL(x.url)); return []; });
+  // needs a task to hang them on, so this runs after the task exists; returns the sentence
+  // that names the saved files, to be joined onto the prompt the agent is seeded with.
+  const upload = async (taskId) => {
+    const paths = [];
+    for (const im of imgs) paths.push((await api.post(`/api/tasks/${taskId}/waitroom/image`, im.file, { headers: { "Content-Type": im.file.type } })).data.path);
+    if (!paths.length) return "";
+    return `${paths.length === 1 ? "Pasted image - open it with your image/Read tool:" : "Pasted images - open them with your image/Read tool:"} ${paths.map((x) => `"${x}"`).join(" ")}`;
+  };
+  return { imgs, add, onPaste, drop, clear, upload };
+};
+
+// The pasted screenshots, as a strip of thumbnails under the box they were pasted into.
+export const PromptThumbs = ({ imgs, onDrop, h = 40, note = true }) => !imgs.length ? null : (
+  <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center", mt: 0.5 }}>
+    {imgs.map((im) => (
+      <Box key={im.id} sx={{ position: "relative" }}>
+        <Box component="img" src={im.url} alt="" sx={{ height: h, borderRadius: 0.75, border: "1px solid #ddd2b9", display: "block" }} />
+        <Box onClick={() => onDrop(im.id)} title="remove" sx={{ position: "absolute", top: -5, right: -5, width: 14, height: 14, borderRadius: 99,
+          bgcolor: "#6b5f45", color: "#fff", fontSize: 9, lineHeight: "14px", textAlign: "center", cursor: "pointer" }}>×</Box>
+      </Box>
+    ))}
+    {note && <Typography variant="caption" sx={{ color: "#6b5f45", fontSize: 10 }}>
+      {imgs.length === 1 ? "goes with the prompt, as a file the agent opens" : `${imgs.length} images go with the prompt`}
+    </Typography>}
+  </Box>
+);
+
 // THE WAITING ROOM, as a box you can type into from anywhere a task shows. What you think of
 // while the agent works goes in here and is typed into its session as one batch the moment it
 // stops - never mid-turn, never on top of a question it is waiting on you to answer. The same
@@ -1003,7 +1046,7 @@ export const TellAgent = ({ taskId, taskRef, compact = false, onQueued }) => {
   const [text, setText] = React.useState("");
   const [flash, setFlash] = React.useState("");
   const [many, setMany] = React.useState(false);      // paste a list: one prompt per line, queued in order
-  const [imgs, setImgs] = React.useState([]);         // screenshots pasted into the box, going with the note
+  const { imgs, onPaste, drop: dropImg, clear: dropImgs, upload: uploadImgs } = usePromptImages();
   const [showQ, setShowQ] = React.useState(false);    // Wall badge peeks at the queue, then folds itself away
   const peekTimer = React.useRef(null);
   const load = React.useCallback(async () => {
@@ -1013,27 +1056,15 @@ export const TellAgent = ({ taskId, taskRef, compact = false, onQueued }) => {
   React.useEffect(() => { load(); const id = setInterval(load, 15000); return () => clearInterval(id); }, [load]);
   React.useEffect(() => () => clearTimeout(peekTimer.current), []);
   const lines = text.split("\n").map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim()).filter(Boolean).length;
-  // A screenshot pasted in: held here as a thumbnail, uploaded when you queue. The pty carries
-  // text only, so the file goes to disk and the note names it - the agent opens it from there.
-  const onPaste = (e) => {
-    const files = [...(e.clipboardData?.items || [])].filter((i) => i.kind === "file" && /^image\//.test(i.type)).map((i) => i.getAsFile()).filter(Boolean);
-    if (!files.length) return;
-    e.preventDefault();
-    setImgs((s) => [...s, ...files.map((f) => ({ id: Math.random().toString(36).slice(2), file: f, url: URL.createObjectURL(f) }))]);
-  };
-  const dropImg = (id) => setImgs((s) => { const g = s.find((x) => x.id === id); if (g) URL.revokeObjectURL(g.url); return s.filter((x) => x.id !== id); });
-  const dropImgs = () => setImgs((s) => { s.forEach((x) => URL.revokeObjectURL(x.url)); return []; });
   const queue = async () => {
     if (!text.trim() && !imgs.length) return;
     try {
-      const paths = [];
-      for (const im of imgs) paths.push((await api.post(`/api/tasks/${taskId}/waitroom/image`, im.file, { headers: { "Content-Type": im.file.type } })).data.path);
-      const ref = !paths.length ? "" : `${paths.length === 1 ? "Pasted image - open it with your image/Read tool:" : "Pasted images - open them with your image/Read tool:"} ${paths.map((x) => `"${x}"`).join(" ")}`;
+      const ref = await uploadImgs(taskId);
       const body = [text.trim(), ref].filter(Boolean).join(many ? "\n" : " ");
       const { data } = many
         ? await api.post(`/api/tasks/${taskId}/waitroom/bulk`, { text: body })
         : await api.post(`/api/tasks/${taskId}/waitroom`, { text: body });
-      imgs.forEach((im) => URL.revokeObjectURL(im.url)); setImgs([]); setText(""); setMany(false);
+      dropImgs(); setText(""); setMany(false);
       if (many) { setFlash(`${data.queued} prompts queued — they drip in one per stop`); setTimeout(() => setFlash(""), 5000); load(); onQueued?.(data); return; }
       setFlash(data.delivered ? (data.state === "restarted" ? "session reopened with it" : "typed in — the agent was parked") : "queued — goes in when the agent stops");
       setTimeout(() => setFlash(""), 4000);
@@ -1065,20 +1096,7 @@ export const TellAgent = ({ taskId, taskRef, compact = false, onQueued }) => {
       sx={{ bgcolor: "#fffdfb", "& .MuiInputBase-input": { fontSize: compact ? 11.5 : 12.5 },
         ...(compact ? { "& .MuiInputBase-root": { py: "3px", px: 1 } } : {}) }} />
   );
-  const thumbs = imgs.length > 0 && (
-    <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center", mt: 0.5 }}>
-      {imgs.map((im) => (
-        <Box key={im.id} sx={{ position: "relative" }}>
-          <Box component="img" src={im.url} alt="" sx={{ height: compact ? 28 : 40, borderRadius: 0.75, border: "1px solid #ddd2b9", display: "block" }} />
-          <Box onClick={() => dropImg(im.id)} title="remove" sx={{ position: "absolute", top: -5, right: -5, width: 14, height: 14, borderRadius: 99,
-            bgcolor: "#6b5f45", color: "#fff", fontSize: 9, lineHeight: "14px", textAlign: "center", cursor: "pointer" }}>×</Box>
-        </Box>
-      ))}
-      <Typography variant="caption" sx={{ color: "#6b5f45", fontSize: 10 }}>
-        {imgs.length === 1 ? "goes with the note, as a file the agent opens" : `${imgs.length} images go with the note`}
-      </Typography>
-    </Box>
-  );
+  const thumbs = <PromptThumbs imgs={imgs} onDrop={dropImg} h={compact ? 28 : 40} />;
   const queueRows = pending.map((w, i) => (
         <Box key={w.WId} sx={{ display: "flex", gap: 0.75, alignItems: "baseline" }}>
           <Typography variant="caption" sx={{ ...mono, color: "#6b5f45", fontSize: 9.5, flexShrink: 0 }}>{i + 1}.</Typography>

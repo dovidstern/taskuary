@@ -27,7 +27,7 @@ import SmartToyIcon from "@mui/icons-material/SmartToy";
 import { Handoff } from "./Handoff.jsx";
 import { Reshape } from "./Reshape.jsx";
 import { Attachments } from "./Attachments.jsx";
-import { ChannelIcon, RefChip, ActionChip, ChoiceRow, ChoiceList, CoderReport, DiffBlock, Empty, FilterPills, ProofCard, SendToAgent, NotMine, fmtTime12, fmtDateTime, localDay, tsMs, cleanText, splitQuoted, IDLE_WAITING, TellAgentButton, LiveConsole, useVoiceReady } from "./ui.jsx";
+import { AgentPicker, ChannelIcon, RefChip, ActionChip, ChoiceRow, ChoiceList, CoderReport, DiffBlock, Empty, FilterPills, ProofCard, SendToAgent, NotMine, fmtTime12, fmtDateTime, localDay, tsMs, cleanText, splitQuoted, IDLE_WAITING, TellAgentButton, LiveConsole, useAgents, useVoiceReady } from "./ui.jsx";
 import MicIcon from "@mui/icons-material/Mic";
 import MicOffIcon from "@mui/icons-material/MicOff";
 import { Md, looksMd } from "./md.jsx";
@@ -245,9 +245,73 @@ const ComingUp = ({ events, onPick, picked }) => {
   return <Box sx={{ mb: 0.5 }}>{events.map((e, i) => <MeetingRow key={`${e.start}-${i}`} e={e} onPick={onPick} picked={picked} />)}</Box>;
 };
 
+// "Get me ready for this one." The panel says who is in it and what it is about; this is where
+// you say what to DO about that - pull the numbers, find the last thread, draft the questions.
+// The invite goes down with your prompt as the task's context, so the agent opens already
+// knowing which meeting it is; the task carries repo:none, because preparing for a meeting is
+// not a change to a codebase.
+const MeetingPrep = ({ e, onOpenTask }) => {
+  const { agents, models } = useAgents();
+  const [agent, setAgent] = useState("coder");
+  const [model, setModel] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(null);
+  const [err, setErr] = useState("");
+  useEffect(() => { if (agents.length && !agents.includes(agent)) setAgent(agents[0]); }, [agents, agent]);
+  useEffect(() => { setSent(null); setErr(""); setPrompt(""); }, [e.start, e.subject]);
+  const send = async () => {
+    setBusy(true); setErr("");
+    try {
+      const { data } = await api.post("/api/calendar/prep", {
+        subject: e.subject, start: e.start, end: e.end, where: e.where, organizer: e.organizer,
+        who: e.who || [], about: e.about, link: e.link, status: e.status, all_day: !!e.all_day,
+        instruction: prompt.trim() || null, agent, model: model || null });
+      setSent(data); setPrompt("");
+      onOpenTask?.(data.taskId);
+    } catch (x) { setErr(x?.response?.data?.detail || "Could not reach the agent"); }
+    setBusy(false);
+  };
+  if (sent) return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+      <SmartToyIcon sx={{ fontSize: 15, color: "#47654a" }} />
+      <Typography variant="caption" sx={{ color: "#47654a", fontWeight: 600 }}>
+        {sent.agent} is prepping it — {sent.ref}
+      </Typography>
+      <Button size="small" sx={{ fontSize: 11 }} onClick={() => onOpenTask?.(sent.taskId)}>watch it live →</Button>
+      <Button size="small" sx={{ fontSize: 11, color: DIM }} onClick={() => setSent(null)}>ask something else</Button>
+    </Box>
+  );
+  return (
+    <Box>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+        <PanelLabel>Prepare me for it</PanelLabel>
+        <Box sx={{ flex: 1 }} />
+        <AgentPicker agents={agents} models={models} agent={agent} model={model}
+          onAgent={setAgent} onModel={setModel} size={24} />
+      </Box>
+      <TextField fullWidth multiline minRows={2} maxRows={8} size="small" value={prompt}
+        onChange={(x) => setPrompt(x.target.value)}
+        placeholder={`What should it get ready? e.g. "Pull last month's numbers for these facilities and give me three questions to ask."`}
+        sx={{ bgcolor: "#fffdfb" }} />
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.75 }}>
+        <Typography variant="caption" sx={{ color: FAINT, flex: 1, minWidth: 0 }}>
+          it gets the invite — when, where, who is in it and what it says
+        </Typography>
+        <Button size="small" variant="contained" disableElevation disabled={busy || !prompt.trim()} onClick={send}
+          startIcon={busy ? <CircularProgress size={11} sx={{ color: "#fff" }} /> : <SmartToyIcon sx={{ fontSize: 14 }} />}
+          sx={{ fontSize: 11.5, bgcolor: "#6f8a6e", "&:hover": { bgcolor: "#5b7259" } }}>
+          {busy ? "sending…" : "Send to an agent"}
+        </Button>
+      </Box>
+      {err && <Typography variant="caption" sx={{ color: "#6b2733", display: "block", mt: 0.5 }}>{err}</Typography>}
+    </Box>
+  );
+};
+
 // A meeting, opened: the right panel's answer to "who is in it and what is it about" - the
 // invite's own words when it has any, the people (never you), where, and the way in.
-const EventPanel = ({ e, onClose }) => {
+const EventPanel = ({ e, onClose, onOpenTask }) => {
   const u = untilText(e.start, e.end);
   const when = e.all_day ? "all day" : `${fmtTime12(e.start)} – ${fmtTime12(e.end)}`;
   return (
@@ -290,6 +354,9 @@ const EventPanel = ({ e, onClose }) => {
             {e.link && <Button size="small" variant="outlined" component="a" href={e.link} target="_blank" rel="noreferrer">Open in calendar</Button>}
           </Box>
         )}
+        <Box sx={{ pt: 1.25, borderTop: `1px dashed ${BORDER}` }}>
+          <MeetingPrep e={e} onOpenTask={onOpenTask} />
+        </Box>
       </Box>
     </Box>
   );
@@ -1088,7 +1155,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
         <Box data-tq-keep sx={{ minWidth: 0, display: { xs: "none", md: "block" }, alignSelf: "stretch" }}
           onMouseEnter={disarmClose} onMouseLeave={armClose}>
           <Box sx={{ position: "sticky", top: `${navH + dockH + 6}px` }}>
-            {calSel && !sel ? <EventPanel e={calSel} onClose={() => setCalSel(null)} /> : (
+            {calSel && !sel ? <EventPanel e={calSel} onClose={() => setCalSel(null)} onOpenTask={onOpenTask} /> : (
               <ReviewCanvas sel={sel} detail={detail} editText={editText} setEditText={setEditText}
                 decide={decide} onOpenTask={onOpenTask} onClose={() => setSel(null)}
                 onSkipped={() => { setSel(null); load(); onChanged?.(); }} onRefresh={() => load()}

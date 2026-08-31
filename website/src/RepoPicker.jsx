@@ -10,6 +10,10 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import api from "./api";
 import { PANEL, PANEL2, BORDER, DIM, FAINT, INK, mono } from "./theme.jsx";
 
+// Not every task is about a codebase. "None" is a real answer here, not a blank one: unpinning
+// lets Taskuary guess again (and it will pick something), where this says there is nothing to pick.
+const NO_REPO = "none";
+
 export const RepoPicker = ({ taskId, agent = "coder", hasSession, onDone }) => {
   const [rows, setRows] = useState(null);
   const [picked, setPicked] = useState(null);
@@ -37,16 +41,38 @@ export const RepoPicker = ({ taskId, agent = "coder", hasSession, onDone }) => {
   };
 
   if (rows === null) return <CircularProgress size={14} />;
+  const general = why === "a general question - no repository";
+  const noRepoRow = (
+    <Box sx={{ border: `1px solid ${general ? "#c7d2fe" : BORDER}`, borderRadius: 1.5,
+      bgcolor: general ? "#eae4d8" : PANEL, px: 1.1, py: 0.7, mb: 0.6 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+        <AccountTreeIcon sx={{ fontSize: 14, color: general ? "#55697a" : FAINT }} />
+        <Typography variant="caption" sx={{ fontWeight: 700, color: general ? "#55697a" : INK, flex: 1, minWidth: 0 }} noWrap>
+          General — no repository
+        </Typography>
+        {general ? <CheckIcon sx={{ fontSize: 15, color: "#47654a" }} />
+          : <Button size="small" sx={{ fontSize: 10.5, minWidth: 0, px: 0.75 }} disabled={busy}
+              onClick={() => choose({ repo: NO_REPO, has_path: true })}>use this</Button>}
+      </Box>
+      <Typography variant="caption" sx={{ color: FAINT, display: "block", pl: 2.6, lineHeight: 1.35 }}>
+        A question to answer, not code to change — the session opens in the agent's own folder and is told so.
+      </Typography>
+    </Box>
+  );
   if (!rows.length) return (
-    <Typography variant="caption" sx={{ color: FAINT }}>
-      No repository map yet — add one to SOUL.md (Docs) and Taskuary can route tasks to a checkout.
-    </Typography>
+    <Box>
+      <Typography variant="caption" sx={{ color: FAINT, display: "block", mb: 0.75 }}>
+        No repository map yet — add one to SOUL.md (Docs) and Taskuary can route tasks to a checkout.
+      </Typography>
+      {noRepoRow}
+    </Box>
   );
   return (
     <Box>
       <Typography variant="caption" sx={{ color: DIM, display: "block", mb: 0.75 }}>
-        {picked ? <>Working in <b style={mono}>{picked}</b>{why ? ` — ${why}` : ""}.</>
-          : "No checkout chosen — the session opens in the agent's own folder."}
+        {general ? "No repository — this one is a general question, and the agent is told so."
+          : picked ? <>Working in <b style={mono}>{picked}</b>{why ? ` — ${why}` : ""}.</>
+            : "No checkout chosen — the session opens in the agent's own folder."}
         {" "}Pick another and the session restarts there with the prompt rewritten.
       </Typography>
       {rows.map((r) => {
@@ -100,6 +126,7 @@ export const RepoPicker = ({ taskId, agent = "coder", hasSession, onDone }) => {
           </Box>
         );
       })}
+      {noRepoRow}
       {err && <Typography variant="caption" sx={{ color: "#6b2733", display: "block" }}>{err}</Typography>}
       <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 0.5 }}>
         Paths saved here land on the agent — also editable in bulk under Settings → Agents

@@ -304,11 +304,14 @@ export function GeneralWorkspace({ task, onSession, onOpenReports, compact = fal
         <TextField size="small" value={model} placeholder="provider default" onChange={(e) => setModel(e.target.value)}
           onBlur={() => connectorId && updateProvider(connectorId, model)} sx={{ width: 150, "& input": { py: 0.55, fontSize: 11.5 } }} />
         <Button size="small" startIcon={<ViewDayIcon sx={{ fontSize: 14 }} />} variant={view === "assistant" ? "contained" : "text"}
+          title="The conversation. What the assistant is doing shows here as it works."
           onClick={() => chooseView("assistant")} sx={{ minWidth: 0, fontSize: 11 }}>Assistant</Button>
         <Button size="small" startIcon={<TerminalIcon sx={{ fontSize: 14 }} />} variant={view === "terminal" ? "contained" : "text"}
+          title="The same conversation as raw session output - what the CLI actually printed."
           onClick={() => chooseView("terminal")} sx={{ minWidth: 0, fontSize: 11 }}>Terminal</Button>
         {/* what it is ALLOWED to state as fact about our own numbers - the chat teaches it, this shows it */}
         <Button size="small" startIcon={<FunctionsIcon sx={{ fontSize: 14 }} />} variant={view === "numbers" ? "contained" : "text"}
+          title="Certified numbers: the figures this assistant is allowed to state as fact about your own systems, because each was proved against numbers you already knew. Teach it one by asking for a figure it does not have yet."
           onClick={() => chooseView("numbers")} sx={{ minWidth: 0, fontSize: 11 }}>Numbers</Button>
       </Box>
       {error && <Alert severity="error" sx={{ borderRadius: 0, py: 0 }}>{error}</Alert>}

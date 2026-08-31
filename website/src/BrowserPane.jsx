@@ -94,7 +94,9 @@ export default function BrowserPane({ sid, taskId, url: url0 = "", onFold, overl
         <Box title={live ? "live - frames are flowing" : "connecting…"}
           sx={{ width: 8, height: 8, borderRadius: 99, flexShrink: 0, bgcolor: live ? CATPPUCCIN.green : "#5a554d",
             boxShadow: live ? `0 0 0 3px ${CATPPUCCIN.green}33` : "none", transition: "background .3s" }} />
-        <Typography sx={{ ...mono, fontSize: 10.5, color: live ? "#c9c3b9" : FAINT, letterSpacing: 0.3, flexShrink: 0 }}>
+        <Typography title="The agent opened this page itself - this pane is its browser, watched live.
+Take over to drive it yourself; close the session to close it."
+          sx={{ ...mono, fontSize: 10.5, color: live ? "#c9c3b9" : FAINT, letterSpacing: 0.3, flexShrink: 0 }}>
           {live ? "LIVE" : "…"}
         </Typography>
         <Typography title={url} sx={{ ...mono, fontSize: 11, color: "#a8a196", flex: 1, minWidth: 0, overflow: "hidden",

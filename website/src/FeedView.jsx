@@ -16,6 +16,7 @@ import OpenInFullIcon from "@mui/icons-material/OpenInFull";
 import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import api from "./api";
 import { timelineOpacity } from "./timelineFade.js";
+import { availablePickerChannels, channelsForCategory } from "./feedFilters.js";
 import EventIcon from "@mui/icons-material/Event";
 import { pollWhileVisible } from "./visible.js";
 import { feedHeaders, feedOk, takeFeed } from "./feedLoad.js";
@@ -46,16 +47,12 @@ const VIEW_FILTERS = [
 // pill per mailbox, repo, channel and report would be unreadable by connection five).
 // Everything narrower lives in one grouped picker: category -> channel -> connection.
 const CATEGORIES = [
-  { key: "", label: "everything", channels: null, c: PILL_COLORS.pick },
-  { key: "messages", label: "messages", channels: ["email", "teams", "slack", "telegram", "whatsapp", "imessage", "discord"],
-    c: PILL_COLORS.pick },
-  { key: "code", label: "code", channels: ["github", "gitlab"], c: PILL_COLORS.pick },
-  { key: "pm", label: "boards", channels: ["jira", "asana", "monday", "clickup", "todoist", "linear", "trello", "notion", "azdo"],
-    c: PILL_COLORS.pick },
-  { key: "alerts", label: "alerts", channels: ["sentry", "pagerduty"], c: PILL_COLORS.pick },
-  { key: "cloud", label: "cloud", channels: ["aws", "azure"], c: PILL_COLORS.pick },
-  { key: "reports", label: "reports", channels: ["report"], c: PILL_COLORS.pick },
-  { key: "assistant", label: "assistant", channels: ["assistant"], c: PILL_COLORS.pick },
+  { key: "", label: "everything", c: PILL_COLORS.pick },
+  { key: "email", label: "email", c: PILL_COLORS.pick },
+  { key: "messages", label: "messages", c: PILL_COLORS.pick },
+  { key: "code", label: "code", c: PILL_COLORS.pick },
+  { key: "reports", label: "reports", c: PILL_COLORS.pick },
+  { key: "other", label: "other", c: PILL_COLORS.pick },
 ];
 const CHANNEL_LABELS = { email: "Mailboxes", teams: "Teams chats", slack: "Slack channels",
   telegram: "Telegram chats", whatsapp: "WhatsApp chats", imessage: "Apple Messages chats", discord: "Discord channels",
@@ -427,7 +424,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
   }, [spy]);
   const [rows, setRows] = useState(null);
   const [view, setView] = useState("");              // "" everything | "pending" needs me
-  const [cat, setCat] = useState("");                // "" everything | messages | code | reports
+  const [cat, setCat] = useState("");                // broad content family; exact choices live in the source picker
   const [pick, setPick] = useState("");              // "" all in category | "channel:x" | "src:channel:name"
   const [srcByChannel, setSrcByChannel] = useState({});   // channel -> connection names
   const [srcQ, setSrcQ] = useState("");                    // the picker's own search box
@@ -444,7 +441,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
   // one place turns (category, pick) into query params: a category is a channel csv, a
   // pick narrows to one channel or one named connection inside it
   const fparams = useCallback(() => {
-    const chans = (CATEGORIES.find((x) => x.key === cat) || {}).channels;
+    const chans = channelsForCategory(cat, Object.keys(srcByChannel));
     const p = { ...(view === "pending" ? { pending_only: true } : {}) };
     if (pick.startsWith("src:")) {
       const [, ch, ...rest] = pick.split(":");
@@ -455,7 +452,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
       p.channel = chans.join(",");
     }
     return p;
-  }, [view, cat, pick]);
+  }, [view, cat, pick, srcByChannel]);
 
   // Every channel is a CATEGORY; the picker next to it narrows to one actual connection —
   // this mailbox, this repo, this Slack channel, this report.
@@ -464,8 +461,12 @@ export default function FeedView({ onOpenTask, onChanged }) {
       const by = {};
       for (const s of data.data || []) {
         if (!s.Active) continue;
-        const ch = s.Channel === "report" ? "report" : s.Channel;
-        const name = s.Channel === "report" ? (JSON.parse(s.ConfigJson || "{}").title || s.Address) : s.Address;
+        let sourceConfig = {};
+        try { sourceConfig = JSON.parse(s.ConfigJson || "{}"); } catch { /* the address remains usable */ }
+        // The scheduled Assistant is configured as a report source, but its Timeline posts are
+        // channel=assistant. Put it under that exact picker option so filtering reaches the rows.
+        const ch = s.Channel === "report" && sourceConfig.type === "assistant" ? "assistant" : s.Channel;
+        const name = s.Channel === "report" ? (sourceConfig.title || s.Address) : s.Address;
         (by[ch] = by[ch] || []).push(name);
       }
       setSrcByChannel(by);
@@ -742,7 +743,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
   // Strict newest-first by sent time (UTC strings compare correctly), then group by local day.
   // The category is enforced here too: whatever the request returned, a row outside the
   // picked category never renders under its pill (mail was showing under "code").
-  const catChans = (CATEGORIES.find((x) => x.key === cat) || {}).channels;
+  const catChans = channelsForCategory(cat, Object.keys(srcByChannel));
   const sorted = [...(rows || [])].filter((r) => !catChans || catChans.includes(r.Channel))
     .sort((a, b) => (b.SentAt || "").localeCompare(a.SentAt || ""));
   const days = sorted.reduce((acc, r) => {
@@ -764,9 +765,8 @@ export default function FeedView({ onOpenTask, onChanged }) {
   // only offer channels that actually have a connection behind them. With no category
   // picked, EVERY connected channel is offered - a hardcoded five-channel list here
   // silently hid telegram/whatsapp/jira/... sources from the picker as connectors grew
-  const pickerChannels = ((CATEGORIES.find((x) => x.key === cat) || {}).channels
-    || [...new Set([...CATEGORIES.flatMap((c) => c.channels || []), ...Object.keys(srcByChannel)])])
-    .filter((ch) => (srcByChannel[ch] || []).length);
+  const availableChannels = [...new Set([...Object.keys(srcByChannel), ...(rows || []).map((r) => r.Channel)])];
+  const pickerChannels = availablePickerChannels(cat, availableChannels);
 
   const today = new Date().toLocaleDateString("sv-SE");
   const todays = (rows || []).filter((r) => localDay(r.SentAt) === today);
@@ -1322,8 +1322,10 @@ const ReviewCanvas = ({ sel, detail, editText, setEditText, decide, onOpenTask, 
           )}
         </Box>
 
-        {/* pinned: whatever the message does, the four options are on screen */}
-        {!loading && (
+        {/* Assistant posts carry actions on each individual idea. Applying message-level verdicts
+            such as "Not our task" to the assistant's whole digest is ambiguous and teaches the
+            wrong sender/topic lesson, so the generic message action tray does not belong there. */}
+        {!loading && sel.Channel !== "assistant" && (
           <Box sx={{ flexShrink: 0, borderTop: `1px solid ${BORDER}`, bgcolor: PANEL2, px: 2, pt: 0.25, pb: 1.25 }}>
           {/* These were four buttons in two rows, four sizes, two right-aligned - so "what are
               my options" needed a hunt, and a long message pushed the fourth off-screen. */}

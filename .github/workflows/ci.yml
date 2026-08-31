@@ -24,6 +24,12 @@ jobs:
       - run: pip install pyodbc
         if: runner.os == 'Windows'
       - run: pytest -q
+      - name: Desk and load CLI
+        env:
+          TASKUARY_HOME: ${{ runner.temp }}/taskuary-reg
+        run: |
+          python -m taskuary.testing desk
+          python -m taskuary.testing load 32 --force
 
   build-web:
     # the built UI is committed into taskuary/web; this proves the source still builds,
@@ -42,7 +48,8 @@ jobs:
 
   docker:
     # proves the image builds, serves the UI, persists across restart, and the
-    # token gate still works when TASKUARY_TOKEN is set
+    # token gate still works when TASKUARY_TOKEN is set. The regression desk is
+    # seeded into the regression volume first so /api/feed is a real Timeline.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -50,10 +57,11 @@ jobs:
       - name: Smoke the container
         run: |
           set -euo pipefail
-          docker compose up -d
+          docker compose --profile regression run --rm desk
+          docker compose --profile regression up -d taskuary-reg
           for i in $(seq 1 40); do
             if curl -sf http://127.0.0.1:7787/api/health | grep -q '"ok": *true'; then break; fi
-            if [ "$i" -eq 40 ]; then docker compose logs; exit 1; fi
+            if [ "$i" -eq 40 ]; then docker compose --profile regression logs; exit 1; fi
             sleep 1
           done
           curl -sf http://127.0.0.1:7787/ | grep -q Taskuary
@@ -61,18 +69,25 @@ jobs:
           test -n "$js"
           curl -sf "http://127.0.0.1:7787/assets/$js" -o /tmp/taskuary-asset.js
           test -s /tmp/taskuary-asset.js
+          python3 - <<'PY'
+          import json, urllib.request
+          data = json.load(urllib.request.urlopen('http://127.0.0.1:7787/api/feed'))['data']
+          assert data, 'desk left the Timeline empty'
+          assert any(r.get('ReviewStatus') == 'pending' for r in data), 'pending_draft missing from the feed'
+          print(len(data), 'feed rows after desk')
+          PY
           tid=$(curl -sf -X POST http://127.0.0.1:7787/api/tasks \
             -H 'content-type: application/json' -d '{"Title":"docker smoke"}' \
             | python3 -c "import sys,json; print(json.load(sys.stdin)['taskId'])")
-          docker compose restart
+          docker compose --profile regression restart taskuary-reg
           for i in $(seq 1 40); do
             if curl -sf http://127.0.0.1:7787/api/health >/dev/null; then break; fi
-            if [ "$i" -eq 40 ]; then docker compose logs; exit 1; fi
+            if [ "$i" -eq 40 ]; then docker compose --profile regression logs; exit 1; fi
             sleep 1
           done
           curl -sf http://127.0.0.1:7787/api/tasks | grep -q "$tid"
-          test "$(docker compose exec -T taskuary id -u)" = 1000
-          docker compose down
+          test "$(docker compose --profile regression exec -T taskuary-reg id -u)" = 1000
+          docker compose --profile regression down
           TASKUARY_TOKEN=s3cret docker compose up -d
           for i in $(seq 1 40); do
             if curl -sf http://127.0.0.1:7787/api/health >/dev/null; then break; fi

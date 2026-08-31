@@ -24,8 +24,8 @@ What it READS decides what it can say (the owner, 2026-08-30: "keep iterating fr
 it brings in until it says something useful and surprising"). Handed only subject lines and counts it
 wrote 'no content given' in its own notes; so the check now reads WHAT PEOPLE SAID (the words of every
 human thread of the last two days, the owner's lines marked), who is OUT OF OFFICE (from auto-replies -
-a chase to someone away is worse than silence), the CALENDAR, and the machines' mail with each report's
-schedule and each failure's cause beside the count. That is where "Yittie said exporting freezes the
+a chase to someone away is worse than silence), the CALENDAR, and the actual words in every rolled-up
+arrival (including machine mail), with each report's schedule and each failure's cause beside the count. That is where "Yittie said exporting freezes the
 app - and she is in Monday's meeting" comes from.
 
 It also leaves itself a NOTE: each check ends with what it looked at and found nothing in, when
@@ -342,8 +342,10 @@ def _cause(r: dict) -> str:
 def _recent(store, days: int = 2) -> str:
     """The last two days' arrivals, ROLLED UP: one line per sender+subject with a count, newest
     first. A pattern (87 alerts from one system, the same ask twice) is a number the model can see
-    instead of a list it has to count - and calendar-today at 00:49 was a 49-minute window. A report
-    carries its schedule, and a failure its cause (the machines are to be read, not counted)."""
+    instead of a list it has to count - and calendar-today at 00:49 was a 49-minute window. Every
+    line carries the latest message's actual words too: WHAT PEOPLE SAID has fuller human threads,
+    but invitations and other machine mail must not collapse to a subject line. A report carries
+    its schedule, and a failure its cause (the machines are to be read, not counted)."""
     by, sched, since = {}, _schedules(store), _since(days)
     for r in store.feed(limit=400, days=math.ceil(days)):
         if r.get('Channel') == CHANNEL or _ts(r.get('SentAt')) < since: continue
@@ -354,8 +356,11 @@ def _recent(store, days: int = 2) -> str:
     for (who, _), g in sorted(by.items(), key=lambda kv: -kv[1]['n'])[:35]:
         r = g['r']
         clock = f" [schedule: {sched[who]}]" if r.get('Channel') == 'report' and who in sched else ''
+        cause = _cause(r)
+        words = _gist(r.get('Preview'), 220)
+        detail = cause or (f' -> says: "{words}"' if words else '')
         lines.append(f"- {'x%d ' % g['n'] if g['n'] > 1 else ''}[{'/'.join(sorted(c for c in g['cats'] if c))}] {who}: \"{_short(r.get('Subject'), 70)}\" "
-                     f"(latest mid {r['MessageId']} {_when(r['SentAt'])}" + (f", {task_ref(r['TaskId'])}" if r.get('TaskId') else '') + ')' + clock + _cause(r))
+                     f"(latest mid {r['MessageId']} {_when(r['SentAt'])}" + (f", {task_ref(r['TaskId'])}" if r.get('TaskId') else '') + ')' + clock + detail)
     return '\n'.join(lines) or '(nothing arrived in the last two days)'
 
 
@@ -569,7 +574,7 @@ def inputs(store, cands: list, head: str = 'CANDIDATES', watch_source_ids=None) 
             + f"\n\nWHAT PEOPLE SAID (the last two days, by thread, newest first; the last lines of each, oldest first):\n{_people(store)}"
             + '\n\nOUT OF OFFICE (from their auto-replies):\n' + ('\n'.join(f'- {k}: {v}' for k, v in away.items()) or '(nobody)')
             + f"\n\nCALENDAR (the next two days):\n{_calendar(store)}"
-            + f"\n\nARRIVED IN THE LAST TWO DAYS (xN = that many alike; a report carries its schedule, a failure its cause):\n{_recent(store)}"
+            + f"\n\nARRIVED IN THE LAST TWO DAYS (xN = that many alike; each line carries the latest message's words, a report's schedule, and a failure's cause):\n{_recent(store)}"
             + f"\n\nDONE THIS WEEK (my own work, with the agent's summary):\n{_week(store)}"
             + f"\n\nOPEN WORK:\n{_open(store)}\n\nALREADY SAID (never repeat):\n{_said(store)}\n\n{_notes_block(store)}")
 

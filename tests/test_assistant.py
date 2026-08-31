@@ -498,6 +498,19 @@ class WhatItReadsTests(unittest.TestCase):
         self.assertIn('-> failed: test (ubuntu-latest, 3.12), test (windows-latest, 3.10)', txt)
         self.assertEqual(assistant._schedules(s)['Nightly'], 'daily 08:00 + on every app start')
 
+    def test_arrivals_carry_the_email_body_not_just_the_subject(self):
+        s = _store()
+        _mail(s, 'notifications@github.com', 'Meyythenappan invited you to mfa-hiring-screener',
+              'Meyythenappan invited you to collaborate on mfa-hiring-screener. The repository screens '
+              'applicants for a multi-factor authentication engineering role. You can accept or decline the invitation.',
+              days=0, conv='invite', status='ignored', name='Meyythenappan')
+        txt = assistant._recent(s)
+        self.assertIn('Meyythenappan invited you to mfa-hiring-screener', txt)
+        self.assertIn('-> says: "Meyythenappan invited you to collaborate', txt)
+        self.assertIn('screens applicants for a multi-factor authentication engineering role', txt)
+        self.assertNotIn('mfa-hiring-screener', assistant._people(s))       # automated mail only reaches the rolled-up arrivals block
+        self.assertIn('screens applicants for a multi-factor authentication engineering role', assistant.inputs(s, []))
+
     def test_two_checks_at_once_post_one_row(self):
         """2026-08-29 23:59:02: two clocks fired in the same second and the same followup posted twice."""
         import threading, time

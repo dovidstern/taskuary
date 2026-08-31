@@ -199,13 +199,13 @@ class Factory:
         self.route(mid, None, 'file', 'feed role')
         return _pic(tid=None, mid=mid)
 
-    def report_row(self, title='Nightly census'):
+    def report_row(self, title='Nightly headcount'):
         sid = self.s.save_source({'Channel': 'report', 'Address': title, 'Active': 1,
                                   'ConfigJson': '{"type": "mssql", "title": "%s"}' % title}, self.actor)
         self.s.touch_source(sid)  # otherwise is_due fires on the next server start
         mid = self.message(task_id=None, status='filed', channel='report', subject=f'{title} - 4 rows',
                            source_name=title, from_name=title, conversation_id=f'report:{sid}',
-                           body='{"facility": "Lakeview", "census": 112}')
+                           body='{"site": "Lakeview", "headcount": 112}')
         self.route(mid, None, 'file', 'scheduled report', by='report')
         return _pic(tid=None, mid=mid, sid=sid)
 

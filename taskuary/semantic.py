@@ -1,31 +1,31 @@
-"""The semantic layer: what a business number MEANS in THIS company's books.
+"""The semantic layer: what a named business number MEANS in THIS organisation's systems.
 
-An ERP API answers the question you asked, not the one you meant. Sage Intacct is configured
-per company - the chart of accounts, the dimensions, which entries carry rent, whether a
-facility is a LOCATION or a DEPARTMENT - so "EBITDAR for Norfolk in July" has no correct
-answer that can be derived from the API alone. Ask an AI to write that query and it will
-produce something plausible and wrong, every time, and confidently.
+A system of record answers the question you asked, not the one you meant. Every deployment is
+configured differently - which codes carry what, how a division or a site is dimensioned, which
+rows are excluded from the figure people actually quote - so a named number rarely has a correct
+answer that can be derived from the API alone. Ask an AI to write that query and it will produce
+something plausible and wrong, every time, and confidently.
 
-So a metric here is not a query. It is a query PLUS the known-good numbers it was proved
-against:
+So a metric here is not a query. It is a query PLUS the known-good numbers it was proved against:
 
     definition   what the owner means by the metric, in words
-    spec         how to compute it (object, filters, which field is the value)
+    spec         how to compute it (source, what to fetch, which field is the value)
     fixtures     (scope, period) -> the number the owner already knows is right
     status       draft until every fixture reconciles; verified only while they all do
 
-`check()` runs the spec against each fixture and compares. A metric becomes `verified` only
-when it matches on at least MIN_FIXTURES real facilities - which is the whole point: one
-facility matching is a coincidence, three is a definition. It is demoted the moment a fixture
-stops reconciling, so a chart-of-accounts change surfaces as a FAILURE and not as a wrong
-number in a report nobody re-checked.
+`check()` runs the spec against each fixture and compares. A metric becomes `verified` only when
+it matches on at least MIN_FIXTURES real cases - which is the whole point: one match is a
+coincidence, three is a definition. It is demoted the moment a fixture stops reconciling, so a
+change upstream surfaces as a FAILURE and not as a wrong number in a report nobody re-checked.
 
 A verified metric is then frozen into a Taskuary skill (the same ~/.taskuary/skills folder the
 `agent` report type already loads), and named in the assistant's prompt, so every later run
-resolves "EBITDAR for Norfolk" through the certified definition instead of re-deriving it.
+resolves the number through the certified definition instead of re-deriving it.
 
-Nothing here writes to Intacct. Every call is the same read-only readByQuery the reports use,
-through the same connector card and the same role gate.
+The source is whatever the deployment has: `spec['source']` names one of SOURCES below - an ERP
+object read, or a SQL query against any configured database. Nothing here writes anywhere: every
+call is a read, through the same connector card, the same credentials and the same role gate the
+Reports tab uses.
 """
 import json, re, time
 from calendar import monthrange
@@ -36,12 +36,12 @@ from loguru import logger
 
 from . import config
 
-# One facility reconciling is luck; the owner asked for "a few facilities with known numbers".
+# One case reconciling is luck. A definition is not proved until it has held on a few of them.
 MIN_FIXTURES = 3
 # Money never lands on the cent across systems - a rounding difference is not a wrong definition.
 DEFAULT_TOLERANCE = 0.01
 AGGREGATES = ('sum', 'count', 'avg', 'min', 'max', 'first')
-MAX_ROWS = 20_000        # a facility-month of GL detail, not a year of the whole company
+MAX_ROWS = 20_000        # one scope for one period at detail grain, not a whole year of everything
 _SLUG = re.compile(r'[^a-z0-9]+')
 
 
@@ -49,9 +49,9 @@ def slug(name: str) -> str: return _SLUG.sub('-', str(name or '').strip().lower(
 
 
 # ── periods ────────────────────────────────────────────────────────────────────────────
-# What the owner types is "2026-07" or "2026-07-01..2026-07-31". What Intacct wants is
-# MM/DD/YYYY - the format the API actually accepts, and the one an AI writing this by hand
-# gets wrong first. A spec may say {"date_format": "iso"} when its field is a real date type.
+# What the owner types is "2026-07" or "2026-07-01..2026-07-31". What the system wants may be
+# anything: some APIs only accept MM/DD/YYYY, SQL wants ISO. Getting this wrong returns zero rows
+# rather than an error, so it is worth being explicit - {"date_format": "iso"} switches it.
 def period_range(period: str) -> tuple:
     """'2026-07' -> (2026-07-01, 2026-07-31); '2026' -> the year; 'a..b' -> exactly that."""
     p = str(period or '').strip()
@@ -70,17 +70,28 @@ def fmt_date(d: date, how: str = 'us') -> str:
     return d.isoformat() if str(how).lower() in ('iso', 'ymd') else d.strftime('%m/%d/%Y')
 
 
-def substitute(filters, scope: str, period: str, how: str = 'us') -> list:
-    """Put the fixture's facility and period into the spec's filters.
-
-    {scope} is whatever names one row of the grain (a LOCATIONID, a DEPARTMENTID, an entity);
-    {period_start} and {period_end} are the window. Everything else passes through untouched.
-    """
+def subs_for(scope: str, period: str, how: str = 'us') -> dict:
+    """The placeholders a spec may use: what one row IS, and the window it covers."""
     start, end = period_range(period) if period else (None, None)
-    subs = {'{scope}': str(scope or ''),
-            '{period}': str(period or ''),
+    return {'{scope}': str(scope or ''), '{period}': str(period or ''),
             '{period_start}': fmt_date(start, how) if start else '',
             '{period_end}': fmt_date(end, how) if end else ''}
+
+
+def fill(text: str, scope: str, period: str, how: str = 'us') -> str:
+    """Placeholders in a free-text spec value - a SQL query, a URL path."""
+    out = str(text or '')
+    for k, v in subs_for(scope, period, how).items(): out = out.replace(k, v)
+    return out
+
+
+def substitute(filters, scope: str, period: str, how: str = 'us') -> list:
+    """Put the fixture's scope and period into the spec's filters.
+
+    {scope} is whatever names one row of the grain (a site, a division, an account, an entity);
+    {period_start} and {period_end} are the window. Everything else passes through untouched.
+    """
+    subs = subs_for(scope, period, how)
     def one(v):
         if isinstance(v, (list, tuple)): return [one(x) for x in v]
         s = str(v)
@@ -96,7 +107,7 @@ def spec_of(metric: dict) -> dict:
 
 
 def _cast(raw) -> float | None:
-    """One Intacct cell as a number, or None. Every field comes back as TEXT."""
+    """One cell as a number, or None. Many systems hand every field back as TEXT."""
     s = str(raw if raw is not None else '').strip().replace(',', '').replace('$', '')
     if not s: return None
     neg = s.startswith('(') and s.endswith(')')          # accounting parentheses
@@ -105,16 +116,17 @@ def _cast(raw) -> float | None:
 
 
 def _aggregate(rows: list, field: str, how: str, sign: float, sign_field: str = None):
-    """The rows Intacct returned, reduced to the one number the metric names.
+    """The rows a source returned, reduced to the one number the metric names.
 
-    Intacct returns every field as TEXT, blanks included, so the cast happens here - and a
-    blank is skipped rather than counted as zero, because an empty amount column usually means
+    Many systems hand every field back as TEXT, blanks included, so the cast happens here - and
+    a blank is skipped rather than counted as zero, because an empty value column usually means
     the field name is wrong and averaging it to zero would hide exactly that.
 
-    `sign_field` multiplies each row by another column. GLENTRY is why: its AMOUNT is UNSIGNED
-    and the debit/credit direction lives in TR_TYPE (1 / -1). Summing AMOUNT alone adds credits
-    to debits and returns a number that is not wrong by a little - it is meaningless. Nothing in
-    the field list says so, which is exactly the sort of thing only a reconciliation catches.
+    `sign_field` multiplies each row by another column. Ledgers are why: some keep an UNSIGNED
+    magnitude in one column and the direction (+1 / -1) in another. Summing the magnitude alone
+    then adds the two directions together and returns a number that is not wrong by a little -
+    it is meaningless. Nothing in a field list says so, which is exactly the sort of thing only
+    a reconciliation against a known figure catches.
     """
     how = str(how or 'sum').lower()
     if how not in AGGREGATES: raise ValueError(f'unknown aggregate {how!r} - use one of {", ".join(AGGREGATES)}')
@@ -136,41 +148,93 @@ def _aggregate(rows: list, field: str, how: str, sign: float, sign_field: str = 
     return out * sign
 
 
-def _side(cfg, spec: dict, scope: str, period: str) -> tuple:
-    """One aggregate: query the object, reduce the rows. (value, row count, filters, object)."""
+# ── where the rows come from ────────────────────────────────────────────────────────────
+# A metric is source-agnostic: the definition and its proof are the point, not which system
+# holds the data. Each entry takes (cfg, spec, scope, period) and returns (rows, what) - `what`
+# being a short description of the read, for the reader of a result. Adding a source is one
+# function: fetch rows as a list of dicts and say what you fetched.
+def _src_erp(cfg, spec, scope, period):
+    """An object read against Sage Intacct - readByQuery, filtered."""
     from .intacct import query
     obj = str(spec.get('object') or '').strip()
-    if not obj: raise ValueError('the spec names no Intacct object (GLENTRY, APBILL, GLACCOUNT, ...)')
-    value_field, sign_field = spec.get('value_field'), spec.get('sign_field')
-    fields = spec.get('fields') or [f for f in (value_field, sign_field) if f] or None
+    if not obj: raise ValueError('the spec names no object to read (e.g. GLENTRY, APBILL, GLACCOUNT)')
+    vf, sf = spec.get('value_field'), spec.get('sign_field')
+    fields = spec.get('fields') or [f for f in (vf, sf) if f] or None
     filters = substitute(spec.get('filters'), scope, period, spec.get('date_format') or 'us')
     rows = query(cfg, obj, fields, filters, limit=int(spec.get('max_rows') or MAX_ROWS))
-    value = _aggregate(rows, value_field, spec.get('aggregate') or 'sum', float(spec.get('sign') or 1), sign_field)
-    return value, len(rows), filters, obj
+    return rows, f'{obj} {json.dumps(filters)}'
+
+
+def _src_sql(runner):
+    """A SQL query with the placeholders filled in - SQL Server, or any configured database."""
+    def go(cfg, spec, scope, period):
+        q = fill(spec.get('query'), scope, period, spec.get('date_format') or 'iso')
+        if not q.strip(): raise ValueError('the spec carries no query')
+        rows = runner({**cfg, 'query': q}, int(spec.get('max_rows') or MAX_ROWS))
+        return rows, q[:400]
+    return go
+
+
+def _mssql_rows(cfg, limit):
+    from .mssql import run_query
+    return run_query(cfg, limit)
+
+
+def _db_rows(cfg, limit):
+    from .db import run_query
+    return run_query(cfg, limit)
+
+
+def _sqlite_rows(cfg, limit):
+    import sqlite3
+    cx = sqlite3.connect(cfg['db']); cx.row_factory = sqlite3.Row
+    try: return [dict(r) for r in cx.execute(cfg['query']).fetchmany(limit)]
+    finally: cx.close()
+
+
+# spec['source'] -> (reader, the connector type its credentials live on)
+SOURCES = {'intacct': (_src_erp, 'intacct'),
+           'mssql': (_src_sql(_mssql_rows), 'mssql'),
+           'database': (_src_sql(_db_rows), 'database'),
+           'sqlite': (_src_sql(_sqlite_rows), 'sqlite')}
+DEFAULT_SOURCE = 'intacct'
+
+
+def _side(store, metric: dict, spec: dict, scope: str, period: str) -> tuple:
+    """One aggregate: fetch the rows from whatever holds them, reduce them to a number."""
+    from .reports import resolve_cfg
+    src = str(spec.get('source') or DEFAULT_SOURCE).strip().lower()
+    if src not in SOURCES:
+        raise ValueError(f'unknown source {src!r} - one of {", ".join(sorted(SOURCES))}')
+    read, ctype = SOURCES[src]
+    cfg = resolve_cfg(store, {'type': ctype, 'connector_id': metric.get('ConnectorId'), **{
+        k: v for k, v in spec.items() if k in ('db',)}})
+    rows, what = read(cfg, spec, scope, period)
+    value = _aggregate(rows, spec.get('value_field'), spec.get('aggregate') or 'sum',
+                       float(spec.get('sign') or 1), spec.get('sign_field'))
+    return value, len(rows), what, src
 
 
 def evaluate(store, metric: dict, scope: str = None, period: str = None) -> dict:
     """Compute the metric for one scope and period. Read-only, through the connector card.
 
-    A spec with `over` is a RATIO, and the real ones mostly are: a PPD ("per patient day") is
-    one payer's revenue divided by that same payer's census days - two different account sets,
-    in two different families of account (revenue is a GL account, census days a STATISTICAL
-    one). A metric that could only sum one query could not express the numbers the business
-    actually steers by.
+    A spec with `over` is a RATIO, and the numbers an organisation actually steers by mostly
+    are - a rate is one quantity divided by the units it is spread over, and the two often
+    live in different places entirely. A metric that could only reduce a single query could
+    not express them, so `over` is a full spec in its own right: its own source, its own
+    filters, its own aggregate.
     """
-    from .reports import resolve_cfg
     spec = spec_of(metric)
-    cfg = resolve_cfg(store, {'type': 'intacct', 'connector_id': metric.get('ConnectorId')})
     t0 = time.time()
-    value, n, filters, obj = _side(cfg, spec, scope, period)
-    out = {'value': value, 'rows': n, 'object': obj, 'filters': filters, 'scope': scope, 'period': period}
+    value, n, what, src = _side(store, metric, spec, scope, period)
+    out = {'value': value, 'rows': n, 'source': src, 'read': what, 'scope': scope, 'period': period}
     if over := spec.get('over'):
-        den, dn, dfilters, dobj = _side(cfg, over, scope, period)
+        den, dn, dwhat, dsrc = _side(store, metric, over, scope, period)
         if not den:
-            raise ValueError(f'the denominator ({over.get("label") or dobj}) came back zero for '
+            raise ValueError(f'the denominator ({over.get("label") or dwhat[:60]}) came back zero for '
                              f'{scope or "this scope"} in {period or "this period"} - no rate can be computed')
         out |= {'value': value / den, 'numerator': value, 'denominator': den,
-                'rows': n + dn, 'denominatorObject': dobj, 'denominatorFilters': dfilters}
+                'rows': n + dn, 'denominatorSource': dsrc, 'denominatorRead': dwhat}
     out['ms'] = int((time.time() - t0) * 1000)
     return out
 
@@ -178,7 +242,7 @@ def evaluate(store, metric: dict, scope: str = None, period: str = None) -> dict
 def reconciles(got, expected, tolerance=None) -> bool:
     """Within tolerance. A tolerance below 1 is read as a FRACTION of the expected number, so
     0.005 means "half a percent" on a nine-figure balance and does not have to be restated
-    per facility; 1 or more is an absolute amount in dollars."""
+    per case; 1 or more is an absolute amount."""
     tol = DEFAULT_TOLERANCE if tolerance is None else float(tolerance)
     allow = abs(float(expected)) * tol if 0 < tol < 1 else tol
     return abs(float(got) - float(expected)) <= max(allow, DEFAULT_TOLERANCE)
@@ -189,7 +253,7 @@ def check(store, mid: int, actor: str = 'owner') -> dict:
     """Run every fixture and record what happened. This is the ONLY road to 'verified'.
 
     A metric with too few fixtures stays a draft however well it reconciles: the owner's own
-    rule is that a definition is not proved until it has matched on a few different facilities.
+    rule is that a definition is not proved until it has matched in a few different cases.
     """
     m = store.get_metric(mid)
     if not m: raise ValueError(f'no metric {mid}')
@@ -227,17 +291,17 @@ def skill_md(metric: dict, fixtures: list) -> str:
     """The certified definition as a skill file - the shape reports.py already loads."""
     spec = spec_of(metric)
     lines = [f"# {metric.get('Label') or metric['Name']}", '',
-             f"Verified definition of **{metric['Name']}** in this company's Sage Intacct. Use it as written; "
-             'do not re-derive the query. It was proved against the known numbers below.', '',
+             f"Verified definition of **{metric['Name']}** as this organisation computes it. Use it as "
+             'written; do not re-derive the query. It was proved against the known numbers below.', '',
              '## What it means', (metric.get('Definition') or '').strip() or '_(not written)_', '',
              f"One row is: {metric.get('Grain') or 'not stated'}", '',
              '## How it is computed', '```json', json.dumps(spec, indent=2), '```', '',
-             'Placeholders: `{scope}` is the facility (or whatever names one row of the grain), '
+             'Placeholders: `{scope}` is whatever names one row of the grain, '
              '`{period_start}` / `{period_end}` are the window. Run it through Taskuary '
              f'(`POST /api/tools/run` with `{{"type": "metric", "name": "{metric["Name"]}", '
              '"scope": "...", "period": "YYYY-MM"}}`) rather than rebuilding the query.', '']
     if fixtures:
-        lines += ['## Proved against', '', '| facility | period | known number | source |', '|---|---|---|---|']
+        lines += ['## Proved against', '', '| scope | period | known number | where it came from |', '|---|---|---|---|']
         lines += [f"| {f.get('Scope') or ''} | {f.get('Period') or ''} | {f.get('Expected')} | {f.get('Source') or ''} |"
                   for f in fixtures]
         lines.append('')
@@ -247,7 +311,7 @@ def skill_md(metric: dict, fixtures: list) -> str:
 
 
 def write_skill(store, metric: dict, actor: str = 'owner') -> str:
-    name = f"intacct-{slug(metric['Name'])}"
+    name = f"metric-{slug(metric['Name'])}"
     folder = config.home() / 'skills' / name
     folder.mkdir(parents=True, exist_ok=True)
     (folder / 'SKILL.md').write_text(skill_md(metric, store.list_fixtures(metric['MetricId'])), encoding='utf-8')
@@ -275,32 +339,32 @@ def block(store, budget: int = 2_400) -> str:
     """The paragraph the assistant and the coder context carry: which numbers are certified,
     which are still being proved, and the honest instruction about the ones that are not.
 
-    Without this the model invents a GLENTRY query, gets a plausible figure, and presents it
-    with the same confidence as a verified one.
+    Without this the model writes its own query against a system it has never reconciled
+    against, gets a plausible figure, and presents it with the confidence of a verified one.
     """
     try: metrics = store.list_metrics()
     except Exception: return ''
     if not metrics: return ''
     good = [m for m in metrics if m['Status'] == 'verified']
     other = [m for m in metrics if m['Status'] != 'verified']
-    lines = ['INTACCT SEMANTIC LAYER — this company\'s Intacct is customised, so a query you write '
-             'yourself will be plausible and wrong. These definitions were proved against numbers '
-             'the owner already knew:']
+    lines = ['CERTIFIED NUMBERS — the systems here are configured for this organisation, so a query '
+             'you write yourself will be plausible and wrong. These definitions were proved against '
+             'figures the owner already knew:']
     for m in good:
         lines.append(f"- {m['Name']}" + (f" ({m['Label']})" if m.get('Label') else '')
                      + f" — {(m.get('Definition') or '').strip()[:200]}"
                      + (f" [one row = {m['Grain']}]" if m.get('Grain') else ''))
     if good:
         lines.append('Get one with POST /api/tools/run {"type": "metric", "name": "<name>", "scope": '
-                     '"<facility>", "period": "YYYY-MM"} - it returns the certified number. Do not '
-                     'rebuild the query yourself.')
+                     '"<what names one row>", "period": "YYYY-MM"} - it returns the certified number. '
+                     'Do not rebuild the query yourself.')
     if other:
         lines.append('NOT yet proved, and they will refuse to answer until they are: '
                      + ', '.join(f"{m['Name']} ({m['Status']})" for m in other) + '.')
-    lines.append('For any number NOT listed above: you may explore with {"type": "intacct_fields", '
-                 '"object": "..."} and {"type": "intacct", "object": "...", "filters": [...]}, but say '
-                 'plainly that the result is unverified, and offer to prove it - the owner gives you a '
-                 'few facilities whose numbers they already know, you save them as fixtures, and the '
-                 'definition is only trusted once it reconciles on all of them.')
+    lines.append('For any number NOT listed above: explore the real schema first with the connected '
+                 'system\'s own tool types through /api/tools/run, but say plainly that anything you '
+                 'compute is unverified, and offer to prove it - the owner gives you a few cases whose '
+                 'numbers they already know, you save them as fixtures, and the definition is only '
+                 'trusted once it reconciles on all of them.')
     out = '\n'.join(lines)
     return out if len(out) <= budget else out[:budget] + '…'

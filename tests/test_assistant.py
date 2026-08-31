@@ -500,15 +500,15 @@ class WhatItReadsTests(unittest.TestCase):
 
     def test_arrivals_carry_the_email_body_not_just_the_subject(self):
         s = _store()
-        _mail(s, 'notifications@github.com', 'Meyythenappan invited you to mfa-hiring-screener',
-              'Meyythenappan invited you to collaborate on mfa-hiring-screener. The repository screens '
+        _mail(s, 'notifications@github.com', 'Devarajan invited you to acme-hiring-screener',
+              'Devarajan invited you to collaborate on acme-hiring-screener. The repository screens '
               'applicants for a multi-factor authentication engineering role. You can accept or decline the invitation.',
-              days=0, conv='invite', status='ignored', name='Meyythenappan')
+              days=0, conv='invite', status='ignored', name='Devarajan')
         txt = assistant._recent(s)
-        self.assertIn('Meyythenappan invited you to mfa-hiring-screener', txt)
-        self.assertIn('-> says: "Meyythenappan invited you to collaborate', txt)
+        self.assertIn('Devarajan invited you to acme-hiring-screener', txt)
+        self.assertIn('-> says: "Devarajan invited you to collaborate', txt)
         self.assertIn('screens applicants for a multi-factor authentication engineering role', txt)
-        self.assertNotIn('mfa-hiring-screener', assistant._people(s))       # automated mail only reaches the rolled-up arrivals block
+        self.assertNotIn('acme-hiring-screener', assistant._people(s))       # automated mail only reaches the rolled-up arrivals block
         self.assertIn('screens applicants for a multi-factor authentication engineering role', assistant.inputs(s, []))
 
     def test_two_checks_at_once_post_one_row(self):

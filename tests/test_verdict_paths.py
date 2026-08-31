@@ -40,7 +40,7 @@ def tearDownModule():
 CHAT = 'teams:19:vp-security-chat@thread.v2'
 # every test speaks about something different: the router attaches on subject + body
 # similarity, so two tests sharing one wording would join each other's tasks
-ASK = {'mfa': ('VPN Helpdesk', "Can someone reset John's MFA? He is locked out of the app again."),
+ASK = {'northwind': ('VPN Helpdesk', "Can someone reset John's MFA? He is locked out of the app again."),
        'vpn': ('VPN certificate renewals', 'The VPN certificate expires Friday - who is renewing it?'),
        'pct': ('Collection %', 'Why does the percentage stay the same if I exclude those payers?'),
        'badge': ('Badge printer offline', 'The badge printer on floor 2 is offline again, can someone look?'),
@@ -58,7 +58,7 @@ def llm_saying(intent, calls=None):
     return f
 
 
-def push(i, conv=CHAT, sent_at=None, intent='task', calls=None, about='mfa', **over):
+def push(i, conv=CHAT, sent_at=None, intent='task', calls=None, about='northwind', **over):
     subject, text = ASK[about]
     body = {'external_id': f'vp-{conv}-{i}', 'channel': 'teams', 'conversation_id': conv, 'from_name': 'Sam Okafor',
             'subject': subject, 'body': text, 'sent_at': sent_at or stamp(), **over}

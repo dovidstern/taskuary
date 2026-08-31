@@ -19,7 +19,7 @@ class SenderTests(unittest.TestCase):
         self.assertEqual(sender_class({'FromEmail': 'noreply@vendor.com', 'Preview': 'Big news! You are receiving this because you signed up.'}, TEAM), 'promo')
 
     def test_a_robot_is_automated_even_inside_the_team(self):
-        self.assertEqual(sender_class({'FromEmail': 'dana@northwind.example', 'Preview': 'Vendor Create'}, TEAM), 'automated')
+        self.assertEqual(sender_class({'FromEmail': 'noreply-securityapp@northwind.example', 'Preview': 'Vendor Create'}, TEAM), 'automated')
         self.assertEqual(sender_class({'FromEmail': 'notifications@github.com', 'Preview': 'Run failed... or unsubscribe.'}, TEAM), 'automated')
 
     def test_chat_is_always_a_person(self):
@@ -34,7 +34,7 @@ class CategoryTests(unittest.TestCase):
         cases = [
             (fyi(FromEmail='teammate@northwind.example', Preview='It can be looked up by gl expense.'), 'info'),
             (fyi(FromEmail='team@anthropic.com', Preview='New features. Unsubscribe'), 'promo'),
-            (fyi(FromEmail='reports@northwind-corp.example', Preview='MFA Financial Report attached'), 'automated'),
+            (fyi(FromEmail='reports@northwind-corp.example', Preview='Quarterly Financial Report attached'), 'automated'),
             ({'MsgStatus': 'filed', 'RouteReason': 'you already ruled on this conversation', 'Channel': 'email'}, 'filed'),
             ({'MsgStatus': 'ignored', 'Channel': 'email'}, 'ignored'),
             ({'MsgStatus': 'triaging', 'Channel': 'email'}, 'triaging'),
@@ -49,7 +49,7 @@ class CategoryTests(unittest.TestCase):
             with self.subTest(want=want): self.assertEqual(category_of(row, TEAM), want)
 
     def test_the_feed_carries_the_category(self):
-        s = MemoryStore(); s.set_setting('owner_email', 'dana@northwind.example', 't')
+        s = MemoryStore(); s.set_setting('owner_email', 'uri@northwind.example', 't')
         mid = s.add_message({'Channel': 'email', 'Subject': 'RE: Stampli Approvers', 'FromEmail': 'teammate@northwind.example',
                              'BodyText': 'It can be looked up by gl expense.', 'Status': 'filed'})
         s.add_route(mid, None, 'file', None, 'triage: fyi - Sender provided informational clarification', [], 'triage')
@@ -60,7 +60,7 @@ class CategoryTests(unittest.TestCase):
         self.assertEqual(cats, {'RE: Stampli Approvers': 'info', 'Two new ways to browse the web': 'promo'})
 
     def test_team_domains_come_from_the_owner_and_the_setting(self):
-        self.assertEqual(team_domains_of({'owner_email': 'dana@northwind.example', 'team_domains': 'northwind-corp.example, northwind.org'}),
+        self.assertEqual(team_domains_of({'owner_email': 'uri@northwind.example', 'team_domains': 'Northwind-corp.example, northwind.org'}),
                          {'northwind.example', 'northwind-corp.example', 'northwind.org'})
 
 

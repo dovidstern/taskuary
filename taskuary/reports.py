@@ -86,7 +86,7 @@ def run_intacct_fields(cfg):
 
 
 def run_metric(cfg):
-    """{"name": "ebitdar", "scope": "NORFOLK", "period": "2026-07"} - ONE certified number.
+    """{"name": "<metric>", "scope": "<what names one row>", "period": "2026-07"} - ONE certified number.
 
     This is the semantic layer's front door (semantic.py): the metric's definition was proved
     against numbers the owner already knew, so the answer is the company's number and not a
@@ -96,7 +96,7 @@ def run_metric(cfg):
     st = cfg.get('store')
     if st is None: raise RuntimeError('the metric tool reads the saved definitions - it needs the store')
     name = (cfg.get('name') or cfg.get('metric') or '').strip()
-    if not name: raise RuntimeError('which metric? e.g. {"type": "metric", "name": "ebitdar", "scope": "NORFOLK", "period": "2026-07"}')
+    if not name: raise RuntimeError('which metric? e.g. {"type": "metric", "name": "<metric>", "scope": "<what names one row>", "period": "2026-07"}')
     r = semantic.resolve(st, name, cfg.get('scope'), cfg.get('period'))
     head = f"{r['label']} · {r.get('scope') or 'all'} · {r.get('period') or 'all time'} = {r['value']:,.2f}"
     body = (f"{head}\n\n{r['definition']}\n\nVerified {r.get('verifiedAt') or ''} · {r['rows']} row(s) from "
@@ -105,7 +105,7 @@ def run_metric(cfg):
 
 
 def run_metric_check(cfg):
-    """{"name": "ebitdar"} or {} for all of them - re-prove the definitions against their known
+    """{"name": "<metric>"} or {} for all of them - re-prove the definitions against their known
     numbers. Scheduled, this is the tripwire: a chart-of-accounts change stops reconciling and
     the metric is demoted to broken on the timeline instead of quietly returning a wrong figure."""
     from . import semantic

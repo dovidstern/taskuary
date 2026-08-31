@@ -106,10 +106,10 @@ class VocabularyFromHistoryTests(unittest.TestCase):
         def llm(system, user, max_tokens=0):
             seen['user'] = user
             # numbering, quotes, a duplicate of the owner's own term and an over-long line: each handled per line
-            return '1. Sarah Okafor\n- "PointClickCare"\nintacct\n' + 'x' * 60 + '\nMFA Heritage'
+            return '1. Sarah Okafor\n- "PointClickCare"\nintacct\n' + 'x' * 60 + '\nNorthwind Group'
         with graph(self.SENT, self.INBOX), mock.patch('taskuary.llm.build_llm', return_value=llm):
             detail = histgen.generate(s, 'vocabulary')
-        self.assertEqual(voice.vocabulary(s), ['Taskuary', 'Intacct', 'Sarah Okafor', 'PointClickCare', 'MFA Heritage'])
+        self.assertEqual(voice.vocabulary(s), ['Taskuary', 'Intacct', 'Sarah Okafor', 'PointClickCare', 'Northwind Group'])
         self.assertIn('kept 2, added 3', detail); self.assertIn('1 sent + 2 inbound', detail)
         self.assertIn('Sarah Okafor: 3', seen['user']); self.assertIn('corp.example: 2', seen['user'])
         self.assertIn('PointClickCare export: 2', seen['user'])           # RE: stripped, so both sides of the thread count once
@@ -211,10 +211,10 @@ class VocabularyFromHistoryTests(unittest.TestCase):
         def llm(system, user, max_tokens=0):
             seen['user'] = user
             # numbering, quotes, a duplicate of the owner's own term and an over-long line: each handled per line
-            return '1. Sarah Okafor\n- "PointClickCare"\nintacct\n' + 'x' * 60 + '\nMFA Heritage'
+            return '1. Sarah Okafor\n- "PointClickCare"\nintacct\n' + 'x' * 60 + '\nNorthwind Group'
         with graph(self.SENT, self.INBOX), mock.patch('taskuary.llm.build_llm', return_value=llm):
             detail = histgen.generate(s, 'vocabulary')
-        self.assertEqual(voice.vocabulary(s), ['Taskuary', 'Intacct', 'Sarah Okafor', 'PointClickCare', 'MFA Heritage'])
+        self.assertEqual(voice.vocabulary(s), ['Taskuary', 'Intacct', 'Sarah Okafor', 'PointClickCare', 'Northwind Group'])
         self.assertIn('kept 2, added 3', detail); self.assertIn('1 sent + 2 inbound', detail)
         self.assertIn('Sarah Okafor: 3', seen['user']); self.assertIn('corp.example: 2', seen['user'])
         self.assertIn('PointClickCare export: 2', seen['user'])           # RE: stripped, so both sides of the thread count once

@@ -5,7 +5,7 @@ The reported draft, verbatim:
     Hi Meyy -
     I can't suggest times by email alone; Uri will need to handle scheduling directly.
     Sincerely,
-    Dana Whitfield
+    Uri J Whitfield
 
 Third person about the sender, first person about a tool's limitations, signed by the
 sender. It came straight from the prompt: "You write {owner}'s replies" cast the model as
@@ -19,7 +19,7 @@ from unittest import mock
 from taskuary import responder
 from taskuary.store import MemoryStore
 
-OWNER = 'Dana Whitfield'
+OWNER = 'Uri J Whitfield'
 
 
 def _capture(store, task_id):

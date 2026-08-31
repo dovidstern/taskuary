@@ -682,7 +682,7 @@ def _cut(text: str, n: int, what: str = 'message') -> str:
 # a copy handed to a third-party CLI, written into its transcript and its own logs. So the
 # addresses come out of everything we inject: SOUL.md carries the owner's, the coder rules and
 # handover notes quote correspondents, and none of it changes a line of code. The NAME stays -
-# "Sign as Dana Whitfield" still means something without the mailbox next to it.
+# a "sign as <the owner's name>" instruction still means something without the mailbox next to it.
 _EMAIL = re.compile(r'\b[\w.+-]+@[\w-]+\.[\w.-]+')
 
 

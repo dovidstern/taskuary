@@ -7,17 +7,17 @@ _c = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fake_agent.count'
 try: _n = int(open(_c).read() or 0)
 except (OSError, ValueError): _n = 0
 open(_c, 'w').write(str(_n + 1))
-role = sys.argv[1] if len(sys.argv) > 1 else ['census', 'csv', 'darkmode'][_n % 3]
+role = sys.argv[1] if len(sys.argv) > 1 else ['headcount', 'csv', 'darkmode'][_n % 3]
 SCRIPTS = {
- 'census': [
+ 'headcount': [
   ('●', 'Reading taskuary/reports.py'), ('  ', 'Read 412 lines'),
-  ('●', 'Searching for the facility filter'), ('  ', 'grep "facility" taskuary/reports.py tests/'),
-  ('●', 'The query joins facility on the OLD id column; Summit was added after the rename.'),
-  ('●', 'Update(taskuary/reports.py)'), ('  ', '  -   JOIN facility f ON f.legacy_id = c.facility_id'),
-  ('  ', '  +   JOIN facility f ON f.id = c.facility_id'),
-  ('●', 'Write(tests/test_reports.py)'), ('  ', '  + def test_census_includes_every_active_facility():'),
+  ('●', 'Searching for the site filter'), ('  ', 'grep "site" taskuary/reports.py tests/'),
+  ('●', 'The query joins site on the OLD id column; Summit was added after the rename.'),
+  ('●', 'Update(taskuary/reports.py)'), ('  ', '  -   JOIN site f ON f.legacy_id = c.site_id'),
+  ('  ', '  +   JOIN site f ON f.id = c.site_id'),
+  ('●', 'Write(tests/test_reports.py)'), ('  ', '  + def test_headcount_includes_every_active_site():'),
   ('●', 'Bash(pytest -q tests/test_reports.py)'), ('  ', '  14 passed in 1.2s'),
-  ('●', 'Committing: "Census: join facilities on id, not legacy_id - Summit was missing"'),
+  ('●', 'Committing: "Headcount: join sites on id, not legacy_id - Summit was missing"'),
  ],
  'csv': [
   ('●', 'Reading website/src/ReportsView.jsx'), ('  ', 'Read 933 lines'),
@@ -36,7 +36,7 @@ SCRIPTS = {
   ('?', 'Should the legend follow the same token, or stay grey in both modes? (waiting on you)'),
  ],
 }
-lines = SCRIPTS.get(role, SCRIPTS['census'])
+lines = SCRIPTS.get(role, SCRIPTS['headcount'])
 print(f'\x1b[1m{role} · claude\x1b[0m  demo session - nothing here touches a real repository\n')
 for mark, text in lines:
     print(f'\x1b[32m{mark}\x1b[0m {text}' if mark == '●' else f'\x1b[33m{mark}\x1b[0m {text}' if mark == '?' else f'{mark} {text}', flush=True)

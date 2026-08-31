@@ -12,10 +12,10 @@ c_api = TestClient(server.app)
 class ProfileTests(unittest.TestCase):
     def test_identities_come_with_where_they_were_learned(self):
         s = MemoryStore()
-        s.set_setting('owner_name', 'Dana Whitfield', 't'); s.set_setting('owner_email', 'dana@northwind.example', 't')
+        s.set_setting('owner_name', 'Dana Whitfield', 't'); s.set_setting('owner_email', 'uri@northwind.example', 't')
         o = s.get_connector_by_type('outlook')
         s.save_connector({'ConnectorId': o['ConnectorId'], 'Active': 1, 'Secret': 'RT',
-                          'ConfigJson': json.dumps({'auth': 'user', 'account': 'uri@theacropora.com', 'name': 'Josh Whitfield'})}, 't')
+                          'ConfigJson': json.dumps({'auth': 'user', 'account': 'dana@other.example', 'name': 'Dana W'})}, 't')
         s.save_source({'Channel': 'email', 'Address': 'uri@theacropora.com', 'ConnectorId': o['ConnectorId'], 'Active': 1}, 't')
         s.save_source({'Channel': 'teams', 'Address': 'dana@northwind.example', 'ConnectorId': s.get_connector_by_type('teams')['ConnectorId'], 'Active': 1}, 't')
         tg = s.get_connector_by_type('telegram')
@@ -23,14 +23,14 @@ class ProfileTests(unittest.TestCase):
         s.set_setting('owner_phone', '+1 555 0100', 't')
         p = whoami.profile(s)
         by = {(i['channel'], i['kind']): i for i in p['identities']}
-        self.assertEqual(by[('email', 'address')]['value'], 'dana@northwind.example'); self.assertTrue(by[('email', 'address')]['primary'])
-        self.assertEqual((by[('email', 'Microsoft account')]['value'], by[('email', 'Microsoft account')]['name']), ('uri@theacropora.com', 'Josh Whitfield'))
+        self.assertEqual(by[('email', 'address')]['value'], 'uri@northwind.example'); self.assertTrue(by[('email', 'address')]['primary'])
+        self.assertEqual((by[('email', 'Microsoft account')]['value'], by[('email', 'Microsoft account')]['name']), ('dana@other.example', 'Dana W'))
         self.assertIn('Sign in with Microsoft', by[('email', 'Microsoft account')]['source'])
         self.assertEqual(by[('teams', 'UPN')]['value'], 'dana@northwind.example')
         self.assertEqual(by[('telegram', 'your chat id')]['value'], '777'); self.assertIn('notify chat', by[('telegram', 'your chat id')]['source'])
         self.assertEqual(by[('whatsapp', 'phone')]['source'], 'you typed it here')
         self.assertEqual(p['facts']['owner_name'], 'Dana Whitfield'); self.assertTrue(p['avatar'].startswith('<svg'))
-        self.assertIn('UN', p['avatar'])                                       # the monogram: first and last initials
+        self.assertIn('DW', p['avatar'])                                       # the monogram: first and last initials
 
     def test_the_paired_whatsapp_number_the_bot_and_the_pat_login_come_from_the_cards(self):
         """These three were never recorded anywhere: the bridge knows the paired number, Test knows
@@ -80,7 +80,7 @@ class ProfileTests(unittest.TestCase):
         for st in whoami.STYLES:
             svg = whoami.avatar_svg('Dana Whitfield', 'x', st)
             self.assertTrue(svg.startswith('<svg') and svg.endswith('</svg>'), st)
-        self.assertEqual(whoami.initials('Dana Whitfield'), 'UN'); self.assertEqual(whoami.initials(''), 'T')
+        self.assertEqual(whoami.initials('Dana J Whitfield'), 'DW'); self.assertEqual(whoami.initials(''), 'T')
 
     def test_save_is_whitelisted_and_name_email_go_through_the_owner_route(self):
         s = MemoryStore()

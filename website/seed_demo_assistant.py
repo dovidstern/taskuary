@@ -15,14 +15,14 @@ def llm(system, user, **k):
         say.append({'key': keys[0], 'text': "No word from Dana on the SOW since Tuesday; I'd nudge her today - the board call is Thursday.",
                     'why': 'Your last mail asked for the signed SOW; three days of silence on a Thursday deadline', 'mid': None})
     say += [
-        {'key': 'idea:census-summit', 'text': "Summit is missing from the census query AND the weekly report - one fix, not two; I'd have codex check the facility table it reads.",
-         'why': 'TQ-0010 "Weekly census report misses one facility" and the nightly census FAILED row name the same facility', 'mid': mid('census'),
+        {'key': 'idea:headcount-summit', 'text': "Summit is missing from the headcount query AND the weekly report - one fix, not two; I'd have codex check the site table it reads.",
+         'why': 'TQ-0010 "Weekly headcount report misses one site" and the nightly headcount FAILED row name the same site', 'mid': mid('headcount'),
          'task': None},
         {'key': 'idea:csv-export-finance', 'text': "Finance asks for the same numbers by hand every week; the CSV export (TQ-0011) should ship before the Q3 report, not after.",
          'why': 'Sarah Chen: "Finance keeps retyping the numbers" (CSV export) and "the top-10 breakdown before the board call" (Q3 vendor spend) - the same people, the same week',
          'mid': mid('CSV export'), 'task': None},
     ]
-    return json.dumps({'say': say, 'notes': 'Checked the SOW thread (silent since Tue), both census rows and the finance asks. Nightly census FAILED once - '
+    return json.dumps({'say': say, 'notes': 'Checked the SOW thread (silent since Tue), both headcount rows and the finance asks. Nightly headcount FAILED once - '
                        'worth a line only if it fails again tonight. Dark-mode chart bug (mid on file) is with the agent; nothing to add until it reports.'})
 
 out = assistant.run(s, llm=llm, force=True)

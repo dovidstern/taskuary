@@ -22,7 +22,7 @@ import { ASSISTANT, PANEL2, BORDER, DIM, FAINT, INK, ACCENT2, card, mono, PILL_C
 import { ChannelIcon, StatusDot, timeAgo, Crumb, Empty, FilterPills, SideRail, ConfirmDelete } from "./ui.jsx";
 
 const AI_FIELD = ["AI summary prompt (optional)", "ai_prompt", "multiline",
-  "e.g. Summarize the census by facility. Flag anything under 70 and any day-over-day drop."];
+  "e.g. Summarize headcount by site. Flag anything under 70 and any day-over-day drop."];
 const FIELDS = {
   mssql: [["query", "query", "multiline", "SELECT TOP 20 * FROM ..."], AI_FIELD],
   database: [["query", "query", "multiline", "SELECT ... (any SQL the connected engine speaks)"], AI_FIELD],
@@ -92,10 +92,10 @@ const FIELDS = {
   intacct_fields: [["object", "object", "text", "APBILL \u2014 what does this object actually carry?"], AI_FIELD],
   // the semantic layer (Assistant \u2192 Numbers): a number that was PROVED against numbers the owner
   // already knew, and the scheduled check that demotes it the day it stops reconciling
-  metric: [["metric name", "name", "text", "ebitdar"],
-    ["facility \u2014 or whatever names one row of the grain", "scope", "text", "NORFOLK"],
+  metric: [["metric name", "name", "text", "the certified metric to read"],
+    ["scope \u2014 whatever names one row of the grain", "scope", "text", "a site, a division, an entity"],
     ["period", "period", "text", "2026-07 \u00b7 2026 \u00b7 2026-07-01..2026-07-31"], AI_FIELD],
-  metric_check: [["metric name (blank = check every one)", "name", "text", "ebitdar"], AI_FIELD],
+  metric_check: [["metric name (blank = check every one)", "name", "text", ""], AI_FIELD],
   // the AI itself as the source: a coding CLI agent runs a saved skill (a slash command) and/or a
   // prompt on the schedule, and what it answers IS the report - "run my weekly user-management
   // review every Monday". The summary pass is optional: the agent already wrote prose.
@@ -789,7 +789,7 @@ function Composer({ onDraft }) {
       </Box>
       <TextField fullWidth size="small" multiline minRows={2} value={ask} disabled={busy}
         sx={{ bgcolor: "#fff" }}
-        placeholder={"Read C:/exports/census-*.csv every morning, total the beds by facility and flag anything under 70."
+        placeholder={"Read C:/exports/daily-*.csv every morning, total the units by site and flag anything under 70."
           + NL + "Every Monday, list the AP bills from Intacct due in the next 30 days and call out anything over 10k."}
         onChange={(e) => setAsk(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && ask.trim()) go(); }} />

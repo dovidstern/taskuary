@@ -12,7 +12,7 @@ import unittest
 
 from taskuary.routing import draft_task_fields
 
-BANNER = ('This email was sent from outside of MFA. ** Do not click links or download '
+BANNER = ('This email was sent from outside the organisation. ** Do not click links or download '
           'attachments unless you know the content is safe. **\n\nHello Uri,\n\n'
           'Our Docusign is still pending.\n\nThank you,\nAnna')
 

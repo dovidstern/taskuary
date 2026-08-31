@@ -35,12 +35,12 @@ REQUIRED = {'agent': ('prompt|skill',), 'intacct': ('object',), 'intacct_fields'
 # not how the system thinks. Fields are UPPERCASE ids; readByQuery filters, never SQL; nothing
 # aggregates on the server, so "how many per person" is fields + an ai_prompt that counts.
 INTACCT_PLAYBOOK = """SAGE INTACCT (type "intacct")
-- Objects: APBILL (vendor bills), APBILLITEM (bill lines), APPYMT, ARINVOICE, VENDOR, CUSTOMER, GLENTRY / GLDETAIL (journal detail), GLACCOUNT, LOCATION (facilities/entities), DEPARTMENT, GLBUDGETITEM, PROJECT.
+- Objects: APBILL (vendor bills), APBILLITEM (bill lines), APPYMT, ARINVOICE, VENDOR, CUSTOMER, GLENTRY / GLDETAIL (journal detail), GLACCOUNT, LOCATION (sites/entities), DEPARTMENT, GLBUDGETITEM, PROJECT.
 - Field ids are UPPERCASE: RECORDNO, RECORDID, VENDORID, VENDORNAME, WHENCREATED (entered), WHENPOSTED (posted), WHENDUE, TOTALENTERED, TOTALDUE, STATE, CREATEDBY / MODIFIEDBY (the user - "who posted it"), AUUSERID, LOCATIONID, DEPARTMENTID. Custom fields exist per company: peek {"type": "intacct_fields", "object": "APBILL"} to see the real list.
-- "filters" is a list of [FIELD, op, value]; ops: = != > < >= <= like notlike in notin isnull isnotnull. Dates are MM/DD/YYYY. Facilities are LOCATIONs: when the owner names one ("Adelphi"), peek {"type": "intacct", "object": "LOCATION", "fields": ["LOCATIONID", "NAME"], "filters": [["NAME", "like", "Adelphi%"]]} and filter the report on LOCATIONID.
+- "filters" is a list of [FIELD, op, value]; ops: = != > < >= <= like notlike in notin isnull isnotnull. Dates are MM/DD/YYYY. Sites are LOCATIONs: when the owner names one, peek {"type": "intacct", "object": "LOCATION", "fields": ["LOCATIONID", "NAME"], "filters": [["NAME", "like", "<their word>%"]]} and filter the report on LOCATIONID.
 - readByQuery does not group or count. "How many X per Y" = the rows with the Y field included, plus an ai_prompt that counts per Y and lists the total. "Posted yesterday/today" = a WHENPOSTED filter; a daily report should say so in explain.
 - Always set "object", and set "fields" to the handful the question needs - APBILL has dozens.
-- A named business number (EBITDAR, occupancy, net revenue) is NOT a GL query you write here. This company's Intacct is customised, so one you write yourself is plausible and wrong. If it has been certified it has a definition proved against numbers the owner already knew: use {"type": "metric", "name": "<name>", "scope": "<facility>", "period": "YYYY-MM"}. If it has not, say so rather than approximating it with a GLENTRY filter - an unproved figure in a scheduled report is the one nobody re-checks."""
+- A named business number is NOT a GL query you write here. The chart of accounts is configured for this organisation, so one you write yourself is plausible and wrong. If the number has been certified it has a definition proved against figures the owner already knew: use {"type": "metric", "name": "<name>", "scope": "<what names one row>", "period": "YYYY-MM"}. If it has not, say so rather than approximating it with a GLENTRY filter - an unproved figure in a scheduled report is the one nobody re-checks."""
 SCHEMA_ROWS = 300
 
 
@@ -96,7 +96,7 @@ SYSTEM = (
     'the owner asked for; when they did not say, use daily_at 08:00 and mention it in explain.\n'
     '- "ai_prompt" is the instruction for the pass that turns rows into prose. Include it whenever '
     'the owner asked for a summary, a flag, a comparison or an interpretation - and write it as a '
-    'concrete instruction ("Summarize spend by facility; flag any vendor above 10k or new this '
+    'concrete instruction ("Summarize spend by site; flag any vendor above 10k or new this '
     'month"), never "summarize the data".\n'
     '- "max_rows" only when the ask implies a size.\n'
     '- "agent" is the type for "run my <skill> every week", "have the AI research X on a schedule", or any '
@@ -106,7 +106,7 @@ SYSTEM = (
     '- A query you had to guess at is the thing to ask about. A wrong filter on a finance report '
     'is silently wrong forever; a question costs five seconds.\n'
     '- Never invent a table, column, object or field name. Peek, or ask.\n'
-    '- The owner describes what they WANT, not what exists. "Our census file" is a path you do '
+    '- The owner describes what they WANT, not what exists. "Our headcount file" is a path you do '
     'not have - ask for it.\n'
     '- confidence "low" is a real answer. Say so in explain and the owner will check it.\n'
     '- A config is not finished until it carries what its type needs to RUN: an Intacct report has an object, a SQL '

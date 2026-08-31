@@ -55,7 +55,7 @@ await p.evaluate(() => {
 await burst(120, 4); await hold(2800);
 
 // ── 3. a scheduled report: rows, chart, spreadsheet ───────────────────────
-await clickRow("Nightly census — 6 rows");
+await clickRow("Nightly headcount — 6 rows");
 await burst(110, 6);
 await wait(1000); await hold(3000);
 

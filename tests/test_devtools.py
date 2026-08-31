@@ -67,7 +67,7 @@ class GitLabTests(unittest.TestCase):
 
 class AzdoTests(unittest.TestCase):
     def test_test_and_poll(self):
-        s = MemoryStore(); c = conn(s, 'azdo', {'org_url': 'https://dev.azure.com/mfa'})
+        s = MemoryStore(); c = conn(s, 'azdo', {'org_url': 'https://dev.azure.com/northwind'})
         wi = {'id': 88, 'fields': {'System.Title': 'Fix PTO rounding', 'System.State': 'Active',
                                    'System.WorkItemType': 'Bug', 'System.TeamProject': 'FanApp',
                                    'System.Description': 'cents off', 'System.ChangedDate': '2026-08-21T09:00:00Z',
@@ -149,17 +149,17 @@ class DiscordTests(unittest.TestCase):
 
 class SentryTests(unittest.TestCase):
     def test_test_and_poll(self):
-        s = MemoryStore(); c = conn(s, 'sentry', {'org': 'mfa'})
-        issue = {'id': '77', 'shortId': 'FANAPP-3F', 'title': 'KeyError: employee_id',
+        s = MemoryStore(); c = conn(s, 'sentry', {'org': 'northwind'})
+        issue = {'id': '77', 'shortId': 'WEBAPP-3F', 'title': 'KeyError: employee_id',
                  'culprit': 'imports/pto.py', 'count': '41', 'userCount': 3, 'level': 'error',
                  'permalink': 'https://sentry.io/x/77', 'lastSeen': '2026-08-22T05:00:00Z',
                  'project': {'slug': 'fanapp'}}
-        with wired({'/api/0/organizations/mfa/issues': [issue],
-                    '/api/0/organizations/mfa/': {'slug': 'mfa', 'name': 'MFA'}}):
-            self.assertIn('MFA', devtools.test(s, c))
+        with wired({'/api/0/organizations/northwind/issues': [issue],
+                    '/api/0/organizations/northwind/': {'slug': 'northwind', 'name': 'Northwind'}}):
+            self.assertIn('Northwind', devtools.test(s, c))
             self.assertEqual(devtools.poll(s, c, SINCE), 1)
         row = next(r for r in s.feed() if r['Channel'] == 'sentry')
-        self.assertIn('FANAPP-3F', row['Subject']); self.assertIn('41x', row.get('Preview') or '')
+        self.assertIn('WEBAPP-3F', row['Subject']); self.assertIn('41x', row.get('Preview') or '')
 
 
 class PagerDutyTests(unittest.TestCase):
@@ -167,7 +167,7 @@ class PagerDutyTests(unittest.TestCase):
         s = MemoryStore(); c = conn(s, 'pagerduty')
         inc = {'id': 'P1', 'incident_number': 12, 'title': 'AZWEB01 down', 'status': 'triggered',
                'urgency': 'high', 'created_at': '2026-08-23T03:00:00Z',
-               'html_url': 'https://mfa.pagerduty.com/incidents/P1',
+               'html_url': 'https://northwind.pagerduty.com/incidents/P1',
                'service': {'summary': 'Web tier'}, 'summary': 'host unreachable'}
         with wired({'/incidents': {'incidents': [inc]}}):
             self.assertIn('authenticated', devtools.test(s, c))

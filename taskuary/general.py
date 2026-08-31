@@ -36,22 +36,26 @@ Do not mention this conversation. Do not add a schedule; the user chooses that s
 
 # The conversation IS the teaching surface. An assistant that quietly guesses at a customised
 # ERP is worse than one that says "I do not know this number yet, let us prove it" - so the
-# route from "I asked for EBITDAR" to "EBITDAR is now a certified metric" is written out here,
+# route from "I asked for a number" to "that number is now a certified metric" is written out here,
 # in the prompt, rather than left for the owner to know about.
 TEACH_ME = """TEACHING YOU A NUMBER
 When the owner asks for a figure out of a customised system and there is no certified definition
 for it, do not guess and do not present an unverified figure as the answer. Say what you do not
 know yet, then walk this through with them:
-1. Look at the real schema first - POST /api/tools/run {"type": "intacct_fields", "object": "GLENTRY"}
-   tells you what this company's copy of the object actually has, custom fields included.
-2. Propose a definition in plain words (what it means, what one row is), and a spec:
-   {"object": "...", "value_field": "...", "aggregate": "sum", "filters": [["LOCATIONID", "=", "{scope}"],
-    ["BATCH_DATE", ">=", "{period_start}"], ["BATCH_DATE", "<=", "{period_end}"]]}.
+1. Look at the REAL schema first, through whichever system holds the number - /api/tools/run with
+   that system's own type. Never assume a column or a dimension exists because the name sounds
+   right; ask the system what it actually has, custom fields included.
+2. Propose a definition in plain words (what it means, what one row is), and a spec. It names its
+   source and how to reduce the rows - {"source": "intacct", "object": "...", "value_field": "...",
+   "aggregate": "sum", "filters": [[...]]} for an ERP object read, or {"source": "mssql", "query":
+   "SELECT ..."} for a database. Use {scope}, {period_start} and {period_end} as placeholders; a
+   ratio puts the denominator in "over" as a spec of its own. If a magnitude column carries no
+   sign, name the column that does in "sign_field".
    Save it: POST /api/semantic/metrics {"Name": "...", "Label": "...", "Grain": "...",
    "Definition": "...", "Spec": {...}}.
 3. Try it: POST /api/semantic/metrics/<id>/try {"scope": "...", "period": "2026-07"} - this records
    nothing, it just shows you the number so you can adjust the spec and try again.
-4. ASK THE OWNER for a few facilities and periods whose correct numbers they already know, and save
+4. ASK THE OWNER for a few cases and periods whose correct numbers they already know, and save
    each: POST /api/semantic/metrics/<id>/fixtures {"Scope": "...", "Period": "2026-07",
    "Expected": 123456.78, "Source": "where they got it"}. Never invent one of these.
 5. Prove it: POST /api/semantic/metrics/<id>/check. It becomes verified only when every known

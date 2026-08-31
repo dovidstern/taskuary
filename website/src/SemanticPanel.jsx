@@ -106,7 +106,7 @@ const Metric = ({ m, minFixtures, open, onOpen, onChanged }) => {
             {fixtures.length ? (
               <Box component="table" sx={{ width: "100%", borderCollapse: "collapse" }}>
                 <Box component="thead"><Box component="tr">
-                  {["facility", "period", "known", "got", "off", "source", ""].map((h, i) => (
+                  {["scope", "period", "known", "got", "off", "where from", ""].map((h, i) => (
                     <Box component="th" key={h + i} sx={{ textAlign: i >= 2 && i <= 4 ? "right" : "left", pb: 0.3 }}>
                       <Typography variant="caption" sx={{ ...mono, fontSize: 9, color: FAINT }}>{h}</Typography>
                     </Box>))}
@@ -119,7 +119,7 @@ const Metric = ({ m, minFixtures, open, onOpen, onChanged }) => {
               </Typography>
             )}
             <Box sx={{ display: "flex", gap: 0.5, mt: 0.6, flexWrap: "wrap", alignItems: "center" }}>
-              {[["Scope", "facility", 110], ["Period", "2026-07", 90], ["Expected", "the right number", 130], ["Source", "where it came from", 150]].map(([k, ph, w]) => (
+              {[["Scope", "what names one row", 130], ["Period", "2026-07", 90], ["Expected", "the right number", 130], ["Source", "where it came from", 150]].map(([k, ph, w]) => (
                 <TextField key={k} size="small" placeholder={ph} value={nf[k]} onChange={(e) => setNf({ ...nf, [k]: e.target.value })}
                   sx={{ width: w, bgcolor: PANEL2, "& input": { fontSize: 11, py: 0.5 } }} />
               ))}
@@ -129,7 +129,7 @@ const Metric = ({ m, minFixtures, open, onOpen, onChanged }) => {
 
           {/* try it without recording anything - the step where a definition gets fixed */}
           <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
-            <TextField size="small" placeholder="facility" value={t.scope} onChange={(e) => setT({ ...t, scope: e.target.value })}
+            <TextField size="small" placeholder="scope" value={t.scope} onChange={(e) => setT({ ...t, scope: e.target.value })}
               sx={{ width: 110, bgcolor: PANEL2, "& input": { fontSize: 11, py: 0.5 } }} />
             <TextField size="small" placeholder="2026-07" value={t.period} onChange={(e) => setT({ ...t, period: e.target.value })}
               sx={{ width: 90, bgcolor: PANEL2, "& input": { fontSize: 11, py: 0.5 } }} />
@@ -174,7 +174,7 @@ export default function SemanticPanel() {
   return (
     <Box sx={{ p: 1.25, overflowY: "auto", height: "100%" }}>
       <Typography variant="caption" sx={{ color: DIM, display: "block", mb: 1, lineHeight: 1.5 }}>
-        What the assistant may state as fact about our own numbers. Intacct is configured for this company,
+        What the assistant may state as fact about our own numbers. Every system is configured differently,
         so a query written from the API alone is plausible and wrong — a definition here is only certified
         while it still matches {minFixtures} or more numbers you already knew were right. Work them out in the
         chat; this is where you see what it now believes.
@@ -184,9 +184,10 @@ export default function SemanticPanel() {
         <Box sx={{ border: `1px dashed ${BORDER}`, borderRadius: 1.5, p: 2, textAlign: "center" }}>
           <Typography variant="body2" sx={{ color: DIM }}>No number has been proved yet.</Typography>
           <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 0.5 }}>
-            Ask the assistant for one in the chat — "what was EBITDAR for Norfolk in July?" It will look at the
-            real chart of accounts, propose a definition, and ask you for a few facilities whose numbers you
-            already know. Once they reconcile, the metric appears here and every later run uses it.
+            Ask the assistant for one in the chat — name a figure you already report on and the period you
+            want it for. It will look at the real schema, propose a definition, and ask you for a few cases
+            whose numbers you already know. Once they reconcile, the metric appears here and every later
+            run uses it.
           </Typography>
         </Box>
       ) : (

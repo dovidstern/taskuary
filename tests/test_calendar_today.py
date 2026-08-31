@@ -28,13 +28,13 @@ class AboutTests(unittest.TestCase):
         ev = {'subject': 'Refund sync', 'start': {'dateTime': '2026-08-28T14:00:00'}, 'end': {'dateTime': '2026-08-28T14:30:00'},
               'isAllDay': False, 'showAs': 'busy', 'location': {'displayName': 'Teams'},
               'organizer': {'emailAddress': {'name': 'Mary Michalski', 'address': 'mary@elkton.example'}},
-              'attendees': [{'type': 'required', 'emailAddress': {'name': 'Dana Whitfield', 'address': 'dana@northwind.example'}},
+              'attendees': [{'type': 'required', 'emailAddress': {'name': 'Dana Whitfield', 'address': 'uri@northwind.example'}},
                             {'type': 'required', 'emailAddress': {'name': 'Mary Michalski', 'address': 'mary@elkton.example'}},
                             {'type': 'resource', 'emailAddress': {'name': 'Room 4', 'address': 'room4@x'}}],
               'bodyPreview': 'Go over the Barnes deposit.\nMicrosoft Teams meeting\nMeeting ID: 1', 'isOnlineMeeting': True,
               'onlineMeeting': {'joinUrl': 'https://teams.microsoft.com/l/x'}, 'webLink': 'https://outlook.office.com/x'}
         with mock.patch('taskuary.channels.graph_token', return_value='T'), mock.patch.object(cal.requests, 'get', return_value=R(200, {'value': [ev]})) as g:
-            out = cal.outlook_events({}, 'S', ['dana@northwind.example'], datetime(2026, 8, 28), datetime(2026, 8, 29), cal.tz_of(MemoryStore()))
+            out = cal.outlook_events({}, 'S', ['uri@northwind.example'], datetime(2026, 8, 28), datetime(2026, 8, 29), cal.tz_of(MemoryStore()))
         e = out[0]
         self.assertEqual(e['who'], ['Mary Michalski'])                                   # not the owner, not the room
         self.assertEqual((e['organizer'], e['about'], e['join']), ('Mary Michalski', 'Go over the Barnes deposit.', 'https://teams.microsoft.com/l/x'))

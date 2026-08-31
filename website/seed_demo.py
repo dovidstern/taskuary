@@ -39,11 +39,11 @@ fx.review(tid2, m2, status='approved',
     final='Hi Marcus - found it and fixed it: a timezone bug filtered out every row. The next run is fine.')
 
 # 3. scheduled report rows (mssql)
-sid = s.save_source({'Channel': 'report', 'Address': 'Nightly census', 'Active': 1,
-    'ConfigJson': '{"type": "mssql", "title": "Nightly census", "every_minutes": 480}'}, 'owner')
+sid = s.save_source({'Channel': 'report', 'Address': 'Nightly headcount', 'Active': 1,
+    'ConfigJson': '{"type": "mssql", "title": "Nightly headcount", "every_minutes": 480}'}, 'owner')
 m3 = fx.message(status='filed', external_id='demo3', conversation_id='report:%d' % sid, channel='report',
-    source_name='Nightly census', subject='Nightly census - 4 rows', from_name='Nightly census',
-    sent_at=t(7, 45), body='{"facility": "Lakeview", "census": 112}\n{"facility": "Riverside", "census": 98}\n{"facility": "Oak Grove", "census": 87}\n{"facility": "Summit", "census": 64}')
+    source_name='Nightly headcount', subject='Nightly headcount - 4 rows', from_name='Nightly headcount',
+    sent_at=t(7, 45), body='{"site": "Lakeview", "headcount": 112}\n{"site": "Riverside", "headcount": 98}\n{"site": "Oak Grove", "headcount": 87}\n{"site": "Summit", "headcount": 64}')
 fx.route(m3, None, 'file', 'scheduled report', by='report')
 
 # 3b. Teams chat auto-answered - teal "auto" chip + purple channel bar
@@ -122,11 +122,11 @@ s.update_run(r9, {'TraceJson': _json.dumps([
     {'at': t(0, 1), 'kind': 'live', 'name': 'claude', 'detail': '→ Bash: npm run build'}])})
 s._exec('UPDATE run SET StartedAt=? WHERE RunId=?', (t(0, 18), r9))
 
-tid10 = fx.task(title='Weekly census report misses one facility', kind='coding', status='in_progress',
+tid10 = fx.task(title='Weekly headcount report misses one site', kind='coding', status='in_progress',
                 source='teams', Assignee='agent:codex')
 m13 = fx.message(task_id=tid10, external_id='demo13', channel='teams', source_name='Ops chat',
     subject='Rina Katz in Ops chat', from_name='Rina Katz', from_email='rina.katz@example.com',
-    sent_at=t(1, 10), body='The weekly census report skips Summit - looks like the new facility never made it into the query.')
+    sent_at=t(1, 10), body='The weekly headcount report skips Summit - looks like the new site never made it into the query.')
 fx.route(m13, tid10, 'create', 'asks the owner to do something', by='router')
 r10 = s.start_run(tid10, 'codex', 'Work this coding task end to end.', 'router')
 s.update_run(r10, {'TraceJson': _json.dumps([
@@ -152,7 +152,7 @@ m15 = fx.message(external_id='demodigest', channel='report', source_name='Mornin
     sent_at=t(0, 5), status='filed', body=(
         '\U0001f680 In flight\n'
         '- TQ-0009 “Report charts render blank in dark mode” — claude is on it; the theme tokens were the culprit.\n'
-        '- TQ-0010 “Weekly census report misses one facility” — codex is on it; tests already pass.\n\n'
+        '- TQ-0010 “Weekly headcount report misses one site” — codex is on it; tests already pass.\n\n'
         '⏳ Waiting on you\n'
         '- TQ-0001 Sarah Chen wants the Q3 vendor spend report — the reply is drafted, one click to send.\n'
         '- TQ-0004 PTO import for the 7/26-8/8 payroll period — confirm before it writes payroll data.\n\n'
@@ -164,7 +164,7 @@ m15 = fx.message(external_id='demodigest', channel='report', source_name='Mornin
 fx.route(m15, None, 'file', 'scheduled report - informational, never a task', by='report')
 
 # every report source reads as freshly polled, or the server's STARTUP run files its own
-# rows on top of the fiction (a FAILED census, a raw digest) and they photobomb the shots
+# rows on top of the fiction (a FAILED headcount, a raw digest) and they photobomb the shots
 s._exec("UPDATE source SET LastPolledAt=? WHERE Channel='report'", (t(0, 0),))
 
 print('demo data seeded')

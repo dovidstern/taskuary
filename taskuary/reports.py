@@ -307,7 +307,7 @@ def run_assistant(cfg):
     due run to assistant.run, which posts ideas with buttons and state. This executor is what
     PREVIEW shows - the facts a run would hand the model. `store` arrives via resolve_cfg."""
     from .assistant import facts
-    return 'what the assistant would read right now', facts(cfg['store'])
+    return 'what the assistant would read right now', facts(cfg['store'], cfg.get('watch_source_ids'))
 
 
 def run_automate(cfg):
@@ -566,7 +566,7 @@ CONNECTION_OF = {'mssql': mssql_connection, 'winrm': winrm_connection, 'database
 
 
 def resolve_cfg(store, cfg: dict) -> dict:
-    if cfg.get('type') in ('digest', 'automate', 'agent', 'calendar', 'kb_search', 'kb_reindex'):
+    if cfg.get('type') in ('digest', 'automate', 'assistant', 'agent', 'calendar', 'kb_search', 'kb_reindex'):
         return {**cfg, 'store': store}   # their data IS the store (the agent's: its profile; the calendar's: the cards; the knowledge base: its index)
     conn = CONNECTION_OF.get(cfg.get('type'))
     if conn:

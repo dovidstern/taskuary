@@ -77,6 +77,37 @@ class PostTests(unittest.TestCase):
         _mine(s, 'Re: Q3 ledger', 'Could you send the reconciled version by Friday?', days=4, conv='c1')
         return s
 
+    def test_configured_report_views_are_pulled_live_without_filing_intermediate_rows(self):
+        from taskuary import reports
+        s = _store(); seen = {}
+        reports.REGISTRY['_finance_watch'] = lambda cfg: ('3 payments today', 'total=125000\nnormal_daily=40000')
+        try:
+            watched = s.save_source({'Channel': 'report', 'Address': 'Intacct payments', 'Active': 0,
+                                     'ConfigJson': json.dumps({'type': '_finance_watch', 'title': 'Intacct payments',
+                                                               'ai_prompt': 'This report has its own summary prompt.'})}, 't')
+            src = assistant.source(s); cfg = src['cfg'] | {'watch_source_ids': [watched]}
+            s.save_source({'SourceId': src['SourceId'], 'ConfigJson': json.dumps(cfg)}, 't')
+            s.set_setting('assistant_producers', 'followup', 't')  # selected views still request model judgement
+            preview_head, preview = reports.run_assistant(
+                reports.resolve_cfg(s, {'type': 'assistant', 'watch_source_ids': [watched]}))
+            def llm(system, user, **kwargs):
+                seen['user'] = user
+                return json.dumps({'say': [{'key': 'idea:intacct-payment-spike',
+                                            'text': 'Intacct payments are unusually high today.',
+                                            'why': 'Intacct payments: 125000 versus a normal 40000.',
+                                            'mid': None, 'task': None}], 'notes': ''})
+            out = assistant.run(s, llm=llm, force=True)
+        finally:
+            reports.REGISTRY.pop('_finance_watch', None)
+        self.assertEqual(out['said'], 1)
+        self.assertIn('assistant would read', preview_head); self.assertIn('total=125000', preview)
+        self.assertIn('CONFIGURED SYSTEM CHECKS', seen['user'])
+        self.assertIn('Intacct payments (3 payments today)', seen['user'])
+        self.assertIn('total=125000', seen['user'])
+        self.assertNotIn('This report has its own summary prompt', seen['user'])
+        self.assertIsNone(s.get_source(watched).get('LastPolledAt'))
+        self.assertFalse(any(m.get('Channel') == 'report' for m in s.recent_messages(_ago(1), limit=20)))
+
     def test_the_post_is_one_row_with_its_ideas_in_the_brief_and_never_repeats(self):
         s = self._seed()
         seen = []

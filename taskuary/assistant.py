@@ -46,6 +46,8 @@ PRODUCERS = ('followup', 'promise', 'prep', 'cold', 'idea')
 DAYS = 30                  # how far back followups and promises are read
 MAX_LINES = 5              # lines per post by default - a post nobody reads to the end is a post that failed
 POST_TOKENS = 900
+WATCH_SOURCE_CHARS = 6_000
+WATCH_TOTAL_CHARS = 18_000
 PEOPLE_THREADS, PEOPLE_CHARS = 14, 5200   # what people said: threads shown, and the block's ceiling
 _LOCK = threading.Lock()   # one check at a time: two clocks firing in the same second posted the same line twice (2026-08-29 23:59:02)
 # the owner's last word on a thread ASKED for something - that is what a chase is for...
@@ -58,9 +60,11 @@ _PROMISE = re.compile(r"\b(i('ll| will)|i'?m going to|let me) (send|get|have|fol
 # on the Reports tab (store.__init__), so the owner edits it there like the Morning digest's;
 # this copy is the default and the fallback. CONTRACT (the JSON shape) stays in code.
 PROMPT = (
-    'You are my assistant; every 30 minutes you check in. Tell me only what a sharp human assistant who had READ everything '
+    'You are my assistant; every 30 minutes you check in across the systems and conversations I chose. Tell me only what a sharp human assistant who had READ everything '
     'would lean over and say - never a summary of my inbox, never a count I can see myself. A good line connects two things I '
     'have not connected, or names the one thing I am about to miss. Read, in this order of worth:\n'
+    '0. CONFIGURED SYSTEM CHECKS - current views from finance, operations, CRM, infrastructure, or any other connected system. '
+    'Look for threshold breaches, unusual totals, sharp changes, missing expected activity, and facts that conflict across systems.\n'
     '1. WHAT PEOPLE SAID - the actual words, by thread. The ask buried in a chat ("can you fill out the form?") that got a '
     'reply but not the thing itself; the colleague mentioning in passing that a system fails "every day 4-5"; the person '
     'answering a question nobody asked me; the thread where the last word is theirs and it wants something from me. Say who, '
@@ -85,7 +89,8 @@ PROMPT = (
     'raising (a date, a length of silence), anything you would otherwise have to work out again - facts, never rules.')
 # a stock prompt still starting like one of these is healed to PROMPT (store.__init__)
 OLD_PROMPT_HEADS = ('You are my assistant. Once an hour,', 'You are my assistant. Every 20 minutes you check in;',
-                    'You are my assistant. Every 30 minutes you check in;')
+                    'You are my assistant. Every 30 minutes you check in;',
+                    'You are my assistant; every 30 minutes you check in.')
 
 
 def cfg(store) -> dict:
@@ -493,7 +498,65 @@ def parse(text: str, cands: list, max_lines: int = MAX_LINES) -> list:
     return out
 
 
-def inputs(store, cands: list, head: str = 'CANDIDATES') -> str:
+def _watch_ids(store) -> list[int]:
+    src = source(store)
+    raw = ((src or {}).get('cfg') or {}).get('watch_source_ids') or []
+    if not isinstance(raw, list): raw = [raw]
+    out = []
+    for value in raw:
+        try: sid = int(value)
+        except (TypeError, ValueError): continue
+        if sid not in out: out.append(sid)
+    return out[:20]
+
+
+def system_checks(store, source_ids=None) -> str:
+    """Silently pull selected report pipelines as the Assistant's live system context.
+
+    A saved report is the generic data-view contract: Intacct, REST, MCP, SQL, cloud, files,
+    and future connectors all already know how to execute there. We reuse the executor without
+    filing its result, touching its schedule, delivering it, or applying its own AI summary.
+    """
+    ids = _watch_ids(store) if source_ids is None else source_ids
+    if not isinstance(ids, list): ids = [ids]
+    wanted = []
+    for value in ids:
+        try: sid = int(value)
+        except (TypeError, ValueError): continue
+        if sid not in wanted: wanted.append(sid)
+    if not wanted:
+        return '(none selected - choose saved data views on Reports -> Assistant)'
+    from . import reports
+    found = {s['SourceId']: s for s in store.list_sources(active_only=False) if s.get('Channel') == 'report'}
+    blocks, used = [], 0
+    for sid in wanted[:20]:
+        src = found.get(sid)
+        if not src:
+            block = f'=== missing report source {sid} ===\nThis saved data view no longer exists.'
+        else:
+            try: cfg_ = json.loads(src.get('ConfigJson') or '{}')
+            except ValueError: cfg_ = {}
+            title = str(cfg_.get('title') or src.get('Address') or f'report {sid}')
+            if cfg_.get('type') == 'assistant':
+                block = f'=== {title} ===\nSkipped: an Assistant cannot watch itself.'
+            else:
+                # Its prompt controls the report when it runs independently. Here the Assistant
+                # needs the underlying current facts so one cross-system instruction can judge them.
+                raw_cfg = {k: v for k, v in cfg_.items() if k not in ('ai_prompt', 'ai_brain', 'ai_model')}
+                try:
+                    headline, body = reports.render_report(store, raw_cfg, None)
+                    block = f'=== {title} ({headline}) ===\n{str(body or "(no data returned)")[:WATCH_SOURCE_CHARS]}'
+                except Exception as e:
+                    block = f'=== {title} (FAILED) ===\n{str(e)[:500]}'
+                    logger.warning(f'assistant system check "{title}" failed: {e}')
+        if used + len(block) > WATCH_TOTAL_CHARS:
+            blocks.append(f'({len(wanted) - len(blocks)} additional configured views omitted by the context limit)')
+            break
+        blocks.append(block); used += len(block)
+    return '\n\n'.join(blocks)
+
+
+def inputs(store, cands: list, head: str = 'CANDIDATES', watch_source_ids=None) -> str:
     """Everything one check reads, as the model sees it - the same text is the Reports tab's Preview
     (facts) and the run record (reports.run_report_source), so what it was given is never a guess."""
     now = datetime.now()
@@ -502,6 +565,7 @@ def inputs(store, cands: list, head: str = 'CANDIDATES') -> str:
     facts_text = ' '.join(str(c.get('facts') or '') for c in cands)[:4000]
     return (f"NOW: {now.strftime('%A %d %B %Y %H:%M')}\n\n{head}:\n" + ('\n'.join(f"[{c['key']}] {c['facts']}" for c in cands) or '(none)')
             + knowledge.block(store, facts_text)
+            + f"\n\nCONFIGURED SYSTEM CHECKS (pulled live for this check; failures are also worth noticing):\n{system_checks(store, watch_source_ids)}"
             + f"\n\nWHAT PEOPLE SAID (the last two days, by thread, newest first; the last lines of each, oldest first):\n{_people(store)}"
             + '\n\nOUT OF OFFICE (from their auto-replies):\n' + ('\n'.join(f'- {k}: {v}' for k, v in away.items()) or '(nobody)')
             + f"\n\nCALENDAR (the next two days):\n{_calendar(store)}"
@@ -524,11 +588,12 @@ def think(store, cands: list, llm, instruction: str = None, max_lines: int = MAX
     return parse(text, cands, max_lines), _notes(text), user
 
 
-def facts(store) -> str:
+def facts(store, watch_source_ids=None) -> str:
     """What a run would hand the model, as text - the Reports tab's Preview (reports.run_assistant)."""
     c = cfg(store); now = datetime.now()
     state = {i['Key']: i for i in store.list_ideas()}
-    return inputs(store, [x for x in candidates(store, c) if fresh(state, x, now)], 'CANDIDATES (new since the last post)')
+    return inputs(store, [x for x in candidates(store, c) if fresh(state, x, now)],
+                  'CANDIDATES (new since the last post)', watch_source_ids)
 
 
 # ── the note to the next check ───────────────────────────────────────────────────────────────
@@ -677,7 +742,9 @@ def _run(store, llm, instruction) -> dict:
         try: llm = build_llm(store)
         except Exception as e:
             logger.debug(f'assistant: no model - {e}'); llm = None
-    used, note, read = bool(llm and 'idea' in c['producers']), '', ''
+    # Selecting system views is itself an explicit request for model judgement. It must keep
+    # working even if the owner turns off the free-form "idea" producer in Settings.
+    used, note, read = bool(llm and ('idea' in c['producers'] or _watch_ids(store))), '', ''
     if used:
         try: say, note, read = think(store, cands, llm, instruction, c['max'])
         except Exception as e:

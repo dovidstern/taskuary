@@ -58,8 +58,9 @@ const FIELDS = {
     ["failed only (1 = just the failures)", "failed_only", "text", "1"], AI_FIELD],
   entra_licenses: [AI_FIELD],
   automate: [["days back", "days", "text", "30"], AI_FIELD],
-  // the assistant's post: the prompt IS the configuration (what it watches for); thresholds live in Settings -> Assistant
-  assistant: [AI_FIELD],
+  // The Assistant silently pulls selected saved report pipelines; its prompt judges all of
+  // those current views together. The selector itself lives in ReportWizard below.
+  assistant: [],
   // the window starts at MIDNIGHT that many days back: 1 = all of yesterday plus today so far
   digest: [["days back (1 = all of yesterday + today so far; counted from midnight)", "days", "text", "1"], AI_FIELD],
   prometheus: [["PromQL query", "query", "multiline", 'up == 0   ·   sum(rate(http_requests_total[5m])) by (service)'], AI_FIELD],
@@ -421,6 +422,11 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
   };
 
   const typeOptions = types.filter((t) => t.status === "builtin");
+  const isAssistant = cfg.type === "assistant" || (srcs.length === 1 && srcs[0].type === "assistant");
+  const watchChoices = sources.filter((s) => s.SourceId !== cur?.SourceId && parse(s.ConfigJson).type !== "assistant")
+    .map((s) => { const c = parse(s.ConfigJson); return { id: s.SourceId, title: c.title || s.Address,
+      type: (c.sources || []).length > 1 ? `${c.sources.length} sources` : (TYPE_LABELS[c.type] || c.type || "report"), active: !!s.Active }; });
+  const watchedIds = (Array.isArray(cfg.watch_source_ids) ? cfg.watch_source_ids : []).map(Number);
   return (
     <Box sx={{ maxWidth: 980, mx: "auto" }}>
       <Crumb section="Reports" onBack={onBack} title={cur ? (parse(cur.ConfigJson).title || "Edit report") : "New report"} />
@@ -429,12 +435,35 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
           <StepButton onClick={() => setStep(0)}>Pipeline</StepButton>
           <StepContent>
             <Typography variant="body2" sx={{ color: DIM, mt: 0.5, mb: 1.5 }}>
-              Sources at the top feed one prompt at the bottom. Add as many as you want — the same
-              connection twice with different queries is fine, and every source's rows reach the
-              summary together.
+              {isAssistant
+                ? "Choose the saved data views it should pull on every check, then tell it what deserves your attention across all of them."
+                : "Sources at the top feed one prompt at the bottom. Add as many as you want — the same connection twice with different queries is fine, and every source's rows reach the summary together."}
             </Typography>
             <TextField required label="title — becomes the Timeline headline" value={cfg.title || ""} sx={{ bgcolor: "#fff", maxWidth: 560, mb: 2 }}
               fullWidth onChange={(e) => setCfg({ ...cfg, title: e.target.value })} />
+
+            {isAssistant && (
+              <Box sx={{ ...card, p: 1.5, mb: 1.5, maxWidth: 720, bgcolor: PANEL2 }}>
+                <Typography sx={{ color: INK, fontWeight: 700, fontSize: 13, mb: 0.4 }}>Systems and data views to check</Typography>
+                <Typography variant="caption" sx={{ color: DIM, display: "block", mb: 1 }}>
+                  These are existing report pipelines—Intacct queries, databases, REST or MCP tools, cloud systems, files, and agent skills. The Assistant pulls them silently on its own schedule; it does not file each intermediate report.
+                </Typography>
+                <Autocomplete multiple options={watchChoices} value={watchChoices.filter((o) => watchedIds.includes(o.id))}
+                  getOptionLabel={(o) => o.title || ""} isOptionEqualToValue={(o, v) => o.id === v.id}
+                  onChange={(_e, values) => setCfg({ ...cfg, watch_source_ids: values.map((o) => o.id) })}
+                  renderOption={(props, o) => (
+                    <Box component="li" {...props} key={o.id} sx={{ display: "flex", gap: 1 }}>
+                      <Typography sx={{ fontSize: 12.5, flex: 1 }}>{o.title}</Typography>
+                      <Typography variant="caption" sx={{ color: FAINT }}>{o.type}{o.active ? "" : " · report schedule off"}</Typography>
+                    </Box>
+                  )}
+                  renderInput={(params) => <TextField {...params} size="small" sx={{ bgcolor: "#fff" }}
+                    placeholder={watchChoices.length ? "Choose views…" : "Create another report/data view first"} />} />
+                <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 0.75 }}>
+                  A view may stay disabled as a standalone report and still be pulled here. Its query and credentials remain owned by that view and its connector.
+                </Typography>
+              </Box>
+            )}
 
             {/* ── the funnel: source cards, draggable, converging on the prompt ── */}
             <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "stretch" }}>
@@ -450,13 +479,13 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
                   onCopy={() => setSrcs((cur) => [...cur.slice(0, i + 1), { ...src, label: `${src.label || src.type} copy` }, ...cur.slice(i + 1)])}
                   onRemove={() => setSrcs((cur) => cur.filter((_, k) => k !== i))} />
               ))}
-              <Box onClick={() => setSrcs((cur) => [...cur, { type: "mssql" }])}
+              {!isAssistant && <Box onClick={() => setSrcs((cur) => [...cur, { type: "mssql" }])}
                 sx={{ ...card, width: 300, minHeight: 120, display: "flex", flexDirection: "column", alignItems: "center",
                   justifyContent: "center", gap: 0.5, cursor: "pointer", borderStyle: "dashed",
                   color: DIM, "&:hover": { borderColor: "#d8cfbe", color: "#55697a" } }}>
                 <AddIcon sx={{ fontSize: 20 }} />
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>add a source</Typography>
-              </Box>
+              </Box>}
             </Box>
 
             {/* everything above narrows into one prompt */}
@@ -468,11 +497,13 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.75 }}>
                 <AutoAwesomeIcon sx={{ fontSize: 15, color: "#55697a" }} />
                 <Typography variant="caption" sx={{ color: "#55697a", fontWeight: 700 }}>
-                  ONE PROMPT OVER ALL {srcs.length > 1 ? `${srcs.length} SOURCES` : "THE ROWS"}
+                  {isAssistant ? "WHAT SHOULD THE ASSISTANT SURFACE?" : `ONE PROMPT OVER ALL ${srcs.length > 1 ? `${srcs.length} SOURCES` : "THE ROWS"}`}
                 </Typography>
               </Box>
               <TextField fullWidth multiline minRows={3} value={cfg.ai_prompt || ""} sx={{ bgcolor: "#fff" }}
-                placeholder={AI_FIELD[3]} onChange={(e) => setCfg({ ...cfg, ai_prompt: e.target.value })} />
+                placeholder={isAssistant
+                  ? "Tell me only what needs attention now. Across finance and operations, flag unusual totals or changes, thresholds crossed, missing expected activity, failures, and contradictions. Give the number, comparison, and source."
+                  : AI_FIELD[3]} onChange={(e) => setCfg({ ...cfg, ai_prompt: e.target.value })} />
               {cfg.ai_prompt && (
                 <Box sx={{ display: "flex", gap: 1, mt: 1, alignItems: "center", flexWrap: "wrap" }}>
                   <Select size="small" displayEmpty value={cfg.ai_brain || ""} sx={{ bgcolor: "#fff", fontSize: 12.5, minWidth: 230 }}
@@ -502,7 +533,7 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
                       <TextField {...params} label="model (optional — the brain's default)" sx={{ bgcolor: "#fff" }} />
                     )} />
                   <Typography variant="caption" sx={{ color: FAINT }}>
-                    which AI writes this summary — a heavier model for the weekly review, the cheap tier for pings
+                    {isAssistant ? "which AI performs the proactive cross-system check" : "which AI writes this summary — a heavier model for the weekly review, the cheap tier for pings"}
                   </Typography>
                 </Box>
               )}
@@ -513,7 +544,7 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
               )}
               {!cfg.ai_prompt && (
                 <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 0.5 }}>
-                  Leave it empty to file the raw rows with no AI pass.
+                  {isAssistant ? "Add a general instruction so it knows what is worth interrupting you about." : "Leave it empty to file the raw rows with no AI pass."}
                 </Typography>
               )}
             </Box>

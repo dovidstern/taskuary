@@ -120,12 +120,25 @@ def deliver(store, tid: int) -> dict:
         task = store.get_task(tid) or {}
         if task.get('Status') not in ('open', 'in_progress'): return {'delivered': 0, 'state': 'closed'}
         if len([x for x in list(term.SESSIONS.values()) if x.alive]) >= auto_sessions(store): return {'delivered': 0, 'state': 'full'}
-        agent = store.get_settings().get('default_agent') or 'coder'
-        term.start_on_task(store, tid, agent, instruction=batch(notes, after_restart=True, remaining=left), actor='router')
+        # General work reopens in its connector-backed conversation. Coding work still reopens
+        # the configured CLI. The waiting room therefore feeds the same underlying session no
+        # matter which of its two renderers (assistant or terminal) the owner happens to prefer.
+        from . import general
+        if general.handles(task):
+            if not general.provider_options(store): return {'delivered': 0, 'state': 'no_provider'}
+            session = general.start_session(store, tid, actor='router')
+            threading.Thread(target=session.send_prompt,
+                             args=(batch(notes, after_restart=True, remaining=left),),
+                             daemon=True).start()
+            how = 'assistant'
+        else:
+            agent = store.get_settings().get('default_agent') or 'coder'
+            term.start_on_task(store, tid, agent, instruction=batch(notes, after_restart=True, remaining=left), actor='router')
+            how = 'seeded'
         store.deliver_waiting([x['WId'] for x in notes], 'seeded')
         store.add_comment(tid, 'router', 'agent', f'Reopened a session for {len(notes)} waiting-room note(s) - the previous one had ended.'
                           + (f' {left} still waiting for its next stop.' if left else ''))
-        store.audit('task', tid, 'waitroom_deliver', 'router', 'agent', {'n': len(notes), 'how': 'seeded', 'left': left})
+        store.audit('task', tid, 'waitroom_deliver', 'router', 'agent', {'n': len(notes), 'how': how, 'left': left})
         return {'delivered': len(notes), 'state': 'restarted', 'left': left}
     return {'delivered': 0, 'state': st}
 

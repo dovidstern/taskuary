@@ -14,6 +14,8 @@ import api from "./api";
 import { pollWhileVisible } from "./visible.js";
 import { PANEL, BORDER, DIM, FAINT, INK, ACCENT, ROLES, mono } from "./theme.jsx";
 import { TerminalPane } from "./TerminalView.jsx";
+
+const GeneralWorkspace = React.lazy(() => import("./GeneralWorkspace.jsx"));
 import { Confirm, TellAgent, WorkLine, isWaiting } from "./ui.jsx";
 import { cliName } from "./BoardView.jsx";
 import { defaultPaneHeight, holdWrappingSessions, movePane, resizedPaneHeight, withoutWallSession } from "./wallLayout.js";
@@ -224,7 +226,11 @@ export default function WallView({ onOpenTask, refresh = 0 }) {
                 </Box>
                 {/* the session itself fills the middle */}
                 <Box sx={{ flex: 1, minHeight: 0, p: 0.75, display: "flex", flexDirection: "column", "& > *": { flex: 1, minHeight: 0 } }}>
-                  <TerminalPane sid={s.sid} height="100%" onExit={load} />
+                  {s.mode === "assistant"
+                    ? <React.Suspense fallback={<CircularProgress size={18} sx={{ m: "auto" }} />}>
+                        <GeneralWorkspace task={{ ...t, TaskId: s.taskId }} onSession={load} compact />
+                      </React.Suspense>
+                    : <TerminalPane sid={s.sid} height="100%" onExit={load} />}
                 </Box>
                 {/* the queue, at the bottom of its own pane */}
                 <Box sx={{ px: 0.75, pb: 0.25, flexShrink: 0 }}>

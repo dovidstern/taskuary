@@ -1,5 +1,9 @@
 # The Taskuary Agent
 
+> Exploration only—this is not a shipped feature or a commitment to CopilotKit, AG-UI, or ACP.
+> The general-task workspace uses assistant-ui directly; this document considers a different,
+> future app-level agent that could operate Taskuary itself.
+
 This is a separate agent from the coding agent in a task. Its job is to operate and adapt
 Taskuary itself: find work, explain why something is surfaced, organize tasks, prepare actions,
 and help the owner change how the app behaves. Coding sessions remain bounded to a repository

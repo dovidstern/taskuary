@@ -1,0 +1,99 @@
+"""General work: assistant-ui and xterm are two renderers of one persistent session."""
+import time
+import unittest
+from unittest import mock
+
+from fastapi.testclient import TestClient
+
+from taskuary import general, llm, server, terminal, waitroom
+from taskuary.store import MemoryStore
+
+
+def general_task(store, kind='general'):
+    return store.create_task({'Title': 'Plan the customer launch', 'Summary': 'Compare the three options',
+                              'Kind': kind, 'Status': 'open'}, 'owner')
+
+
+def connect_openai(store):
+    row = store.get_connector_by_type('openai')
+    store.save_connector({'ConnectorId': row['ConnectorId'], 'Active': 1, 'Secret': 'sk-test',
+                          'Name': 'Work model', 'ConfigJson': '{"model":"gpt-test"}'}, 'owner')
+    return row['ConnectorId']
+
+
+class SharedSessionTests(unittest.TestCase):
+    def test_one_session_persists_chat_and_exposes_the_terminal_contract(self):
+        store = MemoryStore(); tid = general_task(store); cid = connect_openai(store)
+        seen = {}
+        def fake_brain(system, user, **kwargs):
+            seen.update(system=system, user=user, kwargs=kwargs)
+            return 'Here is the launch plan.'
+        with mock.patch.dict(terminal.SESSIONS, {}, clear=True), mock.patch.object(llm, 'build_llm', return_value=fake_brain):
+            session = general.start_session(store, tid, cid)
+            reply = session.send_prompt('Make a concise plan')
+            same = general.start_session(store, tid, cid)
+            self.assertIs(terminal.SESSIONS[session.sid], session)
+        self.assertIs(session, same)
+        self.assertEqual(reply, 'Here is the launch plan.')
+        self.assertIn('Make a concise plan', seen['user'])
+        self.assertEqual([m['role'] for m in general.history(store, tid)], ['user', 'assistant'])
+        info = session.info()
+        self.assertEqual((info['mode'], info['connector_id'], info['model']), ('assistant', cid, 'gpt-test'))
+        self.assertTrue(all(hasattr(session, name) for name in ('write', 'scrollback', 'waiting', 'subscribe', 'files')))
+
+    def test_terminal_input_adds_to_the_same_conversation(self):
+        store = MemoryStore(); tid = general_task(store); connect_openai(store)
+        with mock.patch.dict(terminal.SESSIONS, {}, clear=True), \
+             mock.patch.object(llm, 'build_llm', return_value=lambda *a, **k: 'Done from terminal.'):
+            session = general.start_session(store, tid)
+            session.write('Do this from xterm\r')
+            limit = time.time() + 2
+            while len(general.history(store, tid)) < 2 and time.time() < limit: time.sleep(.02)
+        self.assertEqual([m['role'] for m in general.history(store, tid)], ['user', 'assistant'])
+        self.assertIn('Done from terminal.', session.scrollback())
+
+
+class GeneralApiTests(unittest.TestCase):
+    def test_api_starts_and_resumes_the_same_session(self):
+        store = MemoryStore(); tid = general_task(store, 'research'); cid = connect_openai(store)
+        with mock.patch.object(server, 'store', store), mock.patch.dict(terminal.SESSIONS, {}, clear=True), \
+             mock.patch.object(llm, 'build_llm', return_value=lambda *a, **k: 'Research result'):
+            client = TestClient(server.app)
+            first = client.post(f'/api/tasks/{tid}/assistant/session', json={'connector_id': cid}).json()
+            sent = client.post(f'/api/tasks/{tid}/assistant/messages', json={'text': 'Research this', 'connector_id': cid}).json()
+            resumed = client.get(f'/api/tasks/{tid}/assistant').json()
+        self.assertEqual(first['session']['sid'], sent['session']['sid'])
+        self.assertEqual(sent['session']['sid'], resumed['session']['sid'])
+        self.assertEqual(sent['reply'], 'Research result')
+        self.assertEqual(len(resumed['messages']), 2)
+
+    def test_coding_task_cannot_accidentally_start_the_general_assistant(self):
+        store = MemoryStore(); tid = general_task(store, 'coding')
+        with mock.patch.object(server, 'store', store), mock.patch.dict(terminal.SESSIONS, {}, clear=True):
+            self.assertEqual(TestClient(server.app).post(f'/api/tasks/{tid}/assistant/session', json={}).status_code, 422)
+
+    def test_wall_wrap_closes_general_work_without_a_coder_report(self):
+        store = MemoryStore(); tid = general_task(store); connect_openai(store)
+        with mock.patch.object(server, 'store', store), mock.patch.dict(terminal.SESSIONS, {}, clear=True), \
+             mock.patch.object(llm, 'build_llm', return_value=lambda *a, **k: 'The finished plan'):
+            session = general.start_session(store, tid); session.send_prompt('Finish the plan')
+            result = TestClient(server.app).post(f'/api/tasks/{tid}/wrap', json={'close': True}).json()
+        self.assertEqual((result['wrap'], result['report']), ('done', 'The finished plan'))
+        self.assertEqual(store.get_task(tid)['Status'], 'done')
+        self.assertFalse(any(str(c['Body']).startswith('CODER REPORT') for c in store.list_comments(tid)))
+
+
+class GeneralWaitroomTests(unittest.TestCase):
+    def test_a_general_note_reopens_the_assistant_not_a_coding_cli(self):
+        store = MemoryStore(); tid = general_task(store); connect_openai(store)
+        fake = mock.Mock(); fake.send_prompt = mock.Mock()
+        with mock.patch.dict(terminal.SESSIONS, {}, clear=True), \
+             mock.patch.object(general, 'start_session', return_value=fake) as start, \
+             mock.patch.object(terminal, 'start_on_task') as coding:
+            out = waitroom.add(store, tid, 'Compare the competitors')
+            time.sleep(.05)
+        self.assertEqual((out['state'], out['delivered']), ('restarted', 1))
+        start.assert_called_once(); coding.assert_not_called(); fake.send_prompt.assert_called_once()
+
+
+if __name__ == '__main__': unittest.main()

@@ -32,9 +32,12 @@ import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
 import { Divider, ListItemIcon, ListItemText, Menu } from "@mui/material";
 import { TerminalPane } from "./TerminalView.jsx";
 
+const GeneralWorkspace = React.lazy(() => import("./GeneralWorkspace.jsx"));
+
 const repoOf = (t) => (String(t?.Tags || "").match(/repo:([^\s,]+)/) || [])[1] || null;
 
 const STATUSES = ["open", "in_progress", "waiting", "done", "dropped"];
+const GENERAL_KINDS = new Set(["general", "research", "marketing", "triage"]);
 // CATEGORY is where a task is; the chip on the row says what it needs. Filtering by "needs
 // you" and "working" separately made those two look like opposites, so a task whose agent
 // picked it up vanished out of the bucket you were watching - and a task sitting in "needs
@@ -264,6 +267,7 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
       if (/no local path/i.test(msg)) setRepoPick(true);
     }
   }, [loadDetail, loadTasks, onChanged]);
+  const generalSession = useCallback((session) => setTerm(session), []);
   // "New task -> live session" lands here: put the CLI on it once we know this task has no
   // session already, so a reload never spawns a second one
   useEffect(() => {
@@ -276,6 +280,7 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
 
   // the pane shows the selected task or nothing - never the previous one while this loads
   const t = detail?.task?.TaskId === selected ? detail.task : null;
+  const isGeneral = GENERAL_KINDS.has(String(t?.Kind || "general").toLowerCase());
   const search = query.trim();
   // Search means the whole archive, regardless of the selected state pill or today's cutoff. That
   // is what makes a completed PR/task discoverable instead of merely searching the visible rows.
@@ -479,7 +484,16 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
                       onDone={() => { loadDetail(selected); loadTasks(); findTerm(selected); }} />
                   </Box>
                 )}
-                {wrapping && !wrapped ? (
+                {isGeneral ? (
+                  <>
+                    <React.Suspense fallback={<Box sx={{ height: 500, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}>
+                      <GeneralWorkspace task={t} onSession={generalSession} />
+                    </React.Suspense>
+                    <Box sx={{ mt: 0.75, flexShrink: 0 }}>
+                      <TellAgent taskId={selected} taskRef={detail?.ref} compact onQueued={() => loadDetail(selected)} />
+                    </Box>
+                  </>
+                ) : wrapping && !wrapped ? (
                   <Box sx={{ ...card, bgcolor: "#e3e6e1", border: "1px solid #d2d6cf" }}>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <CircularProgress size={15} />
@@ -695,7 +709,7 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
                 )}
 
                 {/* no live session: the same box, so a note left now reopens one with it as the ask */}
-                {detail.task.Kind !== "reply" && !term && (
+                {detail.task.Kind !== "reply" && !isGeneral && !term && (
                   <Box sx={{ mt: 1.5 }}><TellAgent taskId={selected} taskRef={detail?.ref} onQueued={() => loadDetail(selected)} /></Box>
                 )}
 

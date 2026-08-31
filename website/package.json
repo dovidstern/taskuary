@@ -9,6 +9,7 @@
     "test": "node --test test/"
   },
   "dependencies": {
+    "@assistant-ui/react": "^0.15.17",
     "@emotion/react": "^11.13.0",
     "@emotion/styled": "^11.13.0",
     "@mui/icons-material": "^6.1.0",

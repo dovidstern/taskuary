@@ -334,7 +334,7 @@ const TermOnly = ({ sid, height = "70vh", onExit }) => {
 // server (agent-browser's own state files), polled - nothing here asks the agent. A slot too
 // narrow for two panes (a Wall tile three across) gets a chip instead, which opens the browser
 // OVER the terminal until dismissed.
-const TerminalPaneInner = ({ sid, height = "70vh", onExit }) => {
+export const SessionPane = ({ sid, height = "70vh", onExit, children }) => {
   const slot = useRef(null);
   const [browser, setBrowser] = useState({ open: false, url: "" });
   const [width, setWidth] = useState(0);
@@ -383,7 +383,7 @@ const TerminalPaneInner = ({ sid, height = "70vh", onExit }) => {
       ...(fixed ? { height } : { flex: 1 }) }}>
       <Box sx={{ flex: layout === "split" ? `0 0 calc(${((1 - ratio) * 100).toFixed(2)}% - 4px)` : 1, minWidth: 0, minHeight: 0,
         display: "flex", flexDirection: "column", position: "relative", "& > *": { flex: 1, minHeight: 0 } }}>
-        <TermOnly sid={sid} height="100%" onExit={onExit} />
+        {children || <TermOnly sid={sid} height="100%" onExit={onExit} />}
         {chip}
       </Box>
       {layout === "split" && (
@@ -402,6 +402,8 @@ const TerminalPaneInner = ({ sid, height = "70vh", onExit }) => {
     </Box>
   );
 };
+
+const TerminalPaneInner = (props) => <SessionPane {...props} />;
 
 // Wall status polls should update the header, not ask React to reconcile xterm's DOM. xterm owns
 // everything inside its host after mount; sid/height are the only props that change its surface.

@@ -8,6 +8,8 @@ before 1.0.
 
 - AI-gated triage with a review queue and hash-chained audit history
 - Resumable, live-streamed coding-agent sessions in the user's own repositories
+- General-work assistant sessions with interchangeable assistant-ui and terminal views,
+  persistent task conversation, queue, image attachments, and the shared browser pane
 - Claude Code, Codex, Gemini, Cursor, and Copilot presets with connection tests
 - Timeline, task Board, Studio floor, and multi-terminal Wall
 - Assistant posts with evidence, actions, reviewed material, and cross-check notes

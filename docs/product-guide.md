@@ -10,7 +10,9 @@ Taskuary automates the ends and leaves you the middle:
 
 1. Mail, chats, issues, incidents, and reports arrive on one Timeline.
 2. AI triage files noise, drafts answers to questions, and turns concrete work into tasks.
-3. Tasks run in the coding CLI and repository you configured, in a terminal you can watch.
+3. Coding tasks run in the CLI and repository you configured. General, research, marketing,
+   and triage tasks run in a conversational workspace; its assistant and terminal views share
+   one session, and both can sit beside the session browser.
 4. Results and replies return for review. Nothing sends, closes, or ships without approval.
 
 Nothing leaves the machine except calls to services you explicitly configure.

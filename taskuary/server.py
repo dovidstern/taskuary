@@ -88,6 +88,10 @@ class MsgBody(BaseModel):
     conversation_id: str | None = None; sent_at: str | None = None
     source_link: str | None = None; source_name: str | None = None
 class TextBody(BaseModel): body: str
+class AssistantSessionBody(BaseModel):
+    connector_id: int | None = None; model: str | None = None
+class AssistantMessageBody(AssistantSessionBody):
+    text: str; attachments: list[str] = []
 class DecideBody(BaseModel): verb: str; final_text: str | None = None; note: str | None = None
 class CodeBody(BaseModel):
     repo: str | None = None; agent: str | None = None
@@ -202,6 +206,37 @@ def task_detail(task_id: int):
     tr = store.last_transcript(task_id)
     return {**d, 'session': hub_term.for_task(task_id, tail=3),
             'transcript': {'agent': tr['Agent'], 'at': tr['CreatedAt'], 'chars': len(tr['Text'] or '')} if tr else None}
+
+def _assistant_payload(task_id: int, session=None):
+    from . import general
+    task = store.get_task(task_id)
+    if not task: raise HTTPException(404, 'task not found')
+    if not general.handles(task):
+        raise HTTPException(422, 'assistant view is available for general, research, marketing, and triage tasks')
+    session = session or general.session_for(task_id)
+    return {'messages': general.history(store, task_id), 'providers': general.provider_options(store),
+            'session': session.info(tail=3) if session else None}
+
+@app.get('/api/tasks/{task_id}/assistant')
+def assistant_state(task_id: int):
+    return _assistant_payload(task_id)
+
+@app.post('/api/tasks/{task_id}/assistant/session')
+def assistant_session(task_id: int, body: AssistantSessionBody = None):
+    from . import general
+    body = body or AssistantSessionBody()
+    try: session = general.start_session(store, task_id, body.connector_id, body.model, ACTOR)
+    except (ValueError, RuntimeError) as e: raise HTTPException(422, str(e))
+    return _assistant_payload(task_id, session)
+
+@app.post('/api/tasks/{task_id}/assistant/messages')
+def assistant_message(task_id: int, body: AssistantMessageBody):
+    from . import general
+    try:
+        session = general.start_session(store, task_id, body.connector_id, body.model, ACTOR)
+        reply = session.send_prompt(body.text, body.attachments, body.connector_id, body.model)
+    except (ValueError, RuntimeError) as e: raise HTTPException(422, str(e))
+    return {'reply': reply, **_assistant_payload(task_id, session)}
 
 @app.patch('/api/tasks/{task_id}')
 def update_task(task_id: int, body: TaskBody, background: BackgroundTasks = None):
@@ -2134,9 +2169,23 @@ class WrapBody(BaseModel): task_id: int | None = None; close: bool = True
 # vanished, leaving a task that could never be closed out. The transcript is filed when a session
 # ends, so these work whether the terminal is live, exited, or long gone.
 def _wrap_task(tid: int, close: bool, sid: str = None):
-    if not tid or not store.get_task(tid): raise HTTPException(422, 'this session is not on a task')
+    task = store.get_task(tid) if tid else None
+    if not task: raise HTTPException(422, 'this session is not on a task')
     # a setup session kept no transcript on purpose (secrets were typed into it) and has no report to write
-    if store.get_task(tid).get('Kind') == aisetup.KIND: return aisetup.finish(store, tid, ACTOR)
+    if task.get('Kind') == aisetup.KIND: return aisetup.finish(store, tid, ACTOR)
+    # General work already has a durable, turn-by-turn record in task comments. It does not need
+    # a coding-transcript summarizer or a synthetic CODER REPORT when the owner checks it off on
+    # the Wall; close the shared session and the task, while leaving that conversation intact.
+    from . import general
+    session = general.session_for(tid)
+    if general.handles(task) and session:
+        hub_term.close(session.sid)
+        if close and task.get('Status') not in ('done', 'dropped'):
+            store.update_task(tid, {'Status': 'done'}, ACTOR)
+        store.add_comment(tid, ACTOR, 'human', 'Closed the general-work session.' + (' Marked the task done.' if close else ''))
+        store.audit('terminal', tid, 'wrap', ACTOR, detail={'sid': sid or session.sid, 'close': close, 'mode': 'assistant'})
+        last = next((m['content'][0]['text'] for m in reversed(general.history(store, tid)) if m['role'] == 'assistant'), '')
+        return {'wrap': 'done', 'taskId': tid, 'report': last, 'proposed': [], 'drafting': False}
     text, agent, found = hub_term.transcript_for(store, tid)
     if not text.strip(): raise HTTPException(422, 'nothing to wrap up - this task has no session transcript')
     if found: hub_term.close(found)          # done means done - the pty and its shells go too

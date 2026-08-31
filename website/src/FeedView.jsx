@@ -17,6 +17,7 @@ import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import api from "./api";
 import { timelineOpacity } from "./timelineFade.js";
 import { availablePickerChannels, channelsForCategory } from "./feedFilters.js";
+import { timelineDayLabel } from "./timelineDay.js";
 import EventIcon from "@mui/icons-material/Event";
 import { pollWhileVisible } from "./visible.js";
 import { feedHeaders, feedOk, takeFeed } from "./feedLoad.js";
@@ -926,7 +927,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
         {/* THE date line - one, frozen with everything above it, its space intact; only the words
             change as the timeline scrolls into its underside. Centred over the TIMELINE column
             (the inner grid mirrors the page's tracks), not over the whole page. */}
-        {rows && rows.length > 0 && (
+        {!!Object.keys(days).length && (
           <Box sx={{ width: "100%", display: "grid", columnGap: 2,
             gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(520px, 44%)" } }}>
             <Typography variant="caption" sx={{ ...mono, color: INK, fontWeight: 800, fontSize: 11.5,
@@ -951,7 +952,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
               <CircularProgress size={26} sx={{ mt: 14 }} />
             </Box>
           )}
-          {!rows ? (err ? null : <CircularProgress size={22} sx={{ m: 4 }} />) : !rows.length ? (
+          {!rows ? (err ? null : <CircularProgress size={22} sx={{ m: 4 }} />) : !sorted.length ? (
             // the empty line has to know WHY it is empty: "activate a mailbox" under the
             // code filter told someone with three mailboxes to add a fourth
             <Empty>{view || cat || pick
@@ -1062,12 +1063,12 @@ export default function FeedView({ onOpenTask, onChanged }) {
           ))}
           {/* infinite-scroll sentinel: crossing it loads the next page */}
           <Box ref={endRef} sx={{ height: 8 }} />
-          {rows && rows.length > 0 && !noMore && <CircularProgress size={16} sx={{ display: "block", mx: "auto", my: 1 }} />}
+          {!!sorted.length && !noMore && <CircularProgress size={16} sx={{ display: "block", mx: "auto", my: 1 }} />}
         </Box>
         {/* the bottom dissolve: pinned to the foot of the screen while the column is in view, so the
             last rows fade into the page - "there is nothing towards the bottom" - column-width only,
             never over the review panel. height:0 so it adds no space; the gradient hangs above it. */}
-        {rows && rows.length > 0 && (
+        {!!sorted.length && (
           // tall enough that the LAST FEW rows dissolve, each more than the one above it -
           // "there is nothing towards the bottom", not one half-faded row at a hard line
           <Box aria-hidden sx={{ position: "sticky", bottom: 0, height: 0, zIndex: 6, pointerEvents: "none" }}>
@@ -1103,12 +1104,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
 
 // Day rail label: "Today · Friday, Aug 14" / "Yesterday · ..." / "Thursday, Aug 13".
 const fmtDay = (d) => {
-  if (d === "undated") return "undated";
-  const nice = new Date(`${d}T00:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-  const today = new Date(); const yest = new Date(Date.now() - 864e5);
-  if (d === today.toLocaleDateString("sv-SE")) return `Today · ${nice}`;
-  if (d === yest.toLocaleDateString("sv-SE")) return `Yesterday · ${nice}`;
-  return nice;
+  return timelineDayLabel(d);
 };
 
 // Compact what-happened rail: opened -> routed -> agent runs -> decisions -> closed,

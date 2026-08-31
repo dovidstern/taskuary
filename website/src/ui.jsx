@@ -861,7 +861,7 @@ const tzOffsetMin = (d) => {
   return (m[1] === "-" ? -1 : 1) * (parseInt(m[2] || 0) * 60 + parseInt(m[3] || 0));
 };
 export const asUtc = (s) => {
-  const iso = s.replace(" ", "T");
+  const iso = String(s || "").replace(" ", "T");
   if (!TZ) return new Date(iso);                       // blank = this browser IS the server's zone
   try { return new Date(Date.parse(iso + "Z") - tzOffsetMin(new Date(iso + "Z")) * 60000); }
   catch { return new Date(iso); }
@@ -874,15 +874,26 @@ export const tzLabel = () => {
   } catch { return ""; }
 };
 const tzOpt = () => (TZ ? { timeZone: TZ } : {});   // format in the configured zone, so digits match the label
-export const fmtTime12 = (s) => s ? asUtc(s).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", ...tzOpt() }) : "";
-export const tsMs = (s) => s ? asUtc(s).getTime() : 0;      // one clock for everything the Timeline orders (messages, meetings)
+export const fmtTime12 = (s) => {
+  const d = s ? asUtc(s) : null;
+  return d && Number.isFinite(d.getTime()) ? d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", ...tzOpt() }) : "";
+};
+export const tsMs = (s) => {
+  const n = s ? asUtc(s).getTime() : 0;
+  return Number.isFinite(n) ? n : 0;
+};      // one clock for everything the Timeline orders (messages, meetings)
 export const fmtDateTime = (s) => {
   if (!s) return "";
-  const base = asUtc(s).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", ...tzOpt() });
+  const d = asUtc(s);
+  if (!Number.isFinite(d.getTime())) return "";
+  const base = d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", ...tzOpt() });
   const z = tzLabel();
   return z ? `${base} ${z}` : base;
 };
-export const localDay = (s) => s ? asUtc(s).toLocaleDateString("sv-SE", tzOpt()) : "";   // YYYY-MM-DD in that zone
+export const localDay = (s) => {
+  const d = s ? asUtc(s) : null;
+  return d && Number.isFinite(d.getTime()) ? d.toLocaleDateString("sv-SE", tzOpt()) : "";
+};   // YYYY-MM-DD in that zone
 
 // ── Stripe-style two-level navigation atoms (Settings/Docs/Connectors share these) ──
 export const Crumb = ({ section, onBack, title }) => (

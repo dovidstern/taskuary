@@ -71,7 +71,8 @@ function AssistantThread({ task, messages, selectionRef, attachmentsRef, onSent,
             </div>
           )}
           <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
-          <ThreadPrimitive.ViewportFooter className="tq-aui-footer">
+        </ThreadPrimitive.Viewport>
+          <div className="tq-aui-footer">
             {!!attachmentsRef.current.length && (
               <div className="tq-aui-attachments">
                 {attachmentsRef.current.map((a) => (
@@ -89,8 +90,7 @@ function AssistantThread({ task, messages, selectionRef, attachmentsRef, onSent,
               <ComposerPrimitive.Send className="tq-aui-send" aria-label="Send"><SendIcon fontSize="small" /></ComposerPrimitive.Send>
             </ComposerPrimitive.Root>
             <div className="tq-aui-hint">Enter sends · Shift+Enter adds a line · paste or attach an image</div>
-          </ThreadPrimitive.ViewportFooter>
-        </ThreadPrimitive.Viewport>
+          </div>
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
   );

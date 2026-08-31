@@ -556,10 +556,12 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
                         {wrapping === "pause" ? "saving what it found…" : term.alive ? "Pause — save what it found" : "Save what it found"}
                       </Button>
                     </Box>
-                    {/* sized to what is actually left on screen below the header and the button strip, so the
-    detail panel does not have to be scrolled to see the bottom of the session - the
-    terminal has its own scrollbar for its own scrollback */}
-                    <Box sx={{ flex: 1, minHeight: 260, display: "flex", flexDirection: "column", "& > *": { flex: 1, minHeight: 0 } }}>
+                    {/* A live coding session is the primary workspace, not a preview squeezed by
+                        the report and history below it. Give it a terminal-sized viewport and let
+                        the surrounding task page scroll to the evidence after the session. */}
+                    <Box sx={{ height: { xs: "56vh", md: "clamp(500px, 64vh, 760px)" },
+                      minHeight: { xs: 360, md: 500 }, flexShrink: 0,
+                      display: "flex", flexDirection: "column", "& > *": { flex: 1, minHeight: 0 } }}>
                       <TerminalPane sid={term.sid} height="100%" onExit={() => findTerm(selected)} />
                     </Box>
                     {/* the waiting room, right under the session it feeds: type here instead of into the

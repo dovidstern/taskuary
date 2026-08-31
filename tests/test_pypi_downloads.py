@@ -59,6 +59,19 @@ class TheSeriesTests(unittest.TestCase):
         self.assertEqual((t['last_day'], t['last_week']), (1, 6))
 
 
+class WhatIsAskedForTests(unittest.TestCase):
+    def test_it_asks_for_days_because_the_default_is_one_summed_row(self):
+        """pypistats' own default is total='all': one dateless row per category, which drops
+        out of the series entirely and leaves the chart empty."""
+        import unittest.mock as mock
+        with mock.patch.object(dl, '_get', return_value=_payload(3)) as got:
+            dl.fetch('taskuary')
+        self.assertEqual(got.call_args.kwargs, {'mirrors': False, 'total': 'daily'})
+
+    def test_a_summed_row_with_no_date_is_not_charted_as_a_day(self):
+        self.assertEqual(dl.series({'data': [{'category': 'without_mirrors', 'downloads': 900}]}), [])
+
+
 class TheChartTests(unittest.TestCase):
     def test_it_draws_one_bar_per_day_with_downloads(self):
         rows = [('2026-08-28', 4), ('2026-08-29', 0), ('2026-08-30', 7)]

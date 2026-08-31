@@ -33,6 +33,9 @@ PAD_L, PAD_R, PAD_T, PAD_B = 46, 12, 34, 26
 DAYS = 180                    # what the pypistats overall endpoint keeps
 
 
+HTTP_PARAMS = ('mirrors',)      # the rest are pypistats' own presentation options, not the API's
+
+
 def _get(pkg: str, what: str, **params) -> dict:
     """One pypistats endpoint, as JSON. pypistats itself where it is installed and answering;
     otherwise the same URL with a user agent that says who is asking."""
@@ -41,7 +44,8 @@ def _get(pkg: str, what: str, **params) -> dict:
         return json.loads(getattr(pypistats, what)(pkg, format='json', **params))
     except Exception as e:
         print(f'pypistats {what} did not answer ({e}); asking the API directly', file=sys.stderr)
-        q = f"?{urlencode({k: str(v).lower() for k, v in params.items()})}" if params else ''
+        send = {k: str(v).lower() for k, v in params.items() if k in HTTP_PARAMS}
+        q = f'?{urlencode(send)}' if send else ''
         with urlopen(Request(f'{API}/{pkg}/{what}{q}', headers={'User-Agent': UA}), timeout=30) as r:
             return json.load(r)
 
@@ -53,8 +57,12 @@ def series(payload: dict) -> list:
 
 
 def fetch(pkg: str) -> list:
-    """The last ~180 days as the API keeps them, mirrors excluded."""
-    return series(_get(pkg, 'overall', mirrors=False))
+    """The last ~180 days as the API keeps them, mirrors excluded.
+
+    total='daily' is not decoration: pypistats defaults to 'all', which sums the whole window
+    into ONE dateless row per category - and a chart of days then has no days in it at all
+    ("nothing to chart yet", the first workflow run)."""
+    return series(_get(pkg, 'overall', mirrors=False, total='daily'))
 
 
 def merge(old: list, new: list) -> list:

@@ -34,6 +34,9 @@ jobs:
           set -euo pipefail
           git config user.name  'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # PyPI had nothing to give (a brand-new package, or the API was down): the step above
+          # already said so, and `git add` on a file that was never written is not the report
+          if [ ! -f docs/downloads.svg ]; then echo 'no chart to commit'; exit 0; fi
           git add docs/downloads.csv docs/downloads.svg
           # nothing new from PyPI is the normal case on a quiet day, not a failure
           if git diff --quiet --cached; then echo 'no change'; exit 0; fi

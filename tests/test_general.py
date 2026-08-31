@@ -1,4 +1,5 @@
 """General work: assistant-ui and xterm are two renderers of one persistent session."""
+import json
 import time
 import unittest
 from unittest import mock
@@ -22,6 +23,18 @@ def connect_openai(store):
 
 
 class SharedSessionTests(unittest.TestCase):
+    def test_configured_cli_login_is_a_first_class_assistant_provider(self):
+        store = MemoryStore(); tid = general_task(store)
+        store.upsert_agent('my-codex', 'coding', 'cli', json.dumps({'cmd': 'codex', 'model': 'gpt-test'}))
+        with mock.patch.dict(terminal.SESSIONS, {}, clear=True), \
+             mock.patch.object(llm, 'build_llm', return_value=lambda *a, **k: 'Done through the CLI.') as build:
+            session = general.start_session(store, tid, pick='cli:my-codex')
+            reply = session.send_prompt('Research this', pick='cli:my-codex')
+        self.assertEqual(reply, 'Done through the CLI.')
+        self.assertEqual((session.pick, session.model), ('cli:my-codex', 'gpt-test'))
+        self.assertIn('your CLI', session.provider)
+        self.assertEqual(build.call_args.kwargs['pick'], 'cli:my-codex')
+
     def test_one_session_persists_chat_and_exposes_the_terminal_contract(self):
         store = MemoryStore(); tid = general_task(store); cid = connect_openai(store)
         seen = {}
@@ -54,6 +67,16 @@ class SharedSessionTests(unittest.TestCase):
 
 
 class GeneralApiTests(unittest.TestCase):
+    def test_api_accepts_the_existing_cli_agent_connection(self):
+        store = MemoryStore(); tid = general_task(store)
+        store.upsert_agent('my-claude', 'coding', 'cli', json.dumps({'cmd': 'claude'}))
+        with mock.patch.object(server, 'store', store), mock.patch.dict(terminal.SESSIONS, {}, clear=True), \
+             mock.patch.object(llm, 'build_llm', return_value=lambda *a, **k: 'CLI answer'):
+            out = TestClient(server.app).post(f'/api/tasks/{tid}/assistant/messages',
+                                               json={'text': 'Plan it', 'pick': 'cli:my-claude'}).json()
+        self.assertEqual(out['reply'], 'CLI answer')
+        self.assertEqual(out['session']['pick'], 'cli:my-claude')
+
     def test_api_starts_and_resumes_the_same_session(self):
         store = MemoryStore(); tid = general_task(store, 'research'); cid = connect_openai(store)
         with mock.patch.object(server, 'store', store), mock.patch.dict(terminal.SESSIONS, {}, clear=True), \

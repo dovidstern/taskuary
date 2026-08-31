@@ -12,7 +12,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import "@xterm/xterm/css/xterm.css";
 import { BORDER, CATPPUCCIN, FAINT, PANEL, XTERM_THEME, mono } from "./theme.jsx";
 import { MicButton } from "./ui.jsx";
-import { canRevealTerminal, changedTerminalSize, usableTerminalBox } from "./terminalSizing.js";
+import { canRevealTerminal, changedTerminalSize, safeTerminalRows, usableTerminalBox } from "./terminalSizing.js";
 import { pastedImageFiles, pastedImagePrompt } from "./terminalInput.js";
 import api from "./api.js";
 import BrowserPane from "./BrowserPane.jsx";
@@ -136,7 +136,12 @@ const TermOnly = ({ sid, height = "70vh", onExit }) => {
     // No WebGL renderer here on purpose: it renders nothing at all on software-GL stacks
     // (WebView2 without a GPU, remote desktop, headless), and a blank terminal is a much
     // worse failure than a few dropped frames. The DOM renderer draws the same colors.
-    fit.fit();
+    const fitSafely = () => {
+      fit.fit();
+      const rows = safeTerminalRows(term.rows);
+      if (rows !== term.rows) term.resize(term.cols, rows);
+    };
+    fitSafely();
     const ws = new WebSocket(wsUrl(sid));
     const send = (m) => ws.readyState === 1 && ws.send(JSON.stringify(m));
     // ResizeObserver may fire several times for one unchanged box (and every parent poll used
@@ -200,7 +205,7 @@ const TermOnly = ({ sid, height = "70vh", onExit }) => {
     const onResize = () => {
       const box = host.current?.getBoundingClientRect();
       if (!box || !usableTerminalBox(box.width, box.height)) return;
-      fit.fit();
+      fitSafely();
       // Flex layout, tab visibility and the browser split can report several intermediate
       // boxes in one gesture. Codex redraws its whole TUI for every PTY resize; send only the
       // settled geometry while still fitting xterm locally on each frame.
@@ -291,12 +296,12 @@ const TermOnly = ({ sid, height = "70vh", onExit }) => {
           positioned, and simply could not be seen or grabbed; the only scrollbar on screen was the
           page's, which is why reaching the scrollback meant scrolling the whole window instead.
           Colour comes from XTERM_THEME - this keeps the vertical bar on permanently. */}
-      {/* content-box, deliberately: FitAddon divides the host's computed `height` by the cell
-          height, and under the app's border-box default that height INCLUDED this padding - so
-          it sized one row too many and the bottom row (claude's "bypass permissions" status line)
-          was drawn under the edge and clipped. Content-box reports the inner height, rows fit. */}
+      {/* Padding lives outside xterm's measured host. Putting it on a content-box flex child made
+          the child larger than its slot, so overflow clipped the last TUI row. FitAddon measures
+          this unpadded inner box and fitSafely keeps one row clear of pixel rounding. */}
+      <Box sx={{ ...(height === "100%" ? { flex: 1, minHeight: 0 } : { height }), p: 1, boxSizing: "border-box" }}>
       <Box ref={host} onMouseDown={() => requestAnimationFrame(() => termRef.current?.focus())}
-        sx={{ ...(height === "100%" ? { flex: 1, minHeight: 0 } : { height }), p: 1, boxSizing: "content-box", "& .xterm": { height: "100%" },
+        sx={{ width: "100%", height: "100%", minHeight: 0, "& .xterm": { height: "100%" },
         "& .xterm-scrollable-element > .scrollbar.vertical": {
           // pinned visible ONLY while scrollback exists (--sbar, set from the buffer state):
           // an alternate-screen TUI scrolls itself, and a dead full-height slider is a lie
@@ -307,6 +312,7 @@ const TermOnly = ({ sid, height = "70vh", onExit }) => {
         "& .xterm-scrollable-element > .scrollbar.vertical > .slider": {
           borderRadius: 99, width: "8px !important", marginLeft: "3px", transition: "background .15s" },
         "& .xterm-scrollable-element > .scrollbar.vertical:hover > .slider": { width: "11px !important" } }} />
+      </Box>
       {/* the curtain: the pane's own background, so a reopened session looks like it was
           simply already there - and it lifts on the live screen, scrolled to the bottom */}
       {restoring && (

@@ -32,7 +32,25 @@ import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
 import { Divider, ListItemIcon, ListItemText, Menu } from "@mui/material";
 import { TerminalPane } from "./TerminalView.jsx";
 
-const GeneralWorkspace = React.lazy(() => import("./GeneralWorkspace.jsx"));
+// An open tab can still hold yesterday's entry bundle after a local upgrade. Vite names lazy
+// chunks by content, so that tab asks the new server for a filename the build no longer has.
+// Recover once automatically; a real module error still reaches the view boundary on retry.
+const GENERAL_CHUNK_RELOAD = "tq-general-chunk-reload";
+const loadGeneralWorkspace = () => import("./GeneralWorkspace.jsx").then((module) => {
+  try { sessionStorage.removeItem(GENERAL_CHUNK_RELOAD); } catch { /* storage disabled */ }
+  return module;
+}).catch((error) => {
+  const stale = /dynamically imported module|importing a module script failed|failed to fetch/i.test(String(error?.message || error));
+  let retried = false;
+  try { retried = sessionStorage.getItem(GENERAL_CHUNK_RELOAD) === "1"; } catch { /* storage disabled */ }
+  if (stale && !retried) {
+    try { sessionStorage.setItem(GENERAL_CHUNK_RELOAD, "1"); } catch { /* storage disabled */ }
+    window.location.reload();
+    return new Promise(() => {});
+  }
+  throw error;
+});
+const GeneralWorkspace = React.lazy(loadGeneralWorkspace);
 
 const repoOf = (t) => (String(t?.Tags || "").match(/repo:([^\s,]+)/) || [])[1] || null;
 
@@ -60,8 +78,15 @@ const inBucket = (t, key) => (key === "live" ? !["done", "dropped"].includes(sta
                                              : stateOf(t).key === key);
 const PRIORITIES = ["low", "normal", "high", "urgent"];
 // what a task IS decides which machinery works it: coding gets a repo session, a reply
-// gets the responder and the Review queue, general is your own list
-const KINDS = ["general", "coding", "reply"];
+// gets the responder and the Review queue, assistant gets the visual conversation. The stored
+// value remains "general" for API compatibility; people should never have to know that name.
+const KIND_OPTIONS = [
+  { key: "general", label: "assistant", hint: "research, writing, analysis, planning, and other visual work" },
+  { key: "coding", label: "coding", hint: "the configured CLI in a repository terminal" },
+  { key: "reply", label: "reply", hint: "draft an answer for approval in Review" },
+];
+const KINDS = KIND_OPTIONS.map((o) => o.key);
+const kindLabel = (kind) => KIND_OPTIONS.find((o) => o.key === kind)?.label || kind;
 
 export default function TasksView({ selected, onSelect, onChanged, autostart, onAutostarted, onGoReview, active = true }) {
   const [tasks, setTasks] = useState(null);
@@ -444,9 +469,14 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
                     a coding task" is said here, and saying reply routes it to the Review queue */}
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mt: 1 }}>
                   <Select value={t.Kind || "general"} onChange={(e) => patch({ Kind: e.target.value })} sx={selSx}
-                    title="What this IS decides who works it: coding gets a repo session, a reply gets a draft in Review, general stays on your list">
-                    {[...new Set([t.Kind || "general", ...KINDS])].map((k) =>
-                      <MenuItem key={k} value={k} sx={{ fontSize: 12 }}>{k === "reply" ? "reply — just needs an answer" : k}</MenuItem>)}
+                    renderValue={kindLabel}
+                    title="Assistant is the visual chat over your configured agent; coding is its repository terminal; reply creates a draft in Review">
+                    {(KINDS.includes(t.Kind || "general") ? KIND_OPTIONS
+                      : [{ key: t.Kind, label: t.Kind, hint: "legacy task type" }, ...KIND_OPTIONS]).map((o) =>
+                      <MenuItem key={o.key} value={o.key} sx={{ py: 0.6 }}>
+                        <ListItemText primary={o.label} secondary={o.hint}
+                          primaryTypographyProps={{ fontSize: 12 }} secondaryTypographyProps={{ fontSize: 10.5 }} />
+                      </MenuItem>)}
                   </Select>
                   <Select value={t.Status} onChange={(e) => patch({ Status: e.target.value })} sx={selSx}
                     title="the raw status, if you need to move it by hand">
@@ -537,7 +567,8 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
                 ) : term ? (
                   <>
                     {/* said and did, above the session: the agent's own list beside the files it wrote */}
-                    <WorkStrip taskId={selected} live={!!term.alive} />
+                    <WorkStrip taskId={selected} live={!!term.alive} session={term}
+                      provenance={{ from: t.Source || "task", kind: t.Kind, by: term.cli || term.agent }} />
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5, flexWrap: "wrap" }}>
                       {term.alive && term.work && (
                         <WorkLine work={term.work} who={term.cli || term.agent || term.label} waiting={isWaiting(term)} startedAt={term.started} />
@@ -817,13 +848,19 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
           <TextField label="Title" value={nt.Title} onChange={(e) => setNt({ ...nt, Title: e.target.value })} autoFocus />
           <TextField label="Summary" value={nt.Summary} multiline minRows={2} onChange={(e) => setNt({ ...nt, Summary: e.target.value })} />
           <Box sx={{ display: "flex", gap: 1.5 }}>
-            <Select fullWidth value={nt.Kind} onChange={(e) => setNt({ ...nt, Kind: e.target.value })}>
-              {["general", "coding", "reply", "triage"].map((k) => <MenuItem key={k} value={k}>{k}</MenuItem>)}
+            <Select fullWidth value={nt.Kind} renderValue={kindLabel} onChange={(e) => setNt({ ...nt, Kind: e.target.value })}>
+              {KIND_OPTIONS.map((o) => <MenuItem key={o.key} value={o.key} sx={{ py: 0.7 }}>
+                <ListItemText primary={o.label} secondary={o.hint}
+                  primaryTypographyProps={{ fontSize: 13 }} secondaryTypographyProps={{ fontSize: 10.5 }} />
+              </MenuItem>)}
             </Select>
             <Select fullWidth value={nt.Priority} onChange={(e) => setNt({ ...nt, Priority: e.target.value })}>
               {PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
             </Select>
           </Box>
+          <Typography variant="caption" sx={{ color: DIM }}>
+            Assistant opens the visual chat with your configured CLI agent. Coding opens that agent's repository terminal. Reply creates a draft in Review.
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNewOpen(false)}>Cancel</Button>

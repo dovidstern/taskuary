@@ -89,7 +89,7 @@ class MsgBody(BaseModel):
     source_link: str | None = None; source_name: str | None = None
 class TextBody(BaseModel): body: str
 class AssistantSessionBody(BaseModel):
-    connector_id: int | None = None; model: str | None = None
+    connector_id: int | None = None; pick: str | None = None; model: str | None = None
 class AssistantMessageBody(AssistantSessionBody):
     text: str; attachments: list[str] = []
 class DecideBody(BaseModel): verb: str; final_text: str | None = None; note: str | None = None
@@ -241,7 +241,7 @@ def assistant_state(task_id: int):
 def assistant_session(task_id: int, body: AssistantSessionBody = None):
     from . import general
     body = body or AssistantSessionBody()
-    try: session = general.start_session(store, task_id, body.connector_id, body.model, ACTOR)
+    try: session = general.start_session(store, task_id, body.connector_id, body.model, ACTOR, body.pick)
     except (ValueError, RuntimeError) as e: raise HTTPException(422, str(e))
     return _assistant_payload(task_id, session)
 
@@ -249,8 +249,8 @@ def assistant_session(task_id: int, body: AssistantSessionBody = None):
 def assistant_message(task_id: int, body: AssistantMessageBody):
     from . import general
     try:
-        session = general.start_session(store, task_id, body.connector_id, body.model, ACTOR)
-        reply = session.send_prompt(body.text, body.attachments, body.connector_id, body.model)
+        session = general.start_session(store, task_id, body.connector_id, body.model, ACTOR, body.pick)
+        reply = session.send_prompt(body.text, body.attachments, body.connector_id, body.model, pick=body.pick)
     except (ValueError, RuntimeError) as e: raise HTTPException(422, str(e))
     return {'reply': reply, **_assistant_payload(task_id, session)}
 

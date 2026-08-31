@@ -1303,8 +1303,19 @@ export const WorkLine = ({ work, who = "agent", waiting = false, asking = false,
    chain already held and the card never showed. Polls only while the session is alive. */
 const pillSx = (r) => ({ height: 16, fontSize: 9, fontWeight: 700, bgcolor: ROLES[r].tint, color: ROLES[r].ink, border: `1px solid ${ROLES[r].bd}`, "& .MuiChip-label": { px: 0.75 } });
 const hhmm = (s) => s ? new Date(String(s).replace(" ", "T")).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
-export const WorkStrip = ({ taskId, live }) => {
-  const [d, setD] = useState(null);
+export const WorkStrip = ({ taskId, live, session, provenance }) => {
+  // The terminal list already carries current witness/provenance data. Paint that immediately;
+  // the richer /work response (diff counts, exact audit provenance) replaces it in the background.
+  // Waiting for that request made the whole strip appear to have vanished above a busy terminal.
+  const seed = session ? {
+    work: session.work || null,
+    files: (session.work?.files?.length ? session.work.files : (session.files || [])).map((f) =>
+      typeof f === "string" ? { path: f, n: 0 } : f),
+    prov: provenance || {},
+    session: { sid: session.sid, alive: session.alive, agent: session.agent, cli: session.cli,
+      started: session.started, cwd: session.cwd },
+  } : null;
+  const [d, setD] = useState(seed);
   const [failed, setFailed] = useState(false);
   // The structured view is why this is more useful than a naked terminal. Show it on first use;
   // an owner who deliberately folds it keeps that choice for this browser.
@@ -1313,7 +1324,7 @@ export const WorkStrip = ({ taskId, live }) => {
   useEffect(() => {
     if (!taskId) return undefined;
     let alive = true;
-    setD(null); setFailed(false);
+    setD(seed); setFailed(false);
     const load = async (diff) => {
       try {
         const { data } = await api.get(`/api/tasks/${taskId}/work`, { params: { diff } });

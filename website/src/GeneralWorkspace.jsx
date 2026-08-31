@@ -46,7 +46,7 @@ function AssistantThread({ task, messages, selectionRef, attachmentsRef, onSent,
       const selected = selectionRef.current;
       const response = await api.post(`/api/tasks/${task.TaskId}/assistant/messages`, {
         text: prompt,
-        connector_id: selected.connectorId || null,
+        pick: selected.connectorId || null,
         model: selected.model || null,
         attachments: attachmentsRef.current.map((a) => a.path),
       }, { signal: abortSignal });
@@ -113,7 +113,7 @@ export function GeneralWorkspace({ task, onSession, compact = false }) {
 
   const accept = useCallback((payload) => {
     setData(payload);
-    const current = payload?.providers?.find((p) => String(p.id) === String(payload?.session?.connector_id));
+    const current = payload?.providers?.find((p) => String(p.id) === String(payload?.session?.pick));
     const provider = current || payload?.providers?.find((p) => p.label === payload?.session?.provider) || payload?.providers?.[0];
     if (provider) {
       setConnectorId((old) => old || String(provider.id));
@@ -142,7 +142,7 @@ export function GeneralWorkspace({ task, onSession, compact = false }) {
   const updateProvider = async (nextId, nextModel = model) => {
     setConnectorId(String(nextId)); setModel(nextModel); setError("");
     try {
-      const r = await api.post(`/api/tasks/${task.TaskId}/assistant/session`, { connector_id: Number(nextId) || null, model: nextModel || null });
+      const r = await api.post(`/api/tasks/${task.TaskId}/assistant/session`, { pick: nextId || null, model: nextModel || null });
       accept(r.data);
     } catch (e) { setError(errText(e)); }
   };
@@ -175,14 +175,14 @@ export function GeneralWorkspace({ task, onSession, compact = false }) {
       <Box sx={{ minHeight: 39, px: 1.25, display: "flex", alignItems: "center", gap: 0.8, borderBottom: `1px solid ${BORDER}`, bgcolor: PANEL,
         overflowX: "auto", flexShrink: 0 }}>
         <Box sx={{ width: 7, height: 7, borderRadius: 99, bgcolor: session?.alive ? "#78a17b" : "#c7a258" }} />
-        <Typography sx={{ ...mono, fontSize: 10.5, letterSpacing: ".13em", textTransform: "uppercase", color: DIM }}>general workspace</Typography>
+        <Typography sx={{ ...mono, fontSize: 10.5, letterSpacing: ".13em", textTransform: "uppercase", color: DIM }}>assistant workspace</Typography>
         <Box sx={{ flex: 1 }} />
         <Select size="small" value={connectorId} displayEmpty onChange={(e) => {
           const provider = data?.providers?.find((p) => String(p.id) === String(e.target.value));
           updateProvider(e.target.value, provider?.model || "");
         }}
           sx={{ height: 27, fontSize: 11.5, minWidth: 130, bgcolor: PANEL2 }}>
-          {!data?.providers?.length && <MenuItem value="">No AI connected</MenuItem>}
+          {!data?.providers?.length && <MenuItem value="">No agent connected</MenuItem>}
           {(data?.providers || []).map((p) => <MenuItem key={p.id} value={String(p.id)}>{p.label}</MenuItem>)}
         </Select>
         <TextField size="small" value={model} placeholder="provider default" onChange={(e) => setModel(e.target.value)}
@@ -193,7 +193,7 @@ export function GeneralWorkspace({ task, onSession, compact = false }) {
           onClick={() => chooseView("terminal")} sx={{ minWidth: 0, fontSize: 11 }}>Terminal</Button>
       </Box>
       {error && <Alert severity="error" sx={{ borderRadius: 0, py: 0 }}>{error}</Alert>}
-      {!data?.providers?.length && <Alert severity="info" sx={{ borderRadius: 0, py: 0 }}>Connect an AI provider in Settings to run general work.</Alert>}
+      {!data?.providers?.length && <Alert severity="info" sx={{ borderRadius: 0, py: 0 }}>Add a CLI agent in Settings to run this work. API providers are optional.</Alert>}
       <input ref={fileRef} hidden type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onChange={(e) => upload(e.target.files)} />
       {uploading && <Box sx={{ px: 1, py: 0.5, color: FAINT, fontSize: 11 }}>Attaching image…</Box>}
       <Box sx={compact

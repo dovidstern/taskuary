@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canRevealTerminal, changedTerminalSize, usableTerminalBox } from "../src/terminalSizing.js";
+import { canRevealTerminal, changedTerminalSize, safeTerminalRows, usableTerminalBox } from "../src/terminalSizing.js";
 
 test("unchanged terminal geometry does not produce another PTY resize", () => {
   assert.equal(changedTerminalSize("32x110", 32, 110), null);
@@ -13,6 +13,12 @@ test("hidden and half-laid-out panes never resize the PTY", () => {
   assert.equal(usableTerminalBox(900, 0), false);
   assert.equal(usableTerminalBox(79, 500), false);
   assert.equal(usableTerminalBox(900, 500), true);
+});
+
+test("a fitted terminal reserves its final visible row for TUI chrome", () => {
+  assert.equal(safeTerminalRows(50), 49);
+  assert.equal(safeTerminalRows(3), 2);
+  assert.equal(safeTerminalRows(0), 2);
 });
 
 test("the curtain waits for both the server repaint barrier and every xterm write", () => {

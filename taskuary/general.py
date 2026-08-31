@@ -1,7 +1,7 @@
 """Taskuary's general-work agent and its two views.
 
-A general session is deliberately not a coding CLI.  It uses an AI connector already saved in
-Taskuary and owns a small, persistent conversation on the task.  The object implements the same
+A general session uses either an already-authenticated CLI agent or an optional API connector and
+owns a small, persistent conversation on the task.  The object implements the same
 live-session surface as ``terminal.Term`` so assistant-ui and xterm are only renderers: queueing,
 attachments, the Wall, browser association, and session lifetime all point at one session id.
 """
@@ -30,23 +30,37 @@ def handles(task: dict | None) -> bool:
 
 
 def provider_options(store) -> list:
-    """Active API/local-model connectors, never coding CLI profiles."""
+    """Every configured CLI login first, then optional API/local-model connectors."""
     out = []
+    from .clis import KNOWN
+    labels = {k['cmd']: k['label'] for k in KNOWN}
+    for row in store.list_agents():
+        try: cfg = json.loads(row.get('Config') or '{}')
+        except ValueError: cfg = {}
+        cmd = re.split(r'[\\/]', str(cfg.get('cmd') or row['Name']))[-1].lower().rsplit('.', 1)[0]
+        label = labels.get(cmd) or cmd or row['Name']
+        if row['Name'] != cmd: label += f" · {row['Name']}"
+        out.append({'id': f"cli:{row['Name']}", 'pick': f"cli:{row['Name']}", 'type': 'cli',
+                    'label': f'{label} (your CLI)', 'model': cfg.get('model') or ''})
     for row in store.list_connectors():
         if row.get('Type') not in llm_mod.AI_TYPES or not row.get('Active'): continue
         if not row.get('HasSecret') and row.get('Type') != 'ollama': continue
         try: cfg = json.loads(row.get('ConfigJson') or '{}')
         except ValueError: cfg = {}
         model = cfg.get('model') or cfg.get('deployment') or ''
-        out.append({'id': row['ConnectorId'], 'pick': f"connector:{row['ConnectorId']}",
-                    'type': row['Type'], 'label': row.get('Name') or row['Type'], 'model': model})
+        out.append({'id': f"connector:{row['ConnectorId']}", 'connector_id': row['ConnectorId'],
+                    'pick': f"connector:{row['ConnectorId']}", 'type': row['Type'],
+                    'label': f"{row.get('Name') or row['Type']} (API)", 'model': model})
     return out
 
 
-def _selected(store, connector_id=None, model=None) -> tuple[str, str, str]:
+def _selected(store, connector_id=None, model=None, pick=None) -> tuple[str, str, str]:
     options = provider_options(store)
-    wanted = str(connector_id or store.get_settings().get('assistant_ai') or '').replace('connector:', '')
-    choice = next((o for o in options if str(o['id']) == wanted), None) or (options[0] if options else None)
+    wanted = str(pick or (f'connector:{connector_id}' if connector_id else '')
+                 or store.get_settings().get('assistant_ai') or '')
+    if wanted and ':' not in wanted and wanted.isdigit(): wanted = f'connector:{wanted}'
+    if not wanted: wanted = f"cli:{store.get_settings().get('default_agent') or 'coder'}"
+    choice = next((o for o in options if o['pick'] == wanted), None) or (options[0] if options else None)
     if not choice: return '', '', model or ''
     return choice['pick'], choice['label'], model or choice['model']
 
@@ -118,10 +132,10 @@ class GeneralSession:
     agent = 'assistant'
     cli = 'taskuary'
 
-    def __init__(self, store, task_id: int, connector_id=None, model=None):
+    def __init__(self, store, task_id: int, connector_id=None, model=None, pick=None):
         self.sid = uuid.uuid4().hex[:12]
         self.store, self.task_id = store, task_id
-        self.pick, self.provider, self.model = _selected(store, connector_id, model)
+        self.pick, self.provider, self.model = _selected(store, connector_id, model, pick)
         self.started = datetime.now().isoformat(sep=' ', timespec='seconds')
         self.buf, self.n, self.ended, self.last = deque(), 0, None, time.time()
         self.subs, self.taps = [], []
@@ -191,21 +205,23 @@ class GeneralSession:
             if ch >= ' ':
                 self._input += ch; self._emit(ch)
 
-    def send_prompt(self, text: str, attachments=None, connector_id=None, model=None, echo=True) -> str:
+    def send_prompt(self, text: str, attachments=None, connector_id=None, model=None, echo=True, pick=None) -> str:
         text = str(text or '').strip()
         if not text: raise ValueError('empty message')
         if not self.alive: raise RuntimeError('assistant session has ended')
         if not self._lock.acquire(blocking=False): raise RuntimeError('the assistant is already working')
         self.busy, self.last = True, time.time()
         try:
-            if connector_id is not None or model:
-                self.pick, self.provider, self.model = _selected(self.store, connector_id, model)
+            if connector_id is not None or model or pick:
+                self.pick, self.provider, self.model = _selected(self.store, connector_id, model, pick)
             if not self.pick:
-                raise RuntimeError('connect an AI API or local-model provider before starting general work')
+                raise RuntimeError('connect a CLI agent or an AI provider before starting general work')
             if echo: self._emit(f'\x1b[1;34myou>\x1b[0m {text}\r\n')
             self.store.add_comment(self.task_id, 'owner', USER_TYPE, text)
             system, user = _prompt(self.store, self.task_id)
             paths = list(attachments or []) + [m.group('path') for m in _IMAGE_PATH.finditer(text)]
+            if paths and self.pick.startswith('cli:'):
+                user += '\n\nATTACHED FILES (read these when relevant)\n' + '\n'.join(str(Path(p).resolve()) for p in paths)
             brain = llm_mod.build_llm(self.store, pick=self.pick, model=self.model or None)
             if not brain: raise RuntimeError('the selected AI connector is unavailable')
             reply = str(brain(system, user, max_tokens=MAX_REPLY_TOKENS, images=_images(paths)) or '').strip()
@@ -236,7 +252,8 @@ class GeneralSession:
                 'agent': self.agent, 'cli': 'taskuary', 'mode': self.mode, 'alive': self.alive,
                 'started': self.started, 'idle': self.idle(), 'phase': self.phase(),
                 'waiting': self.waiting(), 'cmd': f'{self.provider or "AI connector"} {self.model}'.strip(),
-                'provider': self.provider, 'connector_id': int(self.pick.split(':', 1)[1]) if self.pick else None,
+                'provider': self.provider, 'pick': self.pick,
+                'connector_id': int(self.pick.split(':', 1)[1]) if self.pick.startswith('connector:') else None,
                 'model': self.model, 'files': [],
                 'browser': browserview.state(self.sid), 'work': None,
                 **({'tail': self.tail(tail)} if tail else {})}
@@ -248,19 +265,19 @@ def session_for(tid: int):
                  if s.task_id == tid and s.alive and getattr(s, 'mode', '') == 'assistant'), None)
 
 
-def start_session(store, tid: int, connector_id=None, model=None, actor='owner') -> GeneralSession:
+def start_session(store, tid: int, connector_id=None, model=None, actor='owner', pick=None) -> GeneralSession:
     from . import terminal
     task = store.get_task(tid)
     if not task: raise ValueError(f'no task {tid}')
     if not handles(task): raise ValueError('assistant view is for general, research, marketing, and triage tasks')
     existing = session_for(tid)
     if existing:
-        if connector_id is not None or model:
-            existing.pick, existing.provider, existing.model = _selected(store, connector_id, model)
+        if connector_id is not None or model or pick:
+            existing.pick, existing.provider, existing.model = _selected(store, connector_id, model, pick)
         return existing
     other = next((s for s in list(terminal.SESSIONS.values()) if s.task_id == tid and s.alive), None)
     if other: raise ValueError('this task already has a different live session')
-    session = GeneralSession(store, tid, connector_id, model)
+    session = GeneralSession(store, tid, connector_id, model, pick)
     terminal.SESSIONS[session.sid] = session
     if task.get('Status') == 'open': store.update_task(tid, {'Status': 'in_progress'}, actor)
     return session

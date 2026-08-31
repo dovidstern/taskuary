@@ -78,10 +78,10 @@ const inBucket = (t, key) => (key === "live" ? !["done", "dropped"].includes(sta
                                              : stateOf(t).key === key);
 const PRIORITIES = ["low", "normal", "high", "urgent"];
 // what a task IS decides which machinery works it: coding gets a repo session, a reply
-// gets the responder and the Review queue, assistant gets the visual conversation. The stored
-// value remains "general" for API compatibility; people should never have to know that name.
+// gets the responder and the Review queue, general gets the visual conversation. Keep the
+// explicit non-coding label: calling this only "assistant" hid the option the owner asked for.
 const KIND_OPTIONS = [
-  { key: "general", label: "assistant", hint: "research, writing, analysis, planning, and other visual work" },
+  { key: "general", label: "general / non-coding", hint: "research, writing, analysis, planning, and other assistant work" },
   { key: "coding", label: "coding", hint: "the configured CLI in a repository terminal" },
   { key: "reply", label: "reply", hint: "draft an answer for approval in Review" },
 ];
@@ -854,7 +854,7 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
             </Select>
           </Box>
           <Typography variant="caption" sx={{ color: DIM }}>
-            Assistant opens the visual chat with your configured CLI agent. Coding opens that agent's repository terminal. Reply creates a draft in Review.
+            General / non-coding opens the visual assistant without a repository. Coding opens the agent's repository terminal. Reply creates a draft in Review.
           </Typography>
         </DialogContent>
         <DialogActions>

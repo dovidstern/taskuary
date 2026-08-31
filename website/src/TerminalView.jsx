@@ -14,6 +14,7 @@ import { BORDER, CATPPUCCIN, FAINT, PANEL, XTERM_THEME, mono } from "./theme.jsx
 import { MicButton } from "./ui.jsx";
 import { canRevealTerminal, changedTerminalSize, safeTerminalRows, usableTerminalBox } from "./terminalSizing.js";
 import { pastedImageFiles, pastedImagePrompt } from "./terminalInput.js";
+import { terminalOutputBatcher } from "./terminalOutput.js";
 import api from "./api.js";
 import BrowserPane from "./BrowserPane.jsx";
 import { layoutFor, ratioFromPointer, rememberFold, rememberRatio, savedFold, savedRatio, shortUrl } from "./browserSplit.js";
@@ -184,18 +185,25 @@ const TermOnly = ({ sid, height = "70vh", onExit }) => {
       // rule applies, so scrolling up to read while the agent works is not yanked back down
       term.write(data, () => { pendingWrites -= 1; if (!lifted) term.scrollToBottom(); maybeLift(); });
     };
+    // Codex repaints its full TUI for each key, spread over several websocket frames. Writing
+    // every fragment into xterm separately makes rendering fall behind input while the agent is
+    // active. One ordered write per browser paint keeps the live screen current without dropping
+    // bytes. A ready/exit frame flushes synchronously so the reveal barrier remains exact.
+    const output = terminalOutputBatcher(({ data, replay }) => {
+      if (replay) { setRestoring(true); lifted = false; }
+      write(data);
+    });
     // Compatibility with an older server: this marks the barrier seen, but still NEVER uncovers
     // an unfinished replay. The old escape hatch called lift() directly at four seconds.
     bail = setTimeout(() => { readySeen = true; maybeLift(); }, 4000);
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
       if (m.type === "out") {
-        if (m.replay) { setRestoring(true); lifted = false; }   // a fresh replay curtains again, and lifts once more
-        write(m.data);
+        output.push(m.data, m.replay);                    // a fresh replay curtains again when this batch writes
       }
-      else if (m.type === "ready") { readySeen = true; maybeLift(); }
+      else if (m.type === "ready") { output.flush(); readySeen = true; maybeLift(); }
       else if (m.type === "exit") {
-        setState("exited"); readySeen = true;
+        output.flush(); setState("exited"); readySeen = true;
         write("\r\n\x1b[90m— process exited —\x1b[0m\r\n"); exit.current?.(); maybeLift();
       }
     };
@@ -248,7 +256,7 @@ const TermOnly = ({ sid, height = "70vh", onExit }) => {
     gauge();
     const d1 = term.onScroll(gauge), d2 = term.onRender(gauge);
     term.focus();
-    return () => { window.removeEventListener("resize", onResize); ro.disconnect(); clearTimeout(bail); clearTimeout(resizeTimer); cancelAnimationFrame(revealFrame);
+    return () => { window.removeEventListener("resize", onResize); ro.disconnect(); clearTimeout(bail); clearTimeout(resizeTimer); cancelAnimationFrame(revealFrame); output.dispose();
       el.removeEventListener("wheel", trap); el.removeEventListener("paste", pasteImages, true);
       d1.dispose(); d2.dispose(); ws.close(); term.dispose(); };
   }, [sid]);

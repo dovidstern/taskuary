@@ -22,3 +22,10 @@ export const ageOpacity = (hours, mode = "normal") => {
 // make the whole result set look disabled when every match happens to be old.
 export const timelineOpacity = (hours, mode = "normal", filtered = false) =>
   filtered ? 1 : ageOpacity(hours, mode);
+
+// The bottom dissolve is a scroll affordance, not decoration. A short list ends above the
+// viewport; drawing the 190px gradient there covers the very rows it is meant to frame.
+// Keep the small cushion so a fractional layout pixel at the fold cannot make it flicker.
+export const bottomDissolveVisible = (listBottom, viewportHeight, cushion = 16) =>
+  Number.isFinite(listBottom) && Number.isFinite(viewportHeight)
+    && listBottom > viewportHeight + cushion;

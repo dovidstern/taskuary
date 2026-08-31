@@ -1,7 +1,7 @@
 // Task Hub shell - clean light enterprise workspace, compact: slim top bar, pill tabs,
 // content underneath. Five spaces: Timeline, Tasks, Review, Connectors, Settings.
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Badge, Box, Button, IconButton, Popover, Snackbar, Tooltip, Typography } from "@mui/material";
+import { Badge, Box, Button, IconButton, MenuItem, Popover, Select, Snackbar, Tooltip, Typography } from "@mui/material";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
 import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
 import { pollWhileVisible } from "./visible.js";
@@ -73,7 +73,8 @@ function ServerVersion() {
   if (!v) return null;
   return (
     <Tooltip title={`server started ${v.started} — if this version looks old, restart taskuary`}>
-      <Typography variant="caption" sx={{ color: "#a9a294", fontFamily: "Consolas, monospace", fontSize: 10.5 }}>
+      <Typography variant="caption" sx={{ color: "#a9a294", fontFamily: "Consolas, monospace", fontSize: 10.5,
+        display: { xs: "none", md: "block" } }}>
         v{v.version}
       </Typography>
     </Tooltip>
@@ -196,7 +197,8 @@ export default function TaskHubPage() {
             nav bar is chrome; it spans. */}
         {/* id + top z: the Timeline's frozen dock pins itself right below this bar (it measures
             the height by id) - z above the dock so nothing ever slides over the tabs */}
-        <Box id="tqTopNav" sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 2.5, py: 1,
+        <Box id="tqTopNav" sx={{ display: "flex", alignItems: "center", gap: { xs: 0.75, md: 1.25 },
+          px: { xs: 1.25, md: 2.5 }, py: 1,
           bgcolor: PANEL, borderBottom: `1px solid ${BORDER}`, position: "sticky", top: 0, zIndex: 30 }}>
           <Box sx={{ width: 26, height: 26, borderRadius: 1.5, background: GRADIENT, display: "flex",
             alignItems: "center", justifyContent: "center" }}>
@@ -208,15 +210,32 @@ export default function TaskHubPage() {
           </Typography>
           <ServerVersion />
 
+          {/* Below 900px the full tab strip had no room: it began under the brand and its
+              off-screen pages had no visible affordance. One labelled selector keeps the
+              current page and every destination reachable without a mystery swipe. */}
+          <Select size="small" value={tab} onChange={(e) => go(e.target.value)}
+            inputProps={{ "aria-label": "Taskuary page" }}
+            sx={{ display: { xs: "flex", md: "none" }, height: 30, minWidth: 0,
+              width: { xs: 112, sm: 160 }, ml: 0.25, bgcolor: "#f4efe6", borderRadius: 99,
+              color: "#55697a", fontSize: 12, fontWeight: 700,
+              "& .MuiSelect-select": { py: 0.4, pl: 1.25, pr: "28px !important" },
+              "& .MuiOutlinedInput-notchedOutline": { borderColor: "#d8cfbe" } }}>
+            {TABS.map((t) => (
+              <MenuItem key={t} value={t} sx={{ fontSize: 12.5 }}>
+                {t}{t === "Review" && pending > 0 ? ` · ${pending > 99 ? "99+" : pending}` : ""}
+              </MenuItem>
+            ))}
+          </Select>
+
           {/* Centred on the WINDOW, not in the space left over. Two flex spacers would centre it
               between the tagline and the counter, which lands well right of true centre because
               those two blocks are nothing like the same width. Absolute is the only thing that
               actually centres - and it can overlap, so it only applies above xl (1536px), where
               there is provably room for the tagline on one side and the tabs in the middle.
               Below that the old flow returns, which is what narrow windows always had. */}
-          <Box sx={{ display: "flex", gap: 0.5, minWidth: 0, overflowX: "auto",
+          <Box sx={{ display: { xs: "none", md: "flex" }, gap: 0.5, minWidth: 0, overflowX: "auto",
             position: { xs: "static", xl: "absolute" },
-            left: { xl: "50%" }, transform: { xl: "translateX(-50%)" }, ml: { xs: 3, xl: 0 } }}>
+            left: { xl: "50%" }, transform: { xl: "translateX(-50%)" }, ml: { md: 3, xl: 0 } }}>
             {TABS.map((t) => (
               // the count rides INSIDE the pill. A MUI Badge hangs outside its child's box, and
               // this strip is overflowX:auto - so the number was being clipped by the scroller

@@ -15,7 +15,7 @@ import AssignmentIndIcon from "@mui/icons-material/AssignmentInd";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
 import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import api from "./api";
-import { timelineOpacity } from "./timelineFade.js";
+import { bottomDissolveVisible, timelineOpacity } from "./timelineFade.js";
 import { availablePickerChannels, channelsForCategory } from "./feedFilters.js";
 import { timelineDayLabel } from "./timelineDay.js";
 import EventIcon from "@mui/icons-material/Event";
@@ -588,6 +588,29 @@ export default function FeedView({ onOpenTask, onChanged }) {
   // the fade is a RESTING state, not a filter: scrolling or hovering brings every row back to full,
   // so nothing is ever hidden from someone actually reading the list
   const listRef = useRef(null);
+  const [bottomFade, setBottomFade] = useState(false);
+  useEffect(() => {
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const el = listRef.current;
+      setBottomFade(!!el && bottomDissolveVisible(el.getBoundingClientRect().bottom, window.innerHeight));
+    };
+    const queue = () => {
+      if (!raf) raf = requestAnimationFrame(measure);
+    };
+    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(queue);
+    if (listRef.current) resize?.observe(listRef.current);
+    window.addEventListener("scroll", queue, { passive: true });
+    window.addEventListener("resize", queue, { passive: true });
+    queue();
+    return () => {
+      resize?.disconnect();
+      window.removeEventListener("scroll", queue);
+      window.removeEventListener("resize", queue);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
   useEffect(() => {
     let tm = 0;
     const wake = () => {
@@ -879,31 +902,48 @@ export default function FeedView({ onOpenTask, onChanged }) {
           background: `linear-gradient(${BG} 25%, transparent)`, pointerEvents: "none",
           opacity: 0, transition: "opacity .25s" },
         "&[data-sc='1']::after": { opacity: 1 } }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap", justifyContent: "center",
-          bgcolor: PANEL, border: `1px solid ${BORDER}`, borderRadius: 99, px: 1.5, py: 0.6,
+        <Box sx={{ display: "flex", alignItems: "center", flexDirection: { xs: "column", md: "row" },
+          gap: { xs: 0.75, md: 1.25 }, justifyContent: "center", width: { xs: "100%", md: "auto" },
+          maxWidth: "calc(100vw - 24px)", boxSizing: "border-box",
+          bgcolor: PANEL, border: `1px solid ${BORDER}`, borderRadius: { xs: 3, md: 99 }, px: 1.5, py: 0.6,
           boxShadow: "0 8px 28px rgba(30,50,38,.10)" }}>
-          <FilterPills options={VIEW_FILTERS} value={view} onChange={setView} />
-          <Box sx={{ width: "1px", height: 20, bgcolor: BORDER, flexShrink: 0 }} />
-          {/* the label stays SHORT while it works: the "catching up on…" story lives in the
-              caption line below, which exists for exactly that */}
-          <Button size="small" variant="contained" disableElevation disabled={syncing || bgSync} onClick={() => syncNow(false)}
-            title={syncing || bgSync ? syncWhat : undefined}
-            startIcon={syncing || bgSync ? <CircularProgress size={11} sx={{ color: "#fff" }} /> : <SyncIcon sx={{ fontSize: 14 }} />}
-            sx={{ py: 0.4, fontSize: 11.5, whiteSpace: "nowrap", borderRadius: 99,
-              background: "linear-gradient(90deg, #55697a, #7d9a7c)" }}>{syncing || bgSync ? "Syncing…" : "Sync now"}</Button>
-          <Box sx={{ width: "1px", height: 20, bgcolor: BORDER, flexShrink: 0 }} />
-          <FilterPills options={CATEGORIES} value={cat} onChange={setCat} />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, justifyContent: "center" }}>
+            <FilterPills options={VIEW_FILTERS} value={view} onChange={setView} />
+            <Box sx={{ width: "1px", height: 20, bgcolor: BORDER, flexShrink: 0 }} />
+            {/* the label stays SHORT while it works: the "catching up on…" story lives in the
+                caption line below, which exists for exactly that */}
+            <Button size="small" variant="contained" disableElevation disabled={syncing || bgSync} onClick={() => syncNow(false)}
+              title={syncing || bgSync ? syncWhat : undefined}
+              startIcon={syncing || bgSync ? <CircularProgress size={11} sx={{ color: "#fff" }} /> : <SyncIcon sx={{ fontSize: 14 }} />}
+              sx={{ py: 0.4, fontSize: 11.5, whiteSpace: "nowrap", borderRadius: 99,
+                background: "linear-gradient(90deg, #55697a, #7d9a7c)" }}>{syncing || bgSync ? "Syncing…" : "Sync now"}</Button>
+          </Box>
+          <Box sx={{ display: { xs: "none", md: "block" }, width: "1px", height: 20, bgcolor: BORDER, flexShrink: 0 }} />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: { xs: "100%", md: "auto" }, minWidth: 0 }}>
+            <Box sx={{ display: { xs: "none", md: "block" } }}>
+              <FilterPills options={CATEGORIES} value={cat} onChange={setCat} />
+            </Box>
+            <Select size="small" value={cat} displayEmpty onChange={(e) => setCat(e.target.value)}
+              inputProps={{ "aria-label": "Timeline category" }}
+              renderValue={(v) => `type · ${CATEGORIES.find((o) => o.key === v)?.label || "everything"}`}
+              sx={{ display: { xs: "flex", md: "none" }, flex: 1, minWidth: 0, height: 28,
+                fontSize: 11.5, fontWeight: 600, borderRadius: 99, bgcolor: "#fff",
+                "& .MuiSelect-select": { py: 0.3, px: 1.25 },
+                "& .MuiOutlinedInput-notchedOutline": { borderColor: BORDER } }}>
+              {CATEGORIES.map((o) => <MenuItem key={o.key} value={o.key} sx={{ fontSize: 12 }}>{o.label}</MenuItem>)}
+            </Select>
           {/* ALWAYS drawn: the dock must not change shape as you click across categories. A
               category with no sources under it just offers "all sources" and nothing to narrow. */}
           {(
             <Select size="small" value={pickerChannels.length ? pick : ""} displayEmpty onChange={(e) => setPick(e.target.value)}
               onClose={() => setSrcQ("")}
+              inputProps={{ "aria-label": "Timeline source" }}
               MenuProps={{ PaperProps: { sx: { maxHeight: 440, maxWidth: 460 } } }}
               renderValue={(v) => (!v ? "all sources"
                 : v.startsWith("channel:") ? `all ${CHANNEL_LABELS[v.slice(8)] || v.slice(8)}`.toLowerCase()
                   : String(v.split(":").slice(2).join(":")).split("@")[0])}
-              sx={{ fontSize: 11.5, fontWeight: 600, borderRadius: 99, bgcolor: pick ? "#e3e6e1" : "#fff", height: 26,
-                color: pick ? "#7c7367" : DIM, maxWidth: 210,
+              sx={{ fontSize: 11.5, fontWeight: 600, borderRadius: 99, bgcolor: pick ? "#e3e6e1" : "#fff", height: { xs: 28, md: 26 },
+                color: pick ? "#7c7367" : DIM, flex: { xs: 1, md: "initial" }, minWidth: 0, maxWidth: { xs: "none", md: 210 },
                 "& .MuiSelect-select": { py: 0.3, px: 1.25 },
                 "& .MuiOutlinedInput-notchedOutline": { borderColor: pick ? "#d2d6cf" : BORDER } }}>
               {/* 96 discovered buckets turned this into a page-long wall. It is a bounded,
@@ -946,6 +986,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
               })}
             </Select>
           )}
+          </Box>
         </Box>
         {/* the stats, demoted from tiles to a caption line - still clickable where a tile
             was ("needs me" filters), and the sync story rides the same line */}
@@ -1135,7 +1176,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
         {/* the bottom dissolve: pinned to the foot of the screen while the column is in view, so the
             last rows fade into the page - "there is nothing towards the bottom" - column-width only,
             never over the review panel. height:0 so it adds no space; the gradient hangs above it. */}
-        {!!sorted.length && (
+        {bottomFade && (
           // tall enough that the LAST FEW rows dissolve, each more than the one above it -
           // "there is nothing towards the bottom", not one half-faded row at a hard line
           <Box aria-hidden sx={{ position: "sticky", bottom: 0, height: 0, zIndex: 6, pointerEvents: "none" }}>

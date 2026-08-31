@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { FADE_MODES, ageOpacity, timelineOpacity } from "../src/timelineFade.js";
+import { FADE_MODES, ageOpacity, bottomDissolveVisible, timelineOpacity } from "../src/timelineFade.js";
 
 test("a fresh row is never dimmed, in any mode", () => {
   for (const mode of FADE_MODES) {
@@ -57,4 +57,11 @@ test("filter results remain fully legible regardless of age or fade mode", () =>
     assert.equal(timelineOpacity(1000, mode, true), 1, mode);
   }
   assert.equal(timelineOpacity(1000, "normal", false), ageOpacity(1000, "normal"));
+});
+
+test("the bottom dissolve appears only when rows continue below the viewport", () => {
+  assert.equal(bottomDissolveVisible(640, 800), false);   // a sparse feed: never cover its rows
+  assert.equal(bottomDissolveVisible(810, 800), false);   // layout rounding stays stable
+  assert.equal(bottomDissolveVisible(817, 800), true);
+  assert.equal(bottomDissolveVisible(NaN, 800), false);
 });

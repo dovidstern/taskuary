@@ -146,6 +146,10 @@ function AssistantThread({ task, messages, onAsked, selectionRef, attachmentsRef
             </div>
           )}
           <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
+          {/* Only once it has stopped typing. An offer to "run this again, daily" hanging under a
+              half-written answer is an offer to schedule something nobody has read yet - and it
+              sat there through every tool call, which is where the eye goes while waiting. */}
+          <ThreadPrimitive.If running={false}>
           {messages?.some((m) => m.role === "assistant") && (
             <div className="tq-aui-report-action">
               <div><b>Worth running again?</b><span>Creates a daily report from this workflow; adjust its cadence in Reports.</span></div>
@@ -153,6 +157,7 @@ function AssistantThread({ task, messages, onAsked, selectionRef, attachmentsRef
                 disabled={reportBusy} onClick={onReport}>{reportBusy ? "Creating…" : "Make recurring report"}</Button>
             </div>
           )}
+          </ThreadPrimitive.If>
         </ThreadPrimitive.Viewport>
           <div className="tq-aui-footer">
             {!!attachmentsRef.current.length && (

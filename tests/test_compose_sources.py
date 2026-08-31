@@ -12,7 +12,17 @@ import unittest
 from taskuary import compose
 from taskuary.store import MemoryStore
 
-from tests.test_compose import llm_saying
+
+def llm_saying(*answers):
+    """A model that returns each answer in turn, recording what it was asked. test_compose has
+    its own copy: a test module that imports a sibling only runs where the repo root happens to
+    be on sys.path, which `python -m pytest` arranges and CI's bare `pytest` does not."""
+    seen, it = [], iter(answers)
+    def fn(system, user, max_tokens=None):
+        seen.append({'system': system, 'user': json.loads(user)})
+        return next(it)
+    fn.seen = seen
+    return fn
 
 
 def src_answer(*sources, prompt=None, explain='because you asked', confidence='high'):

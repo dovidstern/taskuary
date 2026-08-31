@@ -46,7 +46,11 @@ def seed_argv(profile: dict, seed: str):
 _DIRTY = ('CLAUDE_CODE', 'CLAUDECODE', 'CLAUDE_SESSION', 'ANTHROPIC_SESSION', 'CODEX_SESSION', 'GEMINI_SESSION')
 
 def clean_env(extra: dict = None) -> dict:
-    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(_DIRTY)}
+    # child_env, not os.environ: a CLI with no home directory refuses to start at all
+    # ("Error finding codex home: Could not find home directory") and a Taskuary launched
+    # from a service or a scrubbed shortcut does not always have one to pass down.
+    from .agents import child_env
+    env = {k: v for k, v in child_env().items() if not k.upper().startswith(_DIRTY)}
     # per-session additions: the browser session name that ties an agent's agent-browser to
     # its pane (browserview) - set after the strip, so it wins over an inherited one
     env.update(extra or {})

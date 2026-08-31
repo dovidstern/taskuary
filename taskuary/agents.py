@@ -6,6 +6,7 @@ run so code changes are first-class, every run traced + audited.
 """
 import json, os, re, shutil, subprocess, threading, time
 from datetime import datetime
+from pathlib import Path
 from loguru import logger
 
 from .store import task_ref
@@ -93,6 +94,14 @@ def _resolve_cmd(name: str) -> list:
     PATH-resolves via which(). Reaching THROUGH the shim beats running it under cmd /c - see
     _shim_target for why that difference decides whether a prompt arrives whole."""
     path = shutil.which(name) or shutil.which(name, path=_fresh_path())
+    if not path and re.search(r'[\\/]', str(name)):
+        # A saved ABSOLUTE path that has moved. codex installs itself into
+        # ...\Codex\bin\<version hash>\codex.exe, so a profile pinned to one of those breaks on
+        # the next update and reads as "the CLI is gone". The NAME is the durable half: ask PATH
+        # again for it, which is what the owner would have done by hand.
+        base = re.split(r'[\\/]', str(name))[-1]
+        path = shutil.which(base) or shutil.which(base, path=_fresh_path())
+        if path: logger.info(f'{name} has moved; using {path} instead')
     if not path:
         raise FileNotFoundError(f"'{name}' not found on PATH - is the CLI installed?")
     if os.name == 'nt' and path.lower().endswith(('.cmd', '.bat')):
@@ -112,6 +121,29 @@ def _resolve_cmd(name: str) -> list:
         alias = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'WindowsApps', base)
         return [alias] if os.path.exists(alias) else ['cmd', '/c', name]
     return [path]
+
+
+def child_env() -> dict:
+    """The environment a CLI is entitled to expect.
+
+    codex refuses to start without one: `Error finding codex home: Could not find home
+    directory` (an owner's machine, 2026-08-31), and it is not a codex bug - a Taskuary
+    launched from a service, a scheduled task, or a shortcut with a scrubbed environment does
+    not always pass USERPROFILE down, and the Rust `dirs` crate has nothing else to go on.
+    Python can answer the question, so it answers it instead of letting the CLI guess: HOME
+    and USERPROFILE where they are missing, and CODEX_HOME - the variable codex checks FIRST,
+    before it ever asks the OS - pointed at the same place its own installer would use.
+    """
+    env = dict(os.environ)
+    try: home = str(Path.home())
+    except (RuntimeError, OSError): return env          # nothing better to say than nothing
+    env.setdefault('HOME', home)
+    if os.name == 'nt':
+        env.setdefault('USERPROFILE', home)
+        drive, tail = os.path.splitdrive(home)
+        if drive: env.setdefault('HOMEDRIVE', drive); env.setdefault('HOMEPATH', tail)
+    env.setdefault('CODEX_HOME', os.path.join(home, '.codex'))
+    return env
 
 
 def _fmt_input(inp) -> str:
@@ -170,6 +202,16 @@ def signed_out_msg(name: str, why: str) -> str:
 # nothing of the kind: the CLI never ran. Reported on another owner's machine (2026-08-31) as
 # `codex exit 1: Access is denied.` with no other output.
 _DENIED = re.compile(r'access is denied|winerror 5|permission denied|operation not permitted', re.I)
+_NO_HOME = re.compile(r'could not find home directory|finding codex home|HOME.{0,20}not set', re.I)
+
+
+def no_home_msg(name: str) -> str:
+    return (f'{name} could not find a home directory to keep its own settings and sign-in in. '
+            'Taskuary now hands every CLI a HOME, USERPROFILE and CODEX_HOME, so if this persists '
+            'the account running Taskuary has no profile directory at all - which happens when it '
+            'runs as a Windows service or a scheduled task under SYSTEM or a managed account. Run '
+            f'Taskuary as the same user who runs `{name}` in a terminal, or set CODEX_HOME '
+            'explicitly for that account, then sign in once with `codex login`.')
 
 
 def denied_msg(name: str, path: str, why: str) -> str:
@@ -197,6 +239,33 @@ def _codex_tool(item: dict):
         return item.get('tool') or item.get('name') or 'MCP tool', item.get('arguments') or item.get('args') or {}
     if typ == 'web_search': return 'web search', {'query': item.get('query') or ''}
     return None
+
+
+def runs_here(profile: dict) -> bool:
+    """Does this profile's command resolve to something we can start?"""
+    try: return bool(_resolve_cmd((profile or {}).get('cmd') or 'claude'))
+    except (FileNotFoundError, OSError): return False
+
+
+def profiles(store) -> dict:
+    out = {}
+    for a in store.list_agents():
+        try: out[a['Name']] = json.loads(a.get('Config') or '{}')
+        except ValueError: out[a['Name']] = {}
+    return out
+
+
+def default_agent(store) -> str:
+    """Which agent a task goes to when nobody picked one.
+
+    The owner's choice wins - unless its CLI is not on this machine, in which case one that IS
+    beats a name that can only fail. Taskuary ships `coder` = claude, so on a machine with only
+    codex installed every dispatch died on a CLI nobody had, and the Board showed it as the
+    agent's failure (an owner's machine, 2026-08-31)."""
+    want = str(store.get_settings().get('default_agent') or 'coder').strip()
+    profs = profiles(store)
+    if want not in profs or runs_here(profs[want]): return want
+    return next((n for n, prof in profs.items() if runs_here(prof)), want)
 
 
 def run_cli(profile: dict, prompt: str, trace, resume: str = None, cancel=None):
@@ -227,7 +296,8 @@ def run_cli(profile: dict, prompt: str, trace, resume: str = None, cancel=None):
     trace('tool', 'cli', f'{name} cwd={cwd or os.getcwd()}' + (f' resume={resume}' if resume else ''))
     try:
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             text=True, encoding='utf-8', errors='replace', cwd=cwd, shell=False)
+                             text=True, encoding='utf-8', errors='replace', cwd=cwd, shell=False,
+                             env=child_env())
     except PermissionError as e:
         # which() found something that cannot be executed from here. "Not installed" sent people
         # off to reinstall a CLI that was already there; the reason is in denied_msg.
@@ -310,6 +380,7 @@ def run_cli(profile: dict, prompt: str, trace, resume: str = None, cancel=None):
         # a refusal to START, not a failed run: the CLI produced no output of its own and the
         # only thing on stderr is the refusal
         if _DENIED.search(why) and not raw: raise RuntimeError(denied_msg(name, cmd[0] if cmd else '', why))
+        if _NO_HOME.search(why): raise RuntimeError(no_home_msg(_cli_name(name) or name))
         raise RuntimeError(f'{name} exit {p.returncode}: {why}')
     if final is not None: out, sid = str(final.get('result') or '').strip(), final.get('session_id')
     elif streamed_out: out, sid = streamed_out, streamed_sid

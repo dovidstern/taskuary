@@ -103,7 +103,9 @@ def _selected(store, connector_id=None, model=None, pick=None) -> tuple[str, str
     wanted = str(pick or (f'connector:{connector_id}' if connector_id else '')
                  or store.get_settings().get('assistant_ai') or '')
     if wanted and ':' not in wanted and wanted.isdigit(): wanted = f'connector:{wanted}'
-    if not wanted: wanted = f"cli:{store.get_settings().get('default_agent') or 'coder'}"
+    if not wanted:
+        from . import agents as hub_agents
+        wanted = f'cli:{hub_agents.default_agent(store)}'
     choice = next((o for o in options if o['pick'] == wanted), None) or (options[0] if options else None)
     if not choice: return '', '', model or ''
     return choice['pick'], choice['label'], model or choice['model']

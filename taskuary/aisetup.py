@@ -85,7 +85,8 @@ def start(store, server: dict, cid: int, guide: list, fields: list = None, secre
     if not c: raise ValueError('connector not found')
     live = live_for(store, cid)
     if live: return {**live, 'existing': True}
-    agent = (agent or store.get_settings().get('default_agent') or 'coder').strip()
+    from . import agents as hub_agents
+    agent = (agent or hub_agents.default_agent(store)).strip()
     if not store.get_agent(agent): raise ValueError(f'no CLI agent named {agent!r} - add one under Connectors > AI CLI agents first')
     tid = store.create_task({'Title': f"Set up {c.get('Name') or c.get('Type')}", 'Kind': KIND, 'Status': 'in_progress', 'Tags': tag(cid),
                              'Summary': f"{agent} walks the owner through the {c.get('Type')} guide in a live session on the card and saves what they give it."}, actor)

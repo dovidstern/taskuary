@@ -132,7 +132,8 @@ def deliver(store, tid: int) -> dict:
                              daemon=True).start()
             how = 'assistant'
         else:
-            agent = store.get_settings().get('default_agent') or 'coder'
+            from . import agents as hub_agents
+            agent = hub_agents.default_agent(store)
             term.start_on_task(store, tid, agent, instruction=batch(notes, after_restart=True, remaining=left), actor='router')
             how = 'seeded'
         store.deliver_waiting([x['WId'] for x in notes], 'seeded')

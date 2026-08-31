@@ -51,9 +51,17 @@ export const AgentsPage = ({ onBack, section = "Settings", title = "Agents" }) =
   const [catalog, setCatalog] = useState({});     // per agent: the CLI's own model list (codex reads it off disk)
   const [draft, setDraft] = useState(null);
   const [err, setErr] = useState("");
+  const [here, setHere] = useState({});           // agent -> its CLI resolves on this machine
+  const [effective, setEffective] = useState(""); // ...and the one work is really dispatched to
 
   const load = useCallback(async () => {
-    try { const { data } = await api.get("/api/agents"); setAgents(data.config || {}); setCatalog(data.models || {}); }
+    try {
+      const { data } = await api.get("/api/agents");
+      setAgents(data.config || {}); setCatalog(data.models || {});
+      // which of them this machine can actually start, and which one work really goes to
+      setHere(Object.fromEntries((data.data || []).map((r) => [r.Name, r.installed !== false])));
+      setEffective(data.default || "");
+    }
     catch (e) { setErr(e?.response?.data?.detail || "Failed to load agents"); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -182,6 +190,18 @@ export const AgentsPage = ({ onBack, section = "Settings", title = "Agents" }) =
           <Typography sx={{ ...mono, color: INK, fontSize: 12.5, flex: 1, minWidth: 0 }} noWrap>
             {a.cmd} {(a.args || []).join(" ")}
           </Typography>
+          {/* Taskuary ships coder = claude. On a machine without claude that default aimed every
+              dispatch at a CLI nobody had, and the failure read as the agent's, not the setup's. */}
+          {here[name] === false && (
+            <Chip size="small" label="not installed on this machine"
+              title={`Nothing here can start ${a.cmd}. Install it, or point this profile at the CLI you do have.`}
+              sx={{ bgcolor: "#f3e0e2", color: "#8a3646", height: 20, fontSize: 10, fontWeight: 700 }} />
+          )}
+          {defAgent === name && here[name] === false && effective && effective !== name && (
+            <Chip size="small" label={`work goes to ${effective}`}
+              title="Your default cannot run here, so tasks are dispatched to an agent that can."
+              sx={{ bgcolor: "#eae4d8", color: "#55697a", height: 20, fontSize: 10 }} />
+          )}
           {a.cmd === "claude" && !(a.args || []).includes("--dangerously-skip-permissions") && (
             <Chip size="small" label="will hang headless — add --dangerously-skip-permissions"
               sx={{ bgcolor: "#eae4d8", color: "#55697a", height: 20, fontSize: 10 }} />

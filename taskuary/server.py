@@ -1895,8 +1895,13 @@ def agents():
                 'models': cat['models'], 'current': cat['current'], 'source': cat['source']}
     # the default agent (a setting) comes FIRST: every picker's initial value is the head of
     # this list, so "which CLI opens when I hit Start session" is decided in one place
-    rows = sorted(store.list_agents(), key=lambda a: a['Name'] != (store.get_settings().get('default_agent') or 'coder'))
-    return {'data': rows, 'config': cfg.get('agents', {}),
+    # ...and "the default" is the one that can actually run: shipping coder=claude means a
+    # machine with only codex installed had every dispatch aimed at a CLI nobody had.
+    head = hub_agents.default_agent(store)
+    rows = sorted(store.list_agents(), key=lambda a: a['Name'] != head)
+    profs = hub_agents.profiles(store)
+    return {'data': [{**a, 'installed': hub_agents.runs_here(profs.get(a['Name']) or {})} for a in rows],
+            'config': cfg.get('agents', {}), 'default': head,
             'models': {a['Name']: _models(a) for a in store.list_agents()}}
 
 @app.post('/api/agents/{name}/test')

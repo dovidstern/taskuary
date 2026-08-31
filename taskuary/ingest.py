@@ -644,8 +644,8 @@ def _auto_code(store, tid):
     it instead of racing it (affinity routing - the first agent in has control), and a full
     house queues for the next free slot. Both drain automatically as sessions end - the card
     on the board says what it is waiting for."""
-    from . import terminal as term, blackboard as bb, rank
-    agent = store.get_settings().get('default_agent') or 'coder'
+    from . import terminal as term, blackboard as bb, rank, agents as hub_agents
+    agent = hub_agents.default_agent(store)
     # Rank mode (the connector's bulk setting): the task does not race for a slot, it joins
     # ONE value-ordered queue and the drain picks the most valuable waiting task whenever a
     # slot is free - see rank.py. Clear mode is everything below, unchanged.

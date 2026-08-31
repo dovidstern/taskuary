@@ -119,6 +119,24 @@ class AiSetupBody(BaseModel):
     agent: str | None = None; model: str | None = None
 
 
+_web_root = Path(__file__).parent / 'web'
+
+
+def _index_response(index_file: Path):
+    try:
+        html = index_file.read_text(encoding='utf-8')
+    except FileNotFoundError:
+        # Vite empties its output directory before replacing a production bundle. A browser can
+        # arrive in that small gap while the Python server stays live; make it a self-healing 503,
+        # not an application traceback. This also gives a useful response for an incomplete install.
+        html = '''<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="1"><title>Taskuary is updating</title></head>
+<body style="font:14px system-ui;margin:4rem;color:#4d4a43">Taskuary is updating&hellip;</body></html>'''
+        return HTMLResponse(html, status_code=503, headers={
+            'Cache-Control': 'no-store, must-revalidate', 'Retry-After': '1'})
+    return HTMLResponse(html, headers={'Cache-Control': 'no-store, must-revalidate'})
+
+
 @app.get('/', response_class=HTMLResponse)
 def index():
     """The one file that must NEVER be cached. Every asset under /assets carries a content hash
@@ -126,13 +144,11 @@ def index():
     copy points a fresh install at a bundle that is no longer there (or worse, one that is). An
     old index.html is how a fixed crash keeps crashing: the fix shipped, the browser kept asking
     for yesterday's JS, and the stack trace named a file the repo had already replaced."""
-    html = (Path(__file__).parent / 'web' / 'index.html').read_text(encoding='utf-8')
-    return HTMLResponse(html, headers={'Cache-Control': 'no-store, must-revalidate'})
+    return _index_response(_web_root / 'index.html')
 
-_assets = Path(__file__).parent / 'web' / 'assets'
-if _assets.is_dir():
-    from fastapi.staticfiles import StaticFiles
-    app.mount('/assets', StaticFiles(directory=str(_assets)), name='assets')
+_assets = _web_root / 'assets'
+from fastapi.staticfiles import StaticFiles
+app.mount('/assets', StaticFiles(directory=str(_assets), check_dir=False), name='assets')
 
 from fastapi.responses import FileResponse
 

@@ -623,8 +623,11 @@ class CoreTests(unittest.TestCase):
                              ['claude', '--model', 'opus'])
             # no args at all -> the known preset stands in (minus its `exec` pipe subcommand), so a
             # cmd-only profile is as unattended in a session as it is headless
+            # the two TUI flags come from _codex_browser_tui: inline mode and no decorative
+            # animations, so the composer stays responsive over ConPTY -> websocket -> xterm
             self.assertEqual(agent_argv({'cmd': 'codex', 'model_arg': '-m', 'model': 'gpt-5-codex'}),
-                             ['codex', '--dangerously-bypass-approvals-and-sandbox', '-m', 'gpt-5-codex'])
+                             ['codex', '--dangerously-bypass-approvals-and-sandbox', '-m', 'gpt-5-codex',
+                              '--no-alt-screen', '-c', 'tui.animations=false'])
             self.assertEqual(agent_argv({'cmd': 'gemini', 'interactive_args': ['chat']}), ['gemini', 'chat'])
 
     def test_wrap_up_reads_the_screen_and_asks_the_agent_nothing(self):

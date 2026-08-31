@@ -172,10 +172,15 @@ class TimelineDeskTests(unittest.TestCase):
         fx, path = _file_fx()
         fx.desk()
         reports = [s for s in fx.s.list_sources() if s['Channel'] == 'report']
-        self.assertGreaterEqual(len(reports), 3)  # census picture + digest + automate
+        self.assertGreaterEqual(len(reports), 4)  # census picture + digest + automate + assistant
         for src in reports:
+            cfg = json.loads(src['ConfigJson'] or '{}')
             self.assertTrue(src['LastPolledAt'], src['Address'])
-            self.assertFalse(is_due(json.loads(src['ConfigJson'] or '{}'), src['LastPolledAt'], startup=True))
+            self.assertFalse(is_due(cfg, src['LastPolledAt']), src['Address'])
+            # on_startup WITHOUT once_per_day is due on every launch by design - that is the
+            # Assistant's whole schedule ('when you open the app'), and no stamp can settle it
+            if cfg.get('on_startup') and not cfg.get('once_per_day'): continue
+            self.assertFalse(is_due(cfg, src['LastPolledAt'], startup=True), src['Address'])
         fx.s.cx.close()
 
 

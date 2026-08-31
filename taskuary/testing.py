@@ -309,9 +309,12 @@ class Factory:
         out = {}
         for name in names:
             out[name] = getattr(self, name)()
-        # SQLiteStore also seeds Morning digest + Automation ideas with a NULL
-        # watermark. Stamp every report so the next server start does not file
-        # a failed mssql row (or a real digest) on top of the fixtures.
+        # SQLiteStore also seeds Morning digest, Automation ideas and the Assistant
+        # with a NULL watermark. Stamp every report so the next server start does not
+        # file a failed mssql row (or a real digest) on top of the fixtures. The
+        # Assistant is the exception it cannot cover: on_startup with no once_per_day
+        # means every launch, stamp or not - a quiet check posts nothing, so it costs
+        # the desk a call, not a row.
         for src in self.s.list_sources():
             if src['Channel'] == 'report' and not src.get('LastPolledAt'):
                 self.s.touch_source(src['SourceId'])

@@ -11,6 +11,7 @@ An agent in a terminal has a shell and no API token, so the door is `taskuary --
 import json
 import os
 import unittest
+from datetime import datetime
 from unittest import mock
 
 from taskuary import blackboard as bb, terminal
@@ -147,6 +148,77 @@ class TheChatIsOnItTooTests(unittest.TestCase):
 
     def test_an_empty_house_lane_says_nothing(self):
         self.assertEqual(bb.chat_text(MemoryStore()), '')
+
+
+class TheWallCompostsTests(unittest.TestCase):
+    """A wall that only grows is a wall nobody reads to the bottom of - and "taking store.py for
+    twenty minutes" three days ago is worse than nothing, because it reads as now. Each day is
+    folded into one note per checkout, and the originals are marked rather than deleted."""
+    def _aged(self, s, day, kind, body, cwd=CWD, agent='codex'):
+        n = bb.post(s, body, kind, agent, cwd)
+        s._exec('UPDATE boardnote SET CreatedAt=? WHERE NoteId=?', (f'{day} 10:00:00', n['NoteId']))
+        return n
+
+    def test_a_day_becomes_one_note_and_the_transient_ones_stop_showing(self):
+        s = MemoryStore()
+        self._aged(s, '2026-08-29', 'working', 'taking store.py for 20 minutes')
+        self._aged(s, '2026-08-29', 'note', 'the mssql tests need pyodbc')
+        self._aged(s, '2026-08-29', 'ready', 'auth pushed, suite green')
+        self.assertEqual(bb.roll_up(s, '2026-08-30', llm=None), 1)
+        live = bb.wall(s, CWD)
+        self.assertEqual([n['Kind'] for n in live], [bb.SUMMARY])
+        self.assertIn('pyodbc', live[0]['Body'])                      # what survives
+        self.assertNotIn('20 minutes', live[0]['Body'])               # what does not
+
+    def test_nothing_is_deleted_and_the_board_can_still_show_it_all(self):
+        s = MemoryStore()
+        self._aged(s, '2026-08-29', 'note', 'the mssql tests need pyodbc')
+        bb.roll_up(s, '2026-08-30', llm=None)
+        self.assertEqual(len(s.notes(CWD, rolled=True)), 2)           # the original AND the summary
+        self.assertEqual(len(s.notes(CWD)), 1)
+
+    def test_today_is_left_alone(self):
+        s = MemoryStore()
+        bb.post(s, 'happening now', 'working', 'codex', CWD)
+        self.assertEqual(bb.roll_up(s, datetime.now().strftime('%Y-%m-%d'), llm=None), 0)
+        self.assertEqual(len(bb.wall(s, CWD)), 1)
+
+    def test_each_checkout_gets_its_own_summary(self):
+        s = MemoryStore()
+        self._aged(s, '2026-08-29', 'note', 'this repo', CWD)
+        self._aged(s, '2026-08-29', 'note', 'the other repo', os.path.normcase('/work/other'))
+        self._aged(s, '2026-08-29', 'note', 'everybody', '')
+        self.assertEqual(bb.roll_up(s, '2026-08-30', llm=None), 3)
+
+    def test_the_ai_writes_it_when_there_is_one_and_may_say_there_is_nothing(self):
+        s = MemoryStore()
+        self._aged(s, '2026-08-29', 'working', 'holding a file')
+        self.assertEqual(bb.roll_up(s, '2026-08-30', llm=lambda *a, **k: 'NOTHING'), 0)
+        self.assertEqual(bb.wall(s, CWD), [])                          # composted, nothing carried
+        self._aged(s, '2026-08-28', 'note', 'a real finding')
+        self.assertEqual(bb.roll_up(s, '2026-08-30', llm=lambda *a, **k: 'the finding, in short'), 1)
+        self.assertIn('the finding, in short', bb.wall(s, CWD)[0]['Body'])
+
+    def test_a_model_that_fails_still_leaves_the_facts_behind(self):
+        s = MemoryStore()
+        self._aged(s, '2026-08-29', 'note', 'the mssql tests need pyodbc')
+        def boom(*a, **k): raise RuntimeError('no brain today')
+        self.assertEqual(bb.roll_up(s, '2026-08-30', llm=boom), 1)
+        self.assertIn('pyodbc', bb.wall(s, CWD)[0]['Body'])
+
+    def test_it_runs_once_a_day_however_often_it_is_asked(self):
+        s = MemoryStore()
+        self._aged(s, '2026-08-29', 'note', 'one')
+        self.assertEqual(bb.roll_daily(s, llm=None), 1)
+        self._aged(s, '2026-08-29', 'note', 'two')
+        self.assertEqual(bb.roll_daily(s, llm=None), 0)                # already composted today
+        self.assertEqual(len(bb.wall(s, CWD)), 2)                      # ...and the new one is untouched
+
+    def test_agents_are_not_offered_the_summary_kind(self):
+        s = MemoryStore()
+        with self.assertRaises(ValueError): bb.post(s, 'x', 'shipit', 'codex', CWD)
+        self.assertNotIn(bb.SUMMARY, bb.KINDS)                          # the roll-up writes it, nobody else
+        self.assertTrue(bb.post(s, 'x', bb.SUMMARY, 'the wall', CWD))   # ...and it is accepted from there
 
 
 class TheRulesTests(unittest.TestCase):

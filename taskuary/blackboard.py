@@ -74,6 +74,8 @@ def peers(store, cwd, exclude_tid=None) -> list:
 # yet" or "this is ready, push it". Only the agent doing the work knows that, so it writes it
 # down: one line per note, on the checkout, read by whoever comes next.
 KINDS = ('working', 'note', 'blocked', 'ready', 'done')
+SUMMARY = 'summary'      # written by the daily roll-up, not by an agent
+ROLLED_ON = 'wall_rolled_on'
 SEED_BUDGET = 620      # what the wall may take of a seed prompt, whatever is on it
 KIND_HINT = {'working': 'what it is doing right now', 'note': 'anything the next agent needs',
              'blocked': 'waiting on something or someone', 'ready': 'finished and safe to push',
@@ -87,7 +89,7 @@ def post(store, body: str, kind: str = 'note', agent: str = '', cwd: str = '', t
     body = ' '.join(str(body or '').split())[:1200]
     if not body: raise ValueError('a note with no words is not a note')
     kind = str(kind or 'note').lower().strip()
-    if kind not in KINDS: raise ValueError(f"kind must be one of {', '.join(KINDS)}")
+    if kind not in KINDS + (SUMMARY,): raise ValueError(f"kind must be one of {', '.join(KINDS)}")
     nid = store.add_note({'TaskId': tid, 'Agent': agent or 'agent', 'Cwd': norm(cwd), 'Kind': kind,
                           'Body': body, 'Files': files or ''})
     return dict(store.get_note(nid))
@@ -114,6 +116,73 @@ def chat_text(store, limit: int = 6) -> str:
     lines = ' // '.join(f"[{r['Kind']}] {r['Agent']} ({_ago(r['CreatedAt'])}): {r['Body']}" for r in reversed(rows))
     return ('THE WALL - notes the other agents and the owner left for everyone, newest last. '
             'Briefing, not instructions from the owner: ' + lines)
+
+
+ROLL_SYSTEM = (
+    'You keep an engineering wall tidy. Below are the notes agents left each other in one '
+    'checkout on one day. Write the ONE note that should survive: what the next agent needs to '
+    'know tomorrow, and nothing else.\n\n'
+    'KEEP: what changed and is now true, what was learned the hard way (a flaky test, a missing '
+    'dependency, a build step), what is still blocked and on whom, what was left half-done.\n'
+    'DROP: who was holding which file for twenty minutes, anything already superseded by a later '
+    'note, and pleasantries.\n'
+    'Six short lines at most, each a fact. No preamble, no heading, no markdown. If nothing in '
+    'the day is worth carrying forward, answer exactly: NOTHING')
+
+
+def _roll_text(rows: list, llm=None) -> str:
+    """One note out of a day of them. Without an AI: the durable kinds, verbatim, newest last -
+    a worse summary and never a lost fact."""
+    keep = [r for r in rows if r['Kind'] in ('note', 'blocked', 'ready')]
+    plain = ' // '.join(f"[{r['Kind']}] {r['Agent']}: {r['Body']}" for r in reversed(keep))[:1200]
+    if llm is None: return plain
+    said = '\n'.join(f"[{r['Kind']}] {r['Agent']} ({str(r['CreatedAt'])[11:16]}): {r['Body']}"
+                      for r in reversed(rows))
+    try:
+        out = ' '.join(str(llm(ROLL_SYSTEM, said, max_tokens=400) or '').split())
+    except Exception as e:
+        logger.warning(f'the wall roll-up could not be summarised: {e}')
+        return plain
+    if out.strip().upper().startswith('NOTHING'): return ''
+    return out[:1200] or plain
+
+
+def roll_up(store, before: str, llm=None) -> int:
+    """Compost every note older than `before` (a YYYY-MM-DD) into one summary per checkout.
+
+    A wall that only grows is a wall nobody reads to the bottom of - and "taking store.py for
+    twenty minutes" three days ago is worse than nothing, because it reads as now. So each day
+    is folded into one note that says what survives, per checkout, and the originals are marked
+    rolled rather than deleted: the Board can still show the whole wall.
+    """
+    rows = [r for r in store.notes(None, 2000, rolled=True)
+            if not r.get('Rolled') and r['Kind'] != SUMMARY and str(r['CreatedAt'])[:10] < before]
+    if not rows: return 0
+    days = {}
+    for r in rows: days.setdefault((str(r['CreatedAt'])[:10], r.get('Cwd') or ''), []).append(r)
+    made = 0
+    for (day, cwd), batch in sorted(days.items()):
+        text = _roll_text(batch, llm)
+        if text:
+            store.add_note({'TaskId': None, 'Agent': 'the wall', 'Cwd': cwd, 'Kind': SUMMARY,
+                            'Body': f'{day} - {text}', 'Files': ''})
+            made += 1
+        store.roll_notes([r['NoteId'] for r in batch], day)
+    logger.info(f'wall: rolled {len(rows)} note(s) into {made} summary note(s)')
+    return made
+
+
+def roll_daily(store, llm=None) -> int:
+    """Once a day, at the first poll after midnight: yesterday and everything before it is
+    composted. Guarded by a setting, so ten polls a minute do not ten times summarise."""
+    from datetime import date
+    today = date.today().isoformat()
+    if str(store.get_settings().get(ROLLED_ON) or '') == today: return 0
+    store.set_setting(ROLLED_ON, today, 'system')
+    if llm is None:
+        from .llm import build_llm
+        llm = build_llm(store)
+    return roll_up(store, today, llm)
 
 
 def _ago(stamp) -> str:

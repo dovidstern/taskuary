@@ -985,9 +985,11 @@ class NoteBody(BaseModel):
     cwd: str | None = None; task_id: int | None = None; files: str | None = None
 
 @app.get('/api/board/notes')
-def board_notes(cwd: str = '', limit: int = 60):
-    """Everything by default - the Board is one wall - or one checkout's own when cwd is given."""
-    return {'data': blackboard.wall(store, cwd, limit), 'kinds': list(blackboard.KINDS)}
+def board_notes(cwd: str = '', limit: int = 60, all: bool = False):
+    """Everything by default - the Board is one wall - or one checkout's own when cwd is given.
+    `all` includes the notes a daily roll-up has already composted into a summary."""
+    return {'data': store.notes(blackboard.norm(cwd) or None, limit, rolled=all),
+            'kinds': list(blackboard.KINDS), 'summary_kind': blackboard.SUMMARY}
 
 @app.post('/api/board/notes')
 def board_post(body: NoteBody):
@@ -2269,6 +2271,12 @@ def _poll_reports(backfill_days: int = 0, what: str = 'syncing', startup: bool =
             ci.poll(store)
         except Exception as e:
             logger.warning(f'CI poll failed: {e}')
+        # the agent wall composts once a day: yesterday's notes become one summary per checkout,
+        # so what an agent reads tomorrow is what still matters (blackboard.roll_up)
+        try:
+            blackboard.roll_daily(store)
+        except Exception as e:
+            logger.warning(f'the wall roll-up failed: {e}')
         run_due_reports(store, startup)          # ...the seeded 'Assistant' report among them (assistant.py)
     finally:
         try: store.set_setting('ingest_status', json.dumps({'state': 'idle'}), 'system')

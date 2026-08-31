@@ -25,6 +25,9 @@ export const KINDS = {
   blocked: { label: "blocked", dot: "#a2643a", hint: "waiting on something or someone" },
   ready: { label: "ready to push", dot: "#6f8a6e", hint: "finished and safe to build on" },
   done: { label: "done", dot: "#9c968c", hint: "pushed or closed out" },
+  // not written by an agent: what a day of notes was folded into, so the wall an agent reads
+  // tomorrow is what still matters rather than everything that was ever true (blackboard.roll_up)
+  summary: { label: "the day, folded", dot: "#7a5f6b", hint: "a day of notes, summarised - the originals are still here under “show every note”" },
 };
 
 // one stable colour per agent, so the same face means the same worker down the whole feed
@@ -108,9 +111,11 @@ export default function AgentWall({ onOpenTask, refresh }) {
   const [body, setBody] = useState("");
   const [kind, setKind] = useState("note");
   const [busy, setBusy] = useState(false);
+  const [all, setAll] = useState(false);      // composted days too, or just what still matters
   const load = useCallback(async () => {
-    try { setRows((await api.get("/api/board/notes")).data.data || []); } catch { setRows([]); }
-  }, []);
+    try { setRows((await api.get("/api/board/notes", { params: { all } })).data.data || []); }
+    catch { setRows([]); }
+  }, [all]);
   useEffect(() => { load(); }, [load, refresh]);
   useEffect(() => { const t = setInterval(load, 10000); return () => clearInterval(t); }, [load]);
 
@@ -147,7 +152,7 @@ export default function AgentWall({ onOpenTask, refresh }) {
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1, pl: 5.5 }}>
           <Select size="small" value={kind} onChange={(e) => setKind(e.target.value)}
             sx={{ bgcolor: "#fff", fontSize: 12, height: 30, minWidth: 150 }}>
-            {Object.entries(KINDS).map(([k, v]) => (
+            {Object.entries(KINDS).filter(([k]) => k !== "summary").map(([k, v]) => (
               <MenuItem key={k} value={k} sx={{ fontSize: 12 }}>
                 <Box component="span" sx={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%",
                   bgcolor: v.dot, mr: 1 }} />{v.label}
@@ -157,6 +162,10 @@ export default function AgentWall({ onOpenTask, refresh }) {
           <Typography variant="caption" sx={{ color: FAINT, flex: 1 }}>
             Agents read this before they start — and post here themselves with <code>taskuary --note</code>.
           </Typography>
+          {/* the older days are still here, folded - one summary each, per checkout */}
+          <Button size="small" onClick={() => setAll((x) => !x)} sx={{ fontSize: 11, color: DIM, textTransform: "none" }}>
+            {all ? "just what still matters" : "show every note"}
+          </Button>
           <Button size="small" variant="contained" disableElevation disabled={busy || !body.trim()} onClick={post}
             endIcon={<SendIcon sx={{ fontSize: 15 }} />}>Post</Button>
         </Box>

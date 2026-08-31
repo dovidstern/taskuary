@@ -48,6 +48,8 @@ def main():
     # session puts its own name, task and checkout in the environment.
     ap.add_argument('--board', action='store_true',
                     help='print the agent wall for this checkout - what the agents before you left here')
+    ap.add_argument('--all', action='store_true',
+                    help='with --board: the whole wall, including days already folded into a summary')
     ap.add_argument('--note', metavar='TEXT',
                     help='leave a line on the wall for the next agent (see --kind)')
     ap.add_argument('--kind', default='note', metavar='KIND',
@@ -69,8 +71,9 @@ def main():
             except ValueError as e: print(f'not posted: {e}'); return
             print(f"posted to the wall as {n['Agent']} [{n['Kind']}]")
             return
-        rows = bb.wall(store, cwd, 20)
+        rows = store.notes(bb.norm(cwd), 40 if args.all else 20, rolled=args.all)
         print(f'the wall - {cwd}' if rows else f'the wall is empty for {cwd} - you are first')
+        if not args.all and rows: print('  (older days are folded into [summary] lines; --board --all for every note)')
         for r in reversed(rows):
             ref = f" {task_ref(r['TaskId'])}" if r.get('TaskId') else ''
             print(f"  [{r['Kind']}] {r['Agent']}{ref} {bb._ago(r['CreatedAt'])}: {r['Body']}")

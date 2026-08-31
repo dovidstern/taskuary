@@ -360,6 +360,10 @@ class SQLiteStore:
             rcols = {r[1] for r in self.cx.execute('PRAGMA table_info(review)')}
             if 'Deliver' not in rcols:
                 self.cx.execute('ALTER TABLE review ADD COLUMN Deliver TEXT')
+            # the wall composts: a day's notes are summarised into one and marked with the day
+            # they were rolled up, so the live wall stays short without anything being deleted
+            ncols = {r[1] for r in self.cx.execute('PRAGMA table_info(boardnote)')}
+            if 'Rolled' not in ncols: self.cx.execute('ALTER TABLE boardnote ADD COLUMN Rolled TEXT')
             qcols = {r[1] for r in self.cx.execute('PRAGMA table_info(dispatchq)')}
             for col, typ in (('Value', 'REAL'), ('Floor', 'REAL'), ('Why', 'TEXT')):    # rank.py: value-ordered queue
                 if col not in qcols: self.cx.execute(f'ALTER TABLE dispatchq ADD COLUMN {col} {typ}')
@@ -1089,17 +1093,28 @@ class SQLiteStore:
     def add_note(self, fields) -> int:
         return self._insert('boardnote', {**fields, 'CreatedAt': _now()},
                             ('TaskId', 'Agent', 'Cwd', 'Kind', 'Body', 'Files', 'CreatedAt', 'ReadBy'))
-    def notes(self, cwd: str = None, limit: int = 60, house: bool = True) -> list:
+    def roll_notes(self, ids: list, day: str) -> int:
+        """Mark these as composted into a summary. Nothing is deleted - the Board can still show
+        the whole wall, and an agent that wants the detail can still read it."""
+        if not ids: return 0
+        marks = ','.join('?' * len(ids))
+        self._exec(f'UPDATE boardnote SET Rolled=? WHERE NoteId IN ({marks})', [day] + list(ids))
+        return len(ids)
+
+    def notes(self, cwd: str = None, limit: int = 60, house: bool = True, rolled: bool = False) -> list:
         """Newest first.
 
         Given a checkout: that checkout's wall, plus the HOUSE lane - notes written with no
         checkout at all, by the assistant chat and by the owner. A peer in another repo is none
         of this agent's business; "do not touch the Intacct credentials today" is everybody's.
         Given none: everything, which is what the Board shows."""
-        if not cwd: return self._rows('SELECT * FROM boardnote ORDER BY NoteId DESC LIMIT ?', (int(limit),))
-        if not house: return self._rows('SELECT * FROM boardnote WHERE Cwd=? ORDER BY NoteId DESC LIMIT ?', (cwd, int(limit)))
-        return self._rows("SELECT * FROM boardnote WHERE Cwd=? OR IFNULL(Cwd,'')='' ORDER BY NoteId DESC LIMIT ?",
-                          (cwd, int(limit)))
+        live = '' if rolled else ' AND Rolled IS NULL'
+        if not cwd:
+            return self._rows(f'SELECT * FROM boardnote WHERE 1=1{live} ORDER BY NoteId DESC LIMIT ?', (int(limit),))
+        if not house:
+            return self._rows(f'SELECT * FROM boardnote WHERE Cwd=?{live} ORDER BY NoteId DESC LIMIT ?', (cwd, int(limit)))
+        return self._rows(f"SELECT * FROM boardnote WHERE (Cwd=? OR IFNULL(Cwd,'')=''){live} "
+                          'ORDER BY NoteId DESC LIMIT ?', (cwd, int(limit)))
     def mark_note_read(self, note_id: int, who: str):
         """Who has actually read it - the Board shows an unread note differently, and an agent
         that says it read the wall can be taken at its word."""

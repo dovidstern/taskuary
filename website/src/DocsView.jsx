@@ -128,7 +128,7 @@ export default function DocsView() {
   // A list you can see is worth more than a landing you have to go back to: switching
   // documents used to mean breadcrumb → grid → card, and these six are read together.
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "300px minmax(0,1fr)" },
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "300px minmax(0,1fr)" },
       gap: 3, alignItems: "start" }}>
 
       <Box sx={{ position: { md: "sticky" }, top: { md: 62 } }}>

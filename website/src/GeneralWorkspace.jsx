@@ -80,6 +80,12 @@ function AssistantThread({ task, messages, onAsked, selectionRef, attachmentsRef
         ...(progress.length ? [{ type: "reasoning", text: progress.join("\n\n") }] : []),
         ...(reply ? [{ type: "text", text: reply }] : []),
       ];
+      // A run that fails has to SAY so, here, under the question. Thrown out of the adapter it
+      // is swallowed: the owner sees their own message and nothing after it, which is
+      // indistinguishable from an agent that is still thinking (the wall, 2026-08-31). The
+      // reasons are all things a person can act on - the session ended, another one holds this
+      // task, it is still answering the last question, no AI is connected - so they are shown.
+      try {
       for await (const event of streamAssistant(task.TaskId, body, abortSignal)) {
         if (event.type === "tool_call") {
           structuredSeen = true;
@@ -106,11 +112,16 @@ function AssistantThread({ task, messages, onAsked, selectionRef, attachmentsRef
           progress.push(String(event.detail));
           yield { content: content() };
         } else if (event.type === "error") {
-          throw new Error(event.error || "The agent stopped without an answer.");
+          yield { content: content(`⚠ ${event.error || "The agent stopped without an answer."}`) };
+          return;
         } else if (event.type === "done") {
           onClearAttachments(); onSent(event.payload);
           yield { content: content(event.reply) };
         }
+      }
+      } catch (e) {
+        if (abortSignal?.aborted) return;              // the owner pressed stop; that is not an error
+        yield { content: content(`⚠ ${e?.message || "The assistant could not answer."}`) };
       }
     },
   }), [attachmentsRef, onClearAttachments, onSent, selectionRef, task.TaskId]);

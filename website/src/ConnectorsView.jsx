@@ -978,7 +978,7 @@ export default function ConnectorsView() {
               <Typography variant="caption" sx={{ color: FAINT, display: "block", mb: 1 }}>
                 {hits.length} {hits.length === 1 ? "result" : "results"}
               </Typography>
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", xl: "repeat(3, minmax(0, 1fr))" }, gap: 1.5 }}>
+              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", xl: "repeat(3, minmax(0, 1fr))" }, gap: 1.5 }}>
                 {hits.map((r) => <ConnCard key={r.key} c={r} />)}
               </Box>
             </>
@@ -989,7 +989,7 @@ export default function ConnectorsView() {
           {shown.note && (
             <Typography variant="body2" sx={{ color: DIM, mb: 1.5, maxWidth: 860, lineHeight: 1.55 }}>{shown.note}</Typography>
           )}
-          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", xl: "repeat(3, 1fr)" }, gap: 1.5 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", xl: "repeat(3, minmax(0, 1fr))" }, gap: 1.5 }}>
             {shown.cards.map((c) => <ConnCard key={c.key} c={c} />)}
           </Box>
         </>
@@ -2310,7 +2310,7 @@ const ProcessingStep = ({ conn, reload, n }) => {
       <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 0.5, mb: 0.75 }}>
         How tasks from this connection reach the agents. Applies to every task it creates; the Timeline’s funnel bar and the Board’s Queued lane follow it.
       </Typography>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(0, 1fr)" }, gap: 1 }}>
         {MODES.map(([v, title, desc]) => (
           <Box key={v} onClick={() => set(v)}
             sx={{ p: 1.25, borderRadius: 2, cursor: "pointer", bgcolor: PANEL,

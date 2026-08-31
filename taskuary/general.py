@@ -334,8 +334,9 @@ class GeneralSession:
                     pick=None, trace=None, cancel=None) -> str:
         text = str(text or '').strip()
         if not text: raise ValueError('empty message')
-        if not self.alive: raise RuntimeError('assistant session has ended')
-        if not self._lock.acquire(blocking=False): raise RuntimeError('the assistant is already working')
+        if not self.alive: raise RuntimeError('this assistant session has ended - reload the page and ask again')
+        if not self._lock.acquire(blocking=False):
+            raise RuntimeError('the assistant is still answering the last question - wait for it, or press stop')
         self.busy, self.last = True, time.time()
         try:
             if connector_id is not None or model or pick:
@@ -409,8 +410,14 @@ def start_session(store, tid: int, connector_id=None, model=None, actor='owner',
         if connector_id is not None or model or pick:
             existing.pick, existing.provider, existing.model = _selected(store, connector_id, model, pick)
         return existing
+    # A session that has ENDED is not a session. It used to sit in the registry keeping the task
+    # occupied, so the next question got "this task already has a different live session" and,
+    # because a failed run said nothing at all, looked like the assistant ignoring you.
+    for sid, dead in [(k, v) for k, v in terminal.SESSIONS.items() if getattr(v, 'task_id', None) == tid and not v.alive]:
+        terminal.SESSIONS.pop(sid, None)
     other = next((s for s in list(terminal.SESSIONS.values()) if s.task_id == tid and s.alive), None)
-    if other: raise ValueError('this task already has a different live session')
+    if other: raise ValueError(f'this task already has a live {getattr(other, "agent", "") or "terminal"} '
+                               'session - close it (the ✕ on its pane) and ask again here')
     session = GeneralSession(store, tid, connector_id, model, pick)
     terminal.SESSIONS[session.sid] = session
     if task.get('Status') == 'open': store.update_task(tid, {'Status': 'in_progress'}, actor)

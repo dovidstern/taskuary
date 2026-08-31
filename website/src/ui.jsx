@@ -912,7 +912,7 @@ export const Crumb = ({ section, onBack, title }) => (
    list are here rather than copied twice more. `right` renders above the section content, for
    the actions a tab keeps on screen (Sync now, New report). */
 export const SideRail = ({ title, note, items, value, onChange, q, setQ, placeholder, children }) => (
-  <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "236px minmax(0,1fr)" },
+  <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "236px minmax(0,1fr)" },
     gap: 3, alignItems: "start", maxWidth: 1320, mx: "auto" }}>
     <Box sx={{ position: { md: "sticky" }, top: { md: 62 } }}>
       <Typography sx={{ color: INK, fontWeight: 700, fontSize: 16, mb: 1.5 }}>{title}</Typography>
@@ -1394,7 +1394,7 @@ export const WorkStrip = ({ taskId, live, session, provenance }) => {
         <Box sx={{ flex: 1 }} />
         {w && <WorkLine work={w} who={who} waiting={false} startedAt={d.session?.started} />}
       </Box>
-      {open && <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
+      {open && <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(0, 1fr)" } }}>
         <Box sx={{ px: 1.5, py: 1, borderRight: { md: `1px solid ${BORDER}` } }}>
           <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, mb: 0.5 }}>
             <Typography sx={{ ...mono, fontSize: 9.5, letterSpacing: ".08em", textTransform: "uppercase", color: FAINT, fontWeight: 600 }}>said it would</Typography>
@@ -1480,7 +1480,11 @@ export const LiveConsole = ({ run, agent, lines = 5, onOpen }) => {
 };
 
 export const FilterPills = ({ options, value, onChange }) => (
-  <Box sx={{ display: "inline-flex", gap: 0.25, p: 0.4, bgcolor: "#e9e3d8",
+  // A segmented control reads as one control only in one row, so it never wraps - which on a
+  // phone dragged the whole page sideways. It scrolls inside itself instead, with the scrollbar
+  // hidden: the pills are the affordance.
+  <Box sx={{ display: "inline-flex", gap: 0.25, p: 0.4, bgcolor: "#e9e3d8", maxWidth: "100%",
+    overflowX: "auto", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" },
     border: "1px solid #e1dcd5", borderRadius: 2.5 }}>
     {options.map((o) => {
       const key = o.key ?? o, on = value === key;

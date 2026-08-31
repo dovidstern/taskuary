@@ -557,7 +557,7 @@ function SettingsPages({ page, setPage, q, setQ }) {
           <Typography variant="caption" sx={{ color: FAINT, display: "block", mb: 1 }}>
             {results.length} {results.length === 1 ? "result" : "results"}
           </Typography>
-          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 1 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(2, minmax(0, 1fr))" }, gap: 1 }}>
             {results.map((r) => (
               <Box key={r.key} onClick={r.go}
                 sx={{ ...card, p: 1.5, cursor: "pointer", transition: "border-color .15s, box-shadow .15s",
@@ -581,7 +581,7 @@ export default function SettingsView() {
   const [page, setPage] = useState(NAV[0]);      // the rail's first entry is where Settings opens - About you
   const [q, setQ] = useState("");
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "236px minmax(0,1fr)" },
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "236px minmax(0,1fr)" },
       gap: 3, alignItems: "start", maxWidth: 1320, mx: "auto" }}>
       <Box sx={{ position: { md: "sticky" }, top: { md: 62 } }}>
         <Typography sx={{ color: INK, fontWeight: 700, fontSize: 16, mb: 1.5 }}>Settings</Typography>

@@ -426,7 +426,8 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
                     row read as none of them mattering */}
                 <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
                   <Typography sx={{ ...mono, color: "#55697a", fontWeight: 700, fontSize: 12.5 }}>{detail.ref}</Typography>
-                  <Typography sx={{ color: INK, flex: 1, fontWeight: 650, fontSize: 15, minWidth: 200, letterSpacing: "-.01em" }} noWrap>
+                  <Typography sx={{ color: INK, flex: 1, fontWeight: 650, fontSize: 15,
+                    minWidth: { xs: 110, sm: 200 }, letterSpacing: "-.01em" }} noWrap>
                     {t.Title}
                   </Typography>
                   <StateChip task={{ ...t, ReviewStatus: (detail.reviews || [])[0]?.Status,

@@ -336,8 +336,10 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
   return (
     <Box>
       {err && <Alert severity="error" onClose={() => setErr("")} sx={{ mb: 1.5 }}>{err}</Alert>}
-      <Box sx={{ display: "flex", alignItems: "center", mb: 1.25, gap: 1.5 }}>
-        <Typography sx={{ color: INK, fontWeight: 800, fontSize: 15, flex: 1 }}>Agent board</Typography>
+      {/* four things on one line is a laptop's worth of room; below that they wrap rather than
+          push the page sideways */}
+      <Box sx={{ display: "flex", alignItems: "center", mb: 1.25, gap: 1.5, flexWrap: "wrap" }}>
+        <Typography sx={{ color: INK, fontWeight: 800, fontSize: 15, flex: "1 1 auto" }}>Agent board</Typography>
         {view === "notes" && <Typography variant="caption" sx={{ color: FAINT, fontSize: 10.5 }}>
           What the agents leave for each other — they read it before they start, and post before they push.
         </Typography>}
@@ -397,7 +399,7 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
       {view === "studio" && <StudioView onOpenTask={onOpenTask} refresh={boardTick} />}
       {view === "wall" && <WallView onOpenTask={onOpenTask} onOpenReports={onOpenReports} refresh={boardTick} />}
 
-      <Box sx={{ display: view === "columns" ? "grid" : "none", gridTemplateColumns: { xs: "1fr", md: "repeat(4, minmax(0, 1fr))" }, gap: 2, alignItems: "start" }}>
+      <Box sx={{ display: view === "columns" ? "grid" : "none", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(4, minmax(0, 1fr))" }, gap: 2, alignItems: "start" }}>
         {COLS.map((col) => {
           const today = localToday();
           // Done is agent work finished today. A reply the owner answered by hand, or a to-do
@@ -413,7 +415,9 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
             // drop target the size of its one card
             <Box key={col.key} onDragOver={(e) => e.preventDefault()} onDrop={() => drop(col)}
               sx={{ bgcolor: "#e9e3d8", border: `1px solid ${BORDER}`, borderRadius: 2.5, p: 0.85,
-                minHeight: { xs: 200, md: "calc(100vh - 190px)" }, alignSelf: "stretch",
+                // stacked on a phone, an EMPTY column that keeps a desktop's height is 200px of
+                // "Nothing here." between you and the column that has the work in it
+                minHeight: { xs: cards.length ? 200 : 0, md: "calc(100vh - 190px)" }, alignSelf: "stretch",
                 outline: dragId && col.key !== "waiting" ? "2px dashed #d8cfbe" : "none", outlineOffset: -4 }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, px: 0.4, pb: 0.85 }}>
                 <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: col.dot }} />

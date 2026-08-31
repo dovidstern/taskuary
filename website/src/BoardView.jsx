@@ -296,6 +296,7 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
   // one reading of the repository box (newTask.js): who works it, and what the two fields
   // under it should say about that
   const plan = planTask(nt.repo, nt.how);
+  const noRepo = !plan.repo;                    // which of the two "live" readings the box offers
   const create = async () => {
     const { repo, kind, chat, tags } = plan;
     const { data } = await api.post("/api/tasks",
@@ -525,6 +526,8 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
               <MenuItem value={NO_REPO} sx={{ fontSize: 12.5 }}>General — no repository, just a question to answer</MenuItem>
             </Select>
           </Box>
+          {/* a general question is answered by an AI connector, not a CLI - unless the owner
+              asked for a terminal below, in which case the CLI is exactly what matters */}
           <Box sx={{ display: plan.chat ? "none" : "block" }}>
             <Typography variant="caption" sx={{ color: FAINT, display: "block", mb: 0.5 }}>
               Agent and model — which CLI works it, and which model that CLI runs
@@ -544,9 +547,13 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
               How it gets worked — one agent, one way
             </Typography>
             <Select fullWidth size="small" value={nt.how} onChange={(e) => setNt({ ...nt, how: e.target.value })}>
-              <MenuItem value="live" sx={{ fontSize: 12.5 }}>{plan.chat
+              <MenuItem value="live" sx={{ fontSize: 12.5 }}>{noRepo
                 ? "Ask the assistant — opens the chat on the Tasks tab with your prompt as the first message"
                 : `Start ${nt.agent} on it — stays on the board with the prompt typed in`}</MenuItem>
+              {/* a question you would rather work in a CLI: the old behaviour, now asked for */}
+              {noRepo && <MenuItem value="terminal" sx={{ fontSize: 12.5 }}>
+                Start {nt.agent} in a terminal instead — no repository, its own folder
+              </MenuItem>}
               <MenuItem value="file" sx={{ fontSize: 12.5 }}>Just file it — nobody starts working yet</MenuItem>
             </Select>
           </Box>

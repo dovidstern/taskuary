@@ -139,8 +139,9 @@ def child_env() -> dict:
     except (RuntimeError, OSError): return env          # nothing better to say than nothing
     env.setdefault('HOME', home)
     if os.name == 'nt':
+        import ntpath              # a Windows path, split as one wherever this test runs
         env.setdefault('USERPROFILE', home)
-        drive, tail = os.path.splitdrive(home)
+        drive, tail = ntpath.splitdrive(home)
         if drive: env.setdefault('HOMEDRIVE', drive); env.setdefault('HOMEPATH', tail)
     env.setdefault('CODEX_HOME', os.path.join(home, '.codex'))
     return env

@@ -16,7 +16,7 @@ workflow needs one small dependency and the chart stays diffable in review.
 
     python tools/pypi_downloads.py --package taskuary --history docs/downloads.csv --out docs/downloads.svg
 """
-import argparse, csv, json, sys
+import argparse, csv, json, math, sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
@@ -28,12 +28,10 @@ API = 'https://pypistats.org/api/packages'
 # library is the road and a named plain request is the shoulder.
 UA = 'taskuary-downloads-chart (+https://github.com/ldbumble/taskuary)'
 
-WIDTH, HEIGHT = 760, 240
-PAD_L, PAD_R, PAD_T, PAD_B = 46, 12, 34, 26
+WIDTH, HEIGHT = 880, 260
+PAD_L, PAD_R, PAD_T, PAD_B = 52, 78, 52, 30      # right padding holds the two direct labels
 DAYS = 180                    # what the pypistats overall endpoint keeps
-
-
-HTTP_PARAMS = ('mirrors',)      # the rest are pypistats' own presentation options, not the API's
+MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
 
 
 def _get(pkg: str, what: str, **params) -> dict:
@@ -88,7 +86,8 @@ def write_history(path: Path, rows: list):
 
 
 def totals(rows: list, today: date = None) -> dict:
-    """Day, week and month from the SERIES, so the caption and the bars can never disagree."""
+    """The three figures `pypistats recent` prints, computed from the SERIES the chart is drawn
+    from - so the caption can never disagree with the line under it."""
     end = today or (datetime.fromisoformat(rows[-1][0]).date() if rows else date.today())
     by = {d: n for d, n in rows}
     span = lambda days: sum(by.get((end - timedelta(days=i)).isoformat(), 0) for i in range(days))
@@ -96,62 +95,98 @@ def totals(rows: list, today: date = None) -> dict:
 
 
 def _mean7(vals: list) -> list:
-    return [round(sum(vals[max(0, i - 6):i + 1]) / len(vals[max(0, i - 6):i + 1]), 2) for i in range(len(vals))]
+    return [sum(vals[max(0, i - 6):i + 1]) / len(vals[max(0, i - 6):i + 1]) for i in range(len(vals))]
 
 
 def _nice(top: int) -> int:
-    """A round y-axis ceiling: 1, 2, 5 x 10^n, so the gridline reads as a number."""
+    """A round y-axis ceiling that stays CLOSE to the data - 500 over a peak of 210 leaves the
+    line crawling along the bottom of the frame. Steps a tenth of the magnitude at a time."""
     if top <= 5: return 5
     step = 10 ** (len(str(int(top))) - 1)
-    for m in (1, 2, 5, 10):
-        if top <= m * step: return m * step
+    for m in (1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10):
+        if top <= m * step: return math.ceil(m * step)
     return 10 * step
 
 
+def _day(iso: str) -> str:
+    try:
+        d = datetime.fromisoformat(iso).date()
+        return f'{MONTHS[d.month - 1]} {d.day}'
+    except (TypeError, ValueError): return iso
+
+
+def _ticks(rows: list, want: int = 6) -> list:
+    """Indices for the dated labels: every day while there are few, evenly spaced once there
+    are many. Uneven gaps read as missing data, so the spacing is computed, not sampled."""
+    n = len(rows)
+    if n <= 10: return list(range(n))
+    step = (n - 1) / (want - 1)
+    return sorted({int(i * step + 0.5) for i in range(want)})
+
+
 def svg(rows: list, pkg: str, window: int = DAYS) -> str:
-    """A bar per day with a 7-day mean over it. Colours are mid-tones that read on GitHub's
-    light and dark themes, and the text follows the reader's theme through a media query -
-    an <img> SVG carries its own rendering context, so that actually works here."""
+    """One measure, two readings of it: the daily count as a soft area, and the 7-day mean as
+    the line - which is the shape a downloads chart is actually read for. One hue, because it
+    is one measure; both are named at the right-hand end rather than in a legend box.
+
+    The colours are the data-viz reference palette's slot 1, stepped for each surface, and the
+    text follows the reader's theme through a media query - an <img> SVG carries its own
+    rendering context, so that works on GitHub in both themes. No hover: a README renders this
+    as an image, so every label it needs has to be drawn."""
     rows = rows[-window:]
     n = len(rows)
     t = totals(rows)
     plot_w, plot_h = WIDTH - PAD_L - PAD_R, HEIGHT - PAD_T - PAD_B
-    top = _nice(max([v for _, v in rows] or [0]))
-    x = lambda i: PAD_L + (plot_w * (i + 0.5) / n if n else 0)
-    y = lambda v: PAD_T + plot_h - (plot_h * min(v, top) / top)
-    bw = max(1.0, (plot_w / n) * 0.72) if n else 1.0
-    bars = ''.join(
-        f'<rect x="{x(i) - bw / 2:.2f}" y="{y(v):.2f}" width="{bw:.2f}" '
-        f'height="{max(0.0, PAD_T + plot_h - y(v)):.2f}" class="bar"/>'
-        for i, (_, v) in enumerate(rows) if v)
-    mean = _mean7([v for _, v in rows])
-    line = ' '.join(f'{x(i):.2f},{y(v):.2f}' for i, v in enumerate(mean))
-    caption = (f'{t["last_day"]:,} today · {t["last_week"]:,} this week · {t["last_month"]:,} this month'
+    vals = [v for _, v in rows]
+    mean = _mean7(vals)
+    top = _nice(max(vals or [0]))
+    x = lambda i: PAD_L + (plot_w * (i / (n - 1)) if n > 1 else plot_w / 2)
+    y = lambda v: PAD_T + plot_h - plot_h * min(v, top) / top
+    base = PAD_T + plot_h
+    pts = lambda ys: ' '.join(f'{x(i):.1f},{y(v):.1f}' for i, v in enumerate(ys))
+    area = (f'<path d="M{x(0):.1f},{base} L{pts(vals).replace(" ", " L")} L{x(n - 1):.1f},{base} Z" class="area"/>'
+            if n > 1 else '')
+    if n == 1: area = f'<rect x="{x(0) - 3:.1f}" y="{y(vals[0]):.1f}" width="6" height="{base - y(vals[0]):.1f}" class="area"/>'
+    grid = ''.join(
+        f'<line x1="{PAD_L}" y1="{y(v):.1f}" x2="{WIDTH - PAD_R}" y2="{y(v):.1f}" class="grid"/>'
+        f'<text x="{PAD_L - 10}" y="{y(v) + 3.5:.1f}" class="dim" text-anchor="end">{v:,}</text>'
+        for v in (0, top // 2, top) if v or True)
+    days = ''.join(f'<text x="{x(i):.1f}" y="{HEIGHT - 10}" class="dim" text-anchor="middle">{_day(rows[i][0])}</text>'
+                   for i in _ticks(rows))
+    # the two end labels, pushed apart when the day and its mean finish on top of each other
+    ly, my = (y(vals[-1]), y(mean[-1])) if n else (0, 0)
+    if abs(ly - my) < 13: ly, my = (ly + 6.5, my - 6.5) if ly >= my else (ly - 6.5, my + 6.5)
+    tip = (f'<circle cx="{x(n - 1):.1f}" cy="{y(vals[-1]):.1f}" r="3.5" class="dot"/>'
+           f'<text x="{x(n - 1) + 9:.1f}" y="{ly + 3.5:.1f}" class="key">daily</text>'
+           f'<text x="{x(n - 1) + 9:.1f}" y="{my + 3.5:.1f}" class="key">7-day mean</text>') if n else ''
+    caption = (f'{t["last_day"]:,} yesterday   ·   {t["last_week"]:,} in the last 7 days   ·   {t["last_month"]:,} in 30'
                if n else 'no downloads reported yet')
-    first, last = (rows[0][0], rows[-1][0]) if n else ('', '')
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}"
-     role="img" aria-label="Daily {pkg} downloads from PyPI, mirrors excluded: {caption}">
+     font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif"
+     role="img" aria-label="Daily installs of {pkg} from PyPI, mirrors excluded. {caption}">
   <style>
-    .ink {{ fill: #24292f; font: 600 12px -apple-system, Segoe UI, Helvetica, Arial, sans-serif; }}
-    .dim {{ fill: #6e7781; font: 400 10.5px -apple-system, Segoe UI, Helvetica, Arial, sans-serif; }}
-    .bar {{ fill: #55697a; }}
-    .mean {{ fill: none; stroke: #b3542f; stroke-width: 1.6; stroke-linejoin: round; }}
-    .grid {{ stroke: #d0d7de; stroke-width: 1; }}
+    text {{ font-size: 11px; }}
+    .title {{ font-size: 13px; font-weight: 600; fill: #1f2328; }}
+    .dim   {{ fill: #59636e; }}
+    .key   {{ fill: #59636e; font-size: 10px; }}
+    .grid  {{ stroke: #d1d9e0; stroke-width: 1; }}
+    .line  {{ fill: none; stroke: #2a78d6; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }}
+    .area  {{ fill: #2a78d6; fill-opacity: .14; stroke: none; }}
+    .dot   {{ fill: #2a78d6; }}
     @media (prefers-color-scheme: dark) {{
-      .ink {{ fill: #e6edf3; }} .dim {{ fill: #9198a1; }}
-      .bar {{ fill: #7d97ab; }} .grid {{ stroke: #30363d; }} .mean {{ stroke: #e08a5c; }}
+      .title {{ fill: #e6edf3; }} .dim, .key {{ fill: #9198a1; }} .grid {{ stroke: #2f3742; }}
+      .line, .dot {{ stroke: #3987e5; fill: #3987e5; }} .line {{ fill: none; }}
+      .area {{ fill: #3987e5; fill-opacity: .18; }}
     }}
   </style>
-  <text x="{PAD_L}" y="15" class="ink">{pkg} · installs from PyPI, mirrors excluded</text>
-  <text x="{PAD_L}" y="28" class="dim">{caption}</text>
-  <line x1="{PAD_L}" y1="{y(top):.2f}" x2="{WIDTH - PAD_R}" y2="{y(top):.2f}" class="grid"/>
-  <line x1="{PAD_L}" y1="{PAD_T + plot_h}" x2="{WIDTH - PAD_R}" y2="{PAD_T + plot_h}" class="grid"/>
-  <text x="{PAD_L - 6}" y="{y(top) + 4:.2f}" class="dim" text-anchor="end">{top:,}</text>
-  <text x="{PAD_L - 6}" y="{PAD_T + plot_h + 4}" class="dim" text-anchor="end">0</text>
-  {bars}
-  <polyline points="{line}" class="mean"/>
-  <text x="{PAD_L}" y="{HEIGHT - 8}" class="dim">{first}</text>
-  <text x="{WIDTH - PAD_R}" y="{HEIGHT - 8}" class="dim" text-anchor="end">{last} · 7-day mean in orange</text>
+  <text x="{PAD_L}" y="22" class="title">{pkg} · installs from PyPI</text>
+  <text x="{PAD_L}" y="38" class="dim">{caption}</text>
+  {grid}
+  {area}
+  <polyline points="{pts(mean)}" class="line"/>
+  {tip}
+  {days}
+  <text x="{WIDTH - PAD_R}" y="22" class="dim" text-anchor="end">mirrors excluded</text>
 </svg>
 '''
 

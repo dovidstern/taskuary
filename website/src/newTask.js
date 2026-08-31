@@ -8,8 +8,12 @@ export const NO_REPO = "none";
 // the picker's value as the API wants it: a repository, or nothing at all
 export const repoOf = (pick) => (pick && pick !== NO_REPO ? pick : null);
 
+// how: "live" (an agent starts now), "file" (nobody starts), or "terminal" - which is "live"
+// for a question you would rather work in a CLI than in the chat. Asked for explicitly, because
+// a General task landing in a terminal by ACCIDENT is the bug this module exists to stop.
 export const planTask = (pick, how) => {
   const repo = repoOf(pick);
-  return { repo, kind: repo ? "coding" : "general", chat: !repo,
-    tags: repo ? `repo:${repo}` : null, start: how === "live" };
+  const chat = !repo && how !== "terminal";
+  return { repo, kind: chat ? "general" : "coding", chat,
+    tags: repo ? `repo:${repo}` : null, start: how === "live" || how === "terminal" };
 };

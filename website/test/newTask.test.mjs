@@ -30,6 +30,15 @@ test("an empty picker - no repositories connected at all - is the chat, not a te
   assert.equal(planTask(undefined, "live").kind, "general");
 });
 
+test("a question can still be worked in a terminal, when that is asked for", () => {
+  const p = planTask(NO_REPO, "terminal");
+  assert.equal(p.kind, "coding");          // a terminal task, so the task page shows one
+  assert.equal(p.chat, false);
+  assert.equal(p.start, true);
+  assert.equal(p.repo, null);              // ...and still no repository invented for it
+  assert.equal(p.tags, null);
+});
+
 test("'just file it' starts nobody, on either kind", () => {
   assert.equal(planTask("acme/fanapp", "file").start, false);
   assert.equal(planTask(NO_REPO, "file").start, false);

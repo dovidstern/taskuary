@@ -73,26 +73,42 @@ class WhatIsAskedForTests(unittest.TestCase):
 
 
 class TheChartTests(unittest.TestCase):
-    def test_it_draws_one_bar_per_day_with_downloads(self):
+    def test_the_line_is_the_mean_and_the_area_is_the_days_under_it(self):
         rows = [('2026-08-28', 4), ('2026-08-29', 0), ('2026-08-30', 7)]
         out = dl.svg(rows, 'taskuary')
-        self.assertEqual(out.count('<rect'), 2)             # the zero day gets no bar
-        self.assertIn('<polyline', out)                     # ...and the 7-day mean is drawn
+        self.assertEqual(out.count('<polyline'), 1)          # one line: the 7-day mean
+        self.assertEqual(out.count('class="area"'), 1)       # one area: the daily count
+        self.assertIn('7-day mean', out)                     # ...both named at the end, not in a box
+        self.assertIn('>daily<', out)
+
+    def test_one_measure_means_one_hue_and_no_legend_box(self):
+        out = dl.svg([('2026-08-29', 4), ('2026-08-30', 7)], 'taskuary')
+        self.assertEqual(len({c for c in ('#2a78d6', '#3987e5') if c in out}), 2)   # light + dark step
+        self.assertNotIn('<rect class="legend', out)
 
     def test_the_caption_says_what_the_number_is_and_does_not_overclaim(self):
         out = dl.svg([('2026-08-30', 7)], 'taskuary')
         self.assertIn('mirrors excluded', out)
         self.assertNotIn('CI', out)                          # never claimed, because it is not done
-        self.assertIn('7 today', out)
+        self.assertIn('7 yesterday', out)
+
+    def test_the_two_end_labels_never_sit_on_top_of_each_other(self):
+        """A flat series ends with the day and its mean at the same height."""
+        rows = [(f'2026-08-{d:02d}', 40) for d in range(20, 31)]
+        import re
+        ys = [float(m) for m in re.findall(r'y="([\d.]+)" class="key"', dl.svg(rows, 'taskuary'))]
+        self.assertEqual(len(ys), 2)
+        self.assertGreaterEqual(abs(ys[0] - ys[1]), 12)
 
     def test_an_empty_series_still_renders_a_chart_rather_than_crashing(self):
         out = dl.svg([], 'taskuary')
         self.assertIn('no downloads reported yet', out)
         self.assertIn('</svg>', out)
 
-    def test_the_axis_ceiling_is_a_round_number(self):
-        self.assertEqual([dl._nice(n) for n in (0, 3, 7, 12, 40, 60, 900, 1200)],
-                         [5, 5, 10, 20, 50, 100, 1000, 2000])
+    def test_the_axis_ceiling_is_round_and_stays_close_to_the_data(self):
+        """500 over a peak of 210 leaves the line crawling along the bottom of the frame."""
+        self.assertEqual([dl._nice(n) for n in (0, 3, 7, 12, 40, 60, 210, 900, 1200)],
+                         [5, 5, 8, 15, 40, 75, 250, 1000, 1500])
 
     def test_it_reads_on_both_github_themes(self):
         out = dl.svg([('2026-08-30', 7)], 'taskuary')
@@ -102,8 +118,15 @@ class TheChartTests(unittest.TestCase):
     def test_the_window_is_the_last_n_days_not_the_first(self):
         rows = [(f'2026-08-{d:02d}', d) for d in range(1, 11)]
         out = dl.svg(rows, 'taskuary', window=3)
-        self.assertIn('2026-08-08', out)
-        self.assertNotIn('2026-08-01', out)
+        self.assertIn('Aug 8', out)
+        self.assertNotIn('Aug 1<', out)
+
+    def test_the_dates_are_evenly_spaced_once_there_are_too_many_to_show(self):
+        """Uneven gaps between labels read as missing days."""
+        rows = [(f'2026-0{m}-{d:02d}', 1) for m in (7, 8) for d in range(1, 29)]
+        got = dl._ticks(rows)
+        self.assertEqual(got, [0, 11, 22, 33, 44, 55])
+        self.assertEqual(dl._ticks(rows[:6]), [0, 1, 2, 3, 4, 5])       # few days: every one
 
 
 class TheCommandTests(unittest.TestCase):

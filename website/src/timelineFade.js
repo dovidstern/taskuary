@@ -17,3 +17,8 @@ export const ageOpacity = (hours, mode = "normal") => {
   const [grace, span, floor] = c;
   return hours <= grace ? 1 : Math.max(floor, 1 - (1 - floor) * (hours - grace) / span);
 };
+
+// A deliberate filter is already doing the visual prioritization. Dimming its matches again can
+// make the whole result set look disabled when every match happens to be old.
+export const timelineOpacity = (hours, mode = "normal", filtered = false) =>
+  filtered ? 1 : ageOpacity(hours, mode);

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { FADE_MODES, ageOpacity } from "../src/timelineFade.js";
+import { FADE_MODES, ageOpacity, timelineOpacity } from "../src/timelineFade.js";
 
 test("a fresh row is never dimmed, in any mode", () => {
   for (const mode of FADE_MODES) {
@@ -50,4 +50,11 @@ test("an unparsed or future timestamp is shown, not hidden", () => {
   assert.equal(ageOpacity(-5, "sharp"), 1);      // clock skew must never dim a row
   assert.equal(ageOpacity(NaN, "sharp"), 1);
   assert.equal(ageOpacity(5, "nonsense"), 1);    // a mode the UI does not know about
+});
+
+test("filter results remain fully legible regardless of age or fade mode", () => {
+  for (const mode of FADE_MODES) {
+    assert.equal(timelineOpacity(1000, mode, true), 1, mode);
+  }
+  assert.equal(timelineOpacity(1000, "normal", false), ageOpacity(1000, "normal"));
 });

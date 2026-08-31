@@ -15,7 +15,7 @@ import AssignmentIndIcon from "@mui/icons-material/AssignmentInd";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
 import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import api from "./api";
-import { ageOpacity } from "./timelineFade.js";
+import { timelineOpacity } from "./timelineFade.js";
 import EventIcon from "@mui/icons-material/Event";
 import { pollWhileVisible } from "./visible.js";
 import { feedHeaders, feedOk, takeFeed } from "./feedLoad.js";
@@ -204,7 +204,8 @@ const meetingEnded = (e) => !e.all_day && e.end && tsMs(e.end) < Date.now();
 // after the same beat a message takes, click opens it now; the panel shows who is in it and why.
 // the resting opacity of a row by age, by the timeline_fade setting (Settings > Display); the curve
 // itself lives in timelineFade.js so it can be tested without the React tree
-const rowOpacity = (sentAt, mode) => ageOpacity((Date.now() - tsMs(sentAt)) / 36e5, mode);
+const rowOpacity = (sentAt, mode, filtered) =>
+  timelineOpacity((Date.now() - tsMs(sentAt)) / 36e5, mode, filtered);
 
 const MeetingRow = ({ e, onPick, picked, fade }) => {
   const hover = useRef(null);
@@ -967,7 +968,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
                       <MeetingRow key={`m-${e.start}-${j}`} e={e} fade picked={calSel} onPick={(ev) => { setSel(null); setCalSel(ev); }} />
                     ))}
                     <Box className="tqRow" sx={{ display: "grid", gridTemplateColumns: `${GUTTER}px 14px minmax(0,1fr)`,
-                      alignItems: "stretch", mb: "4px", opacity: rowOpacity(r.SentAt, fade), transition: "opacity .9s ease",
+                      alignItems: "stretch", mb: "4px", opacity: rowOpacity(r.SentAt, fade, !!(view || cat || pick)), transition: "opacity .9s ease",
                       // the entrance animation must not PIN opacity afterwards (fill-mode both did, and no row
                       // ever faded): backwards keeps only the start frame, then the age opacity takes over
                       ...(seen.current.has(r.MessageId) ? {} : { ...fadeIn, animationDelay: `${Math.min(i * 45, 400)}ms`, animationFillMode: "backwards" }) }}>

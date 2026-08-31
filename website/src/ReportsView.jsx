@@ -373,6 +373,9 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
     // an empty recipient means it was switched on and never filled in - saving that would make
     // a report that tries to send to nobody on every run
     if (c.deliver && !String(c.deliver.to || "").trim()) delete c.deliver;
+    // same for the alert: switched on with nowhere to send is a rule that can only fail at 3am
+    if (c.alert && !String(c.alert.to || "").trim()) delete c.alert;
+    if (c.alert?.count != null && c.alert.count !== "") c.alert = { ...c.alert, count: Number(c.alert.count) };
     for (const k of SOURCE_KEYS) delete c[k];            // sources live in sources[] now
     for (const k of Object.keys(c)) if (c[k] === "" || c[k] == null) delete c[k];
     if (c.every_minutes) c.every_minutes = Number(c.every_minutes);
@@ -600,6 +603,67 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
                         : "Each run lands in Review as a draft. Approving it sends; editing first is fine."}
                     </Typography>
                   </Box>
+                </>
+              )}
+            </Box>
+            {/* The opposite of "send it somewhere": say NOTHING unless the result trips a rule.
+                A message that arrives whether or not anything is wrong is one you stop reading,
+                so silence is the normal outcome here and an alert means go and look. */}
+            <Box sx={{ mt: 2, ...card, p: 1.5 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Typography variant="overline" sx={{ color: ACCENT2, letterSpacing: 1.5, fontSize: 10, flex: 1 }}>
+                  TELL ME WHEN IT LOOKS WRONG (OPTIONAL)
+                </Typography>
+                <Switch size="small" checked={!!cfg.alert}
+                  onChange={(e) => setCfg({ ...cfg, alert: e.target.checked ? { when: "nothing_came_back", channel: "whatsapp", to: "" } : undefined })} />
+              </Box>
+              {!cfg.alert ? (
+                <Typography variant="caption" sx={{ color: FAINT }}>
+                  Off — the report never messages you, however its result looks.
+                </Typography>
+              ) : (
+                <>
+                  <Box sx={{ display: "flex", gap: 1, mt: 1, flexWrap: "wrap", alignItems: "center" }}>
+                    <Select size="small" value={cfg.alert.when || "nothing_came_back"} sx={{ bgcolor: "#fff", fontSize: 12.5, minWidth: 250 }}
+                      onChange={(e) => setCfg({ ...cfg, alert: { ...cfg.alert, when: e.target.value } })}>
+                      <MenuItem value="nothing_came_back" sx={{ fontSize: 12 }}>nothing came back</MenuItem>
+                      <MenuItem value="something_came_back" sx={{ fontSize: 12 }}>anything came back</MenuItem>
+                      <MenuItem value="fewer_than" sx={{ fontSize: 12 }}>fewer rows than…</MenuItem>
+                      <MenuItem value="more_than" sx={{ fontSize: 12 }}>more rows than…</MenuItem>
+                      <MenuItem value="contains" sx={{ fontSize: 12 }}>the result mentions…</MenuItem>
+                      <MenuItem value="missing" sx={{ fontSize: 12 }}>the result never mentions…</MenuItem>
+                      <MenuItem value="failed" sx={{ fontSize: 12 }}>the report failed to run</MenuItem>
+                    </Select>
+                    {["fewer_than", "more_than"].includes(cfg.alert.when) && (
+                      <TextField size="small" type="number" sx={{ bgcolor: "#fff", width: 120 }} label="how many"
+                        value={cfg.alert.count ?? ""}
+                        onChange={(e) => setCfg({ ...cfg, alert: { ...cfg.alert, count: e.target.value } })} />
+                    )}
+                    {["contains", "missing"].includes(cfg.alert.when) && (
+                      <TextField size="small" sx={{ bgcolor: "#fff", flex: 1, minWidth: 160 }} label="the words to look for"
+                        value={cfg.alert.text || ""}
+                        onChange={(e) => setCfg({ ...cfg, alert: { ...cfg.alert, text: e.target.value } })} />
+                    )}
+                  </Box>
+                  <Box sx={{ display: "flex", gap: 1, mt: 1, flexWrap: "wrap" }}>
+                    <Select size="small" value={cfg.alert.channel || "whatsapp"} sx={{ bgcolor: "#fff", fontSize: 12.5, minWidth: 130 }}
+                      onChange={(e) => setCfg({ ...cfg, alert: { ...cfg.alert, channel: e.target.value } })}>
+                      {["whatsapp", "telegram", "teams", "imessage", "discord", "email"].map((ch) => (
+                        <MenuItem key={ch} value={ch} sx={{ fontSize: 12 }}>{ch}</MenuItem>
+                      ))}
+                    </Select>
+                    <TextField size="small" sx={{ bgcolor: "#fff", flex: 1, minWidth: 200 }}
+                      label={cfg.alert.channel === "email" ? "to — addresses, comma separated" : "to — the chat id it lands in"}
+                      value={cfg.alert.to || ""}
+                      onChange={(e) => setCfg({ ...cfg, alert: { ...cfg.alert, to: e.target.value } })} />
+                    <TextField size="small" sx={{ bgcolor: "#fff", flex: 1, minWidth: 200 }}
+                      label="what to say (optional)" value={cfg.alert.note || ""}
+                      onChange={(e) => setCfg({ ...cfg, alert: { ...cfg.alert, note: e.target.value } })} />
+                  </Box>
+                  <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 1 }}>
+                    Sent the moment the rule trips — no Review step, because an alert waiting for approval is not an alert.
+                    The channel still has to be on under Settings → Replies.
+                  </Typography>
                 </>
               )}
             </Box>

@@ -891,12 +891,103 @@ def _run_report_source(store, src: dict, cfg: dict, llm=None) -> dict:
             logger.warning(f'outbound delivery for {title} failed: {e}')
             store.add_route(mid, None, 'feed', None, f'the report ran; sending it out failed: {str(e)[:200]}',
                             [], 'report')
+    # ...and the alert, which is the opposite of delivery: it says nothing at all unless the
+    # result trips the rule. A failure to SEND an alert is itself worth seeing on the timeline -
+    # an alarm that quietly could not reach you is the worst of both worlds.
+    if cfg.get('alert', {}).get('to'):
+        try:
+            why = alert_fires(cfg, subject.split('—', 1)[-1].strip(), strip_directive(body), failed)
+            if why: send_alert(store, src, cfg, why, subject, strip_directive(body))
+        except Exception as e:
+            logger.warning(f'alert for {title} failed: {e}')
+            store.add_route(mid, None, 'feed', None, f'the report ran; its alert could not be sent: {str(e)[:200]}',
+                            [], 'report')
     # the digest report is ALSO what keeps DIGEST.md alive: one run, two homes - the Timeline
     # row you read in the morning, and the doc the Docs tab shows
     if 'digest' in {cfg.get('type'), *(s.get('type') for s in cfg.get('sources') or [])}:
         from .digest import HEADER
         store.save_doc('digest', f'{HEADER}_refreshed {stamp[:16]}_\n\n{strip_directive(body)}\n', 'digest')
     return {'message_id': mid, 'subject': subject, 'files': len(made), 'summary': strip_directive(body)}
+
+
+# ── alerts: the report that only speaks up when something is wrong ──────────────────────
+# A scheduled report tells you what IS. The thing you actually want to know is when what is
+# stops matching what should be - "did the nightly job run in the last two hours, and if not,
+# say so on my phone". Delivery sends every run and is therefore useless for that: a message
+# that arrives whether or not anything is wrong is a message you stop reading.
+#
+# So an alert is a CONDITION on the result plus somewhere to send it. Silence is the normal
+# outcome; an alert arriving means something to look at.
+ALERT_WHEN = ('nothing_came_back', 'something_came_back', 'fewer_than', 'more_than',
+              'contains', 'missing', 'failed')
+_LEADING_COUNT = re.compile(r'\s*(\d[\d,]*)\b')
+
+
+def result_count(head: str, body: str) -> int:
+    """How many things the report found. Row executors say it in the headline ("0 rows",
+    "12 rows (capped...)"); anything else is counted by non-blank lines, which is the honest
+    reading of a prose result."""
+    m = _LEADING_COUNT.match(str(head or ''))
+    if m: return int(m.group(1).replace(',', ''))
+    return len([ln for ln in str(body or '').splitlines() if ln.strip()])
+
+
+def alert_fires(cfg: dict, head: str, body: str, failed: bool = False) -> str:
+    """Should this run speak up, and in what words? '' means stay quiet.
+
+    Returns the reason, so what lands on the phone says which rule tripped rather than just
+    repeating the report.
+    """
+    a = cfg.get('alert') or {}
+    when = str(a.get('when') or '').strip().lower()
+    if not when or not str(a.get('to') or '').strip(): return ''
+    if when not in ALERT_WHEN: raise ValueError(f'unknown alert condition {when!r} - one of {", ".join(ALERT_WHEN)}')
+    # A failed run is its own alarm: whatever the rule was, the report could not answer it, and
+    # "no rows" from a query that never ran is not the same fact as "no rows" from one that did.
+    if failed: return 'the report failed to run' if when == 'failed' else f'the report failed to run, so "{when}" could not be judged'
+    if when == 'failed': return ''
+    n = result_count(head, body)
+    text = str(a.get('text') or '')
+    hay = f'{head}\n{body}'.lower()
+    if when == 'nothing_came_back': return 'nothing came back' if n == 0 else ''
+    if when == 'something_came_back': return f'{n} came back' if n > 0 else ''
+    if when == 'fewer_than':
+        want = float(a.get('count') or 0)
+        return f'only {n} came back, expected at least {want:g}' if n < want else ''
+    if when == 'more_than':
+        want = float(a.get('count') or 0)
+        return f'{n} came back, more than the {want:g} expected' if n > want else ''
+    if when == 'contains': return f'the result mentions "{text}"' if text and text.lower() in hay else ''
+    if when == 'missing': return f'the result never mentions "{text}"' if text and text.lower() not in hay else ''
+    return ''
+
+
+def send_alert(store, src: dict, cfg: dict, why: str, head: str, body: str) -> dict:
+    """Put the alert on the owner's phone (or wherever they chose), and on the timeline.
+
+    Unlike `deliver`, this does NOT default to the review gate. The review gate exists so
+    Taskuary never writes to OTHER PEOPLE unasked; an alert is the owner telling themselves
+    something is wrong, and one that waits in a queue for approval is not an alert. The channel
+    still has to be switched on under Settings → Replies, so "Taskuary may write to WhatsApp"
+    remains one decision the owner made once.
+    """
+    a = cfg.get('alert') or {}
+    to = a['to'] if isinstance(a.get('to'), list) else [x.strip() for x in str(a.get('to') or '').split(',') if x.strip()]
+    title = cfg.get('title') or src['Address']
+    subj = (a.get('subject') or f'{title} — {why}').strip()
+    note = str(a.get('note') or '').strip()
+    text = '\n\n'.join(x for x in [f'{title}: {why}.', note, f'{head}', str(body or '')[:1500]] if x)
+    stamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    ch = a.get('channel') or 'whatsapp'
+    mid = store.add_message({
+        'ExternalId': f'alert:{src["SourceId"]}:{stamp}', 'ConversationId': f'report:{src["SourceId"]}',
+        'Channel': ch, 'SourceName': title, 'Subject': subj, 'FromName': 'Taskuary', 'SentAt': stamp,
+        'BodyText': text, 'Direction': 'out', 'Status': 'sent'})
+    from . import outbound
+    sent = outbound.send_out(store, ch, to, subj, text)
+    store.add_route(mid, None, 'send', None, f'alert - {why}; sent to {", ".join(to) or "nobody"} on {ch}', [], 'report')
+    store.audit('message', mid, 'alert_sent', 'report', 'agent', {'to': to, 'channel': ch, 'why': why})
+    return {'message_id': mid, 'why': why, 'sent': sent}
 
 
 def deliver_report(store, src: dict, cfg: dict, subject: str, body: str) -> dict:

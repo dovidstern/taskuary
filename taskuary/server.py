@@ -257,6 +257,14 @@ def assistant_message(task_id: int, body: AssistantMessageBody):
     except (ValueError, RuntimeError) as e: raise HTTPException(422, str(e))
     return {'reply': reply, **_assistant_payload(task_id, session)}
 
+@app.post('/api/tasks/{task_id}/assistant/cancel')
+def assistant_cancel(task_id: int):
+    """The stop button. The ONLY thing that stops an answer being written - walking away does
+    not (see the stream's docstring)."""
+    from . import general
+    session = general.session_for(task_id)
+    return {'stopped': bool(session and session.stop())}
+
 @app.post('/api/tasks/{task_id}/assistant/report')
 def assistant_create_report(task_id: int, body: AssistantSessionBody = None):
     """One click: summarize the discussion and create a native daily agent report.
@@ -308,14 +316,23 @@ async def assistant_stream(task_id: int, body: AssistantMessageBody):
     """NDJSON work stream for assistant-ui: the configured CLI's real tool/text events.
 
     The CLI stays on a worker thread (its subprocess pipes are blocking); events cross onto the
-    request loop through a queue. Closing the browser stream sets ``cancel`` and kills the CLI.
+    request loop through a queue.
+
+    Closing the browser stream DETACHES; it does not kill. It used to: leaving the Board tab,
+    pressing refresh, or any remount of the pane ended the response - and since the reply is
+    only filed once the run finishes, an answer that was seconds away was lost and the chat
+    looked as though it had ignored the question. Stopping is now an explicit act
+    (/assistant/cancel, the stop button), and a run nobody is watching still finishes and still
+    files its reply on the task.
     """
     from . import general
     loop, events, cancel = asyncio.get_running_loop(), asyncio.Queue(), threading.Event()
 
     def put(event):
+        # the reader is gone: drop the event and keep working. The answer is filed on the task
+        # either way, which is what the chat reads when it comes back.
         try: loop.call_soon_threadsafe(events.put_nowait, event)
-        except RuntimeError: cancel.set()
+        except RuntimeError: pass
 
     def trace(kind, name, detail):
         put({'type': kind, 'name': name, 'detail': detail})
@@ -324,8 +341,18 @@ async def assistant_stream(task_id: int, body: AssistantMessageBody):
         try:
             session = general.start_session(store, task_id, body.connector_id, body.model, ACTOR, body.pick)
             put({'type': 'start', 'session': session.info()})
-            reply = session.send_prompt(body.text, body.attachments, body.connector_id, body.model,
-                                        pick=body.pick, trace=trace, cancel=cancel)
+            try:
+                reply = session.send_prompt(body.text, body.attachments, body.connector_id, body.model,
+                                            pick=body.pick, trace=trace, cancel=cancel)
+            except RuntimeError as e:
+                # it ended between being handed over and being spoken to (the owner closed the
+                # pane, a wrap-up ran). A question is not lost over a race: start a fresh one
+                # and ask it there, once.
+                if 'has ended' not in str(e) or cancel.is_set(): raise
+                general.drop_session(task_id)
+                session = general.start_session(store, task_id, body.connector_id, body.model, ACTOR, body.pick)
+                reply = session.send_prompt(body.text, body.attachments, body.connector_id, body.model,
+                                            pick=body.pick, trace=trace, cancel=cancel)
             put({'type': 'done', 'reply': reply, 'payload': _assistant_payload(task_id, session)})
         # Once headers are streaming, FastAPI cannot replace this with its normal JSON error
         # response. Always terminate the NDJSON stream explicitly instead of leaving the UI's
@@ -345,7 +372,8 @@ async def assistant_stream(task_id: int, body: AssistantMessageBody):
                 yield json.dumps(event, default=str) + '\n'
                 if event.get('type') in ('done', 'error'): break
         finally:
-            cancel.set()
+            # NOT cancel.set(): see the docstring. A browser that walked away is not a stop.
+            if not cancel.is_set(): logger.debug(f'assistant stream for task {task_id} detached; the run continues')
 
     return StreamingResponse(generate(), media_type='application/x-ndjson',
                              headers={'Cache-Control': 'no-cache, no-transform'})

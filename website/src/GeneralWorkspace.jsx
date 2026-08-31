@@ -61,7 +61,7 @@ const AssistantMessage = () => (
   </MessagePrimitive.Root>
 );
 
-function AssistantThread({ task, messages, onAsked, selectionRef, attachmentsRef, onSent, onClearAttachments, onAttach, onReport, reportBusy }) {
+function AssistantThread({ task, messages, onAsked, onStop, selectionRef, attachmentsRef, onSent, onClearAttachments, onAttach, onReport, reportBusy }) {
   const modelAdapter = useMemo(() => ({
     async *run({ messages: runMessages, abortSignal }) {
       const prompt = textOf([...runMessages].reverse().find((m) => m.role === "user"));
@@ -184,7 +184,10 @@ function AssistantThread({ task, messages, onAsked, selectionRef, attachmentsRef
                 <AttachFileIcon sx={{ fontSize: 18 }} />
               </IconButton>
               <ComposerPrimitive.Input className="tq-aui-input" placeholder="Tell the assistant what to do next…" />
-              <ComposerPrimitive.Cancel className="tq-aui-cancel" aria-label="Stop response"><CloseIcon fontSize="small" /></ComposerPrimitive.Cancel>
+              {/* stopping is an ACT: closing this page is not one. The button tells the server
+                  to stop the run; abandoning the tab just detaches from it (server.py). */}
+              <ComposerPrimitive.Cancel className="tq-aui-cancel" aria-label="Stop response"
+                onClick={onStop}><CloseIcon fontSize="small" /></ComposerPrimitive.Cancel>
               <ComposerPrimitive.Send className="tq-aui-send" aria-label="Send"><SendIcon fontSize="small" /></ComposerPrimitive.Send>
             </ComposerPrimitive.Root>
             <div className="tq-aui-hint">Enter sends · Shift+Enter adds a line · paste or attach an image</div>
@@ -266,6 +269,29 @@ export function GeneralWorkspace({ task, onSession, onOpenReports, compact = fal
   };
   const clearAttachments = useCallback((path) => setAttachments((old) => path ? old.filter((a) => a.path !== path) : []), []);
   const sent = useCallback((payload) => accept(payload), [accept]);
+  const stopRun = useCallback(() => {
+    api.post(`/api/tasks/${task.TaskId}/assistant/cancel`).catch(() => {});
+  }, [task.TaskId]);
+
+  /* An answer written while you were somewhere else. The run no longer dies when this pane
+     goes away, so when it comes back the conversation may be mid-sentence - or already have
+     the reply, filed on the task. Poll while it is busy and show it the moment it lands;
+     threadKey remounts the thread, which is how assistant-ui takes new initial messages. */
+  const busy = !!data?.session?.busy;
+  useEffect(() => {
+    if (!busy) return undefined;
+    let live = true;
+    const timer = setInterval(async () => {
+      try {
+        const { data: fresh } = await api.get(`/api/tasks/${task.TaskId}/assistant`);
+        if (!live) return;
+        const grew = (fresh.messages || []).length !== (data?.messages || []).length;
+        setData(fresh);
+        if (grew) setThreadKey((k) => k + 1);
+      } catch { /* it will still be there next tick */ }
+    }, 2500);
+    return () => { live = false; clearInterval(timer); };
+  }, [busy, task.TaskId, data?.messages]);
   const makeReport = async () => {
     setError(""); setReportBusy(true);
     try {
@@ -315,6 +341,15 @@ export function GeneralWorkspace({ task, onSession, onOpenReports, compact = fal
           onClick={() => chooseView("numbers")} sx={{ minWidth: 0, fontSize: 11 }}>Numbers</Button>
       </Box>
       {error && <Alert severity="error" sx={{ borderRadius: 0, py: 0 }}>{error}</Alert>}
+      {busy && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.25, py: 0.5, bgcolor: PANEL2,
+          borderBottom: `1px solid ${BORDER}` }}>
+          <CircularProgress size={11} />
+          <Typography variant="caption" sx={{ color: DIM }}>
+            still working on your last message — it keeps going whether or not this is open
+          </Typography>
+        </Box>
+      )}
       {!data?.providers?.length && <Alert severity="info" sx={{ borderRadius: 0, py: 0 }}>Add a CLI agent in Settings to run this work. API providers are optional.</Alert>}
       <input ref={fileRef} hidden type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onChange={(e) => upload(e.target.files)} />
       {uploading && <Box sx={{ px: 1, py: 0.5, color: FAINT, fontSize: 11 }}>Attaching image…</Box>}
@@ -326,7 +361,7 @@ export function GeneralWorkspace({ task, onSession, onOpenReports, compact = fal
         ) : session ? (
           <SessionPane sid={session.sid} height="100%">
             <AssistantThread key={`${task.TaskId}-${threadKey}`} task={task} messages={data.messages}
-              onAsked={dropAsk} selectionRef={selectionRef}
+              onAsked={dropAsk} onStop={stopRun} selectionRef={selectionRef}
               attachmentsRef={attachmentsRef} onSent={sent} onClearAttachments={clearAttachments}
               onAttach={() => fileRef.current?.click()} onReport={makeReport} reportBusy={reportBusy} />
           </SessionPane>

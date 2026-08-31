@@ -24,6 +24,7 @@ GENERAL_KINDS = {'general', 'research', 'marketing', 'triage', 'assistant'}
 SCROLLBACK = 200_000
 MAX_CONTEXT = 24_000
 MAX_REPLY_TOKENS = 2_000
+WAIT_TURN = 240.0        # how long a new question waits behind the one being answered
 REPORT_DRAFT_TOKENS = 1_200
 REPORT_SKILL_CHARS = 2_400
 _IMAGE_PATH = re.compile(r'(?P<path>(?:[A-Za-z]:\\|/)[^\r\n<>|"?*]+?\.(?:png|jpe?g|gif|webp))', re.I)
@@ -281,6 +282,7 @@ class GeneralSession:
         self.alive, self.busy = True, False
         self.rows, self.cols = 32, 110
         self._input, self._lock = '', threading.Lock()
+        self._cancel = None                  # the stop switch for the answer being written now
         from .witness import Witness
         self.witness = Witness()
         self._restore_terminal()
@@ -324,13 +326,31 @@ class GeneralSession:
         from .terminal import plain
         return [line for line in plain(self.scrollback()[-8000:]).splitlines() if line.strip()][-n:]
 
+    def _take(self, wait: float, cancel=None) -> bool:
+        """Wait our turn to speak.
+
+        THREE things can be answering in one session: this chat, the xterm composer over the
+        same conversation, and the waiting room delivering queued notes on its own thread.
+        Refusing the newcomer ("the assistant is already working") threw the question away -
+        and before a failed run said anything at all, that reached the owner as silence: the
+        third message in a conversation simply never got a reply (the wall, 2026-08-31).
+
+        A person asked a second question while you are mid-sentence expects to be answered
+        next, not ignored. So: queue. In slices, so a browser that gives up stops waiting too.
+        """
+        end = time.time() + max(0.0, wait)
+        while True:
+            if self._lock.acquire(timeout=0.25): return True
+            if cancel is not None and cancel.is_set(): return False
+            if time.time() >= end: return False
+
     def write(self, data):
         """Make xterm a second composer for the same conversation."""
         if not self.alive: return
         for ch in str(data or ''):
             if ch in ('\r', '\n'):
                 prompt, self._input = self._input.strip(), ''
-                if prompt and not self.busy:
+                if prompt:
                     self._emit('\r\n')
                     threading.Thread(target=self.send_prompt, args=(prompt,), kwargs={'echo': False}, daemon=True).start()
                 continue
@@ -349,9 +369,12 @@ class GeneralSession:
         text = str(text or '').strip()
         if not text: raise ValueError('empty message')
         if not self.alive: raise RuntimeError('this assistant session has ended - reload the page and ask again')
-        if not self._lock.acquire(blocking=False):
-            raise RuntimeError('the assistant is still answering the last question - wait for it, or press stop')
+        if not self._take(WAIT_TURN, cancel):
+            raise RuntimeError(f'the assistant has been answering the previous question for over '
+                               f'{int(WAIT_TURN)}s - something is stuck. Press stop, or reload the page.')
         self.busy, self.last = True, time.time()
+        self._cancel = cancel if cancel is not None else threading.Event()
+        cancel = self._cancel
         try:
             if connector_id is not None or model or pick:
                 self.pick, self.provider, self.model = _selected(self.store, connector_id, model, pick)
@@ -388,8 +411,22 @@ class GeneralSession:
             raise
         finally:
             self.busy, self.last = False, time.time()
+            self._cancel = None
             self._emit('\x1b[1;34myou>\x1b[0m ')
             self._lock.release()
+
+    def stop(self) -> bool:
+        """Stop the answer being written now - the STOP BUTTON, and nothing else.
+
+        Closing the browser stream used to do this, which meant leaving the Board tab, hitting
+        refresh, or any remount killed an answer that was seconds from finishing - and the reply
+        was never written, so it looked as though the assistant had ignored the question (the
+        owner, 2026-08-31). Walking away is not stopping: the run finishes on its own thread and
+        the reply is filed on the task, where the chat picks it up when you come back."""
+        c = self._cancel
+        if c is None: return False
+        c.set()
+        return True
 
     def close(self):
         self.alive, self.ended = False, time.time()
@@ -417,6 +454,17 @@ def session_for(tid: int):
                  if s.task_id == tid and s.alive and getattr(s, 'mode', '') == 'assistant'), None)
 
 
+def drop_session(tid: int) -> int:
+    """Forget every finished session on this task. A session that has ENDED is not a session:
+    left in the registry it kept the task occupied, and the next question was refused with
+    "this task already has a different live session"."""
+    from . import terminal
+    gone = [sid for sid, t in list(terminal.SESSIONS.items())
+            if getattr(t, 'task_id', None) == tid and not t.alive]
+    for sid in gone: terminal.SESSIONS.pop(sid, None)
+    return len(gone)
+
+
 def start_session(store, tid: int, connector_id=None, model=None, actor='owner', pick=None) -> GeneralSession:
     from . import terminal
     task = store.get_task(tid)
@@ -430,8 +478,7 @@ def start_session(store, tid: int, connector_id=None, model=None, actor='owner',
     # A session that has ENDED is not a session. It used to sit in the registry keeping the task
     # occupied, so the next question got "this task already has a different live session" and,
     # because a failed run said nothing at all, looked like the assistant ignoring you.
-    for sid, dead in [(k, v) for k, v in terminal.SESSIONS.items() if getattr(v, 'task_id', None) == tid and not v.alive]:
-        terminal.SESSIONS.pop(sid, None)
+    drop_session(tid)
     other = next((s for s in list(terminal.SESSIONS.values()) if s.task_id == tid and s.alive), None)
     if other: raise ValueError(f'this task already has a live {getattr(other, "agent", "") or "terminal"} '
                                'session - close it (the ✕ on its pane) and ask again here')

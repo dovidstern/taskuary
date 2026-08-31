@@ -128,6 +128,61 @@ class WalkingAwayIsNotStoppingTests(unittest.TestCase):
         self.assertEqual(c.post(f'/api/tasks/{tid}/assistant/cancel').json(), {'stopped': False})
 
 
+class OneConversationNotTwentyTests(unittest.TestCase):
+    """Every turn used to be a brand-new `claude -p` with the whole transcript typed into it
+    again: slower, dearer, and silently forgetful once the conversation outgrew MAX_CONTEXT.
+    run_cli has always taken a `resume`, and nothing ever passed one."""
+    def setUp(self):
+        self.s = MemoryStore()
+        self.tid = self.s.create_task({'Title': 'chat', 'Kind': 'general'}, 'o')
+        self.sess = general.GeneralSession(self.s, self.tid)
+        self.sess.pick, self.sess.provider = 'cli:coder', 'coder'
+
+    def _brain(self, sid='sess-1', fail_on_resume=False):
+        seen = []
+        def brain(system, user, **kw):
+            seen.append({'system': system, 'user': user, 'resume': brain.session_id})
+            if fail_on_resume and brain.session_id: raise RuntimeError('no conversation found to resume')
+            brain.session_id = sid
+            return 'answered'
+        brain.session_id = None
+        return brain, seen
+
+    def _run(self, texts, brain):
+        made = []
+        def build(store, pick=None, model=None, trace=None, cancel=None, resume=None):
+            brain.session_id = resume
+            made.append(resume)
+            return brain
+        with mock.patch.object(general.llm_mod, 'build_llm', side_effect=build):
+            for t in texts: self.sess.send_prompt(t)
+        return made
+
+    def test_the_second_turn_resumes_the_first(self):
+        brain, seen = self._brain()
+        made = self._run(['one', 'two', 'three'], brain)
+        self.assertEqual(made, [None, 'sess-1', 'sess-1'])          # started once, continued twice
+
+    def test_a_resumed_turn_says_only_the_new_turn(self):
+        brain, seen = self._brain()
+        self._run(['tell me about the wall', 'and what about the chat'], brain)
+        self.assertIn('CONVERSATION', seen[0]['user'])               # the first says everything
+        self.assertNotIn('CONVERSATION', seen[1]['user'])            # the second only the new turn
+        self.assertIn('and what about the chat', seen[1]['user'])
+        self.assertLess(len(seen[1]['user']), len(seen[0]['user']))
+
+    def test_a_cli_that_cannot_resume_starts_over_rather_than_failing(self):
+        """Its history was cleared, or the id aged out: say the whole thing again, once."""
+        brain, seen = self._brain(fail_on_resume=True)
+        made = self._run(['one'], brain)
+        self.sess.cli_sid = 'gone'
+        with mock.patch.object(general.llm_mod, 'build_llm',
+                               side_effect=lambda store, **kw: (setattr(brain, 'session_id', kw.get('resume')), brain)[1]):
+            self.assertEqual(self.sess.send_prompt('two'), 'answered')
+        self.assertIn('CONVERSATION', seen[-1]['user'])              # the full transcript, again
+        self.assertEqual(self.sess.cli_sid, 'sess-1')                # ...and a new conversation to continue
+
+
 class AFinishedSessionTests(unittest.TestCase):
     def test_an_ended_session_stops_occupying_its_task(self):
         s = MemoryStore()

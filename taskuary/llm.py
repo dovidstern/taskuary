@@ -50,7 +50,7 @@ def readable_images(store, message_ids, cap: int = VISION_MAX) -> list:
 MAX_TOKENS = 400
 
 
-def make_cli_llm(store, agent_name: str, model: str = None, cwd: str = None, trace=None, cancel=None):
+def make_cli_llm(store, agent_name: str, model: str = None, cwd: str = None, trace=None, cancel=None, resume=None):
     """A CLI agent as the classifier: prompt in on stdin, JSON out. The repo working dir
     is dropped - triage is about the message, not about any checkout.
 
@@ -82,17 +82,21 @@ def make_cli_llm(store, agent_name: str, model: str = None, cwd: str = None, tra
         disk itself, and the prompt already names their paths."""
         from .agents import run_cli
         kwargs = {'cancel': cancel} if cancel is not None else {}
-        out, _sid, _diff = run_cli(prof, f'{system}\n\n{user}', trace or (lambda *a: None), **kwargs)
+        out, sid, _diff = run_cli(prof, f'{system}\n\n{user}', trace or (lambda *a: None),
+                                  resume=resume, **kwargs)
+        # what the caller needs to CONTINUE this conversation instead of starting another one
+        llm.session_id = sid or resume
         return out
+    llm.session_id = resume
     return llm
 
 
-def build_llm(store, pick=None, model=None, trace=None, cancel=None):
+def build_llm(store, pick=None, model=None, trace=None, cancel=None, resume=None):
     """The brain named by `pick` ('' = first active AI connector, 'connector:<id>',
     'cli:<agent>'), defaulting to the triage_ai setting - callers like reports may name
     their OWN brain and model per job instead of riding the triage tier."""
     pick = (pick if pick is not None else store.get_settings().get('triage_ai') or '').strip()
-    if pick.startswith('cli:'): return make_cli_llm(store, pick[4:], model, trace=trace, cancel=cancel)
+    if pick.startswith('cli:'): return make_cli_llm(store, pick[4:], model, trace=trace, cancel=cancel, resume=resume)
     want = pick[10:] if pick.startswith('connector:') else None
     want_id = int(want) if want and want.isdigit() else None
     for c in store.list_connectors():

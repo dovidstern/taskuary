@@ -36,7 +36,7 @@ class CatalogTests(unittest.TestCase):
         s = MemoryStore()
         s.upsert_agent('codex', 'coding', 'cli', json.dumps({'cmd': 'codex', 'args': ['exec'], 'light_model': 'gpt-5.4-mini@low'}))
         seen = {}
-        with mock.patch('taskuary.agents.run_cli', side_effect=lambda prof, p, t: (seen.update(prof), ('{}', None, None))[1]):
+        with mock.patch('taskuary.agents.run_cli', side_effect=lambda prof, p, t, **kw: (seen.update(prof), ('{}', None, None))[1]):
             llm.make_cli_llm(s, 'codex')('sys', 'user')
         self.assertEqual(seen['model'], 'gpt-5.4-mini'); self.assertEqual(seen['args'][-2:], ['-c', 'model_reasoning_effort=low'])
         # and the main model pick on a run does the same

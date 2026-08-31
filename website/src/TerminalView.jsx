@@ -383,9 +383,13 @@ export const SessionPane = ({ sid, height = "70vh", onExit, children }) => {
   };
   const fixed = height !== "100%";
   const chip = (layout === "chip" || layout === "folded") && !peek && (
+    // A ROW of its own, not a badge floating over the output. Absolutely positioned it sat on
+    // top of the agent's first line - the one place a terminal is guaranteed to have something
+    // worth reading - and there is no scrolling out from under it (the owner, 2026-08-31).
     <Box component="button" onClick={() => (layout === "chip" ? setPeek(true) : fold(false))}
       title={layout === "chip" ? "the agent has a browser open - show it" : "unfold the browser"}
-      sx={{ ...mono, position: "absolute", top: 5, left: 10, zIndex: 2, display: "flex", alignItems: "center", gap: 0.6,
+      sx={{ ...mono, flex: "0 0 auto", alignSelf: "flex-start", m: "5px 0 0 10px", display: "flex",
+        alignItems: "center", gap: 0.6,
         fontSize: 10.5, px: 0.9, py: 0.35, borderRadius: 99, cursor: "pointer", border: `1px solid ${BORDER}`,
         bgcolor: "#1a1a1acc", color: "#c9c3b9", "&:hover": { color: "#e1dcd5", borderColor: "#6b655c" } }}>
       <Box sx={{ width: 7, height: 7, borderRadius: 99, bgcolor: CATPPUCCIN.green }} />
@@ -396,9 +400,12 @@ export const SessionPane = ({ sid, height = "70vh", onExit, children }) => {
     <Box ref={slot} sx={{ display: "flex", flexDirection: "row", position: "relative", minHeight: 0, minWidth: 0,
       ...(fixed ? { height } : { flex: 1 }) }}>
       <Box sx={{ flex: layout === "split" ? `0 0 calc(${((1 - ratio) * 100).toFixed(2)}% - 4px)` : 1, minWidth: 0, minHeight: 0,
-        display: "flex", flexDirection: "column", position: "relative", "& > *": { flex: 1, minHeight: 0 } }}>
-        {children || <TermOnly sid={sid} height="100%" onExit={onExit} />}
+        display: "flex", flexDirection: "column", position: "relative",
+        // the terminal takes what is left after the chip's row; only IT stretches
+        "& > .tq-term-slot": { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" },
+        "& > .tq-term-slot > *": { flex: 1, minHeight: 0 } }}>
         {chip}
+        <Box className="tq-term-slot">{children || <TermOnly sid={sid} height="100%" onExit={onExit} />}</Box>
       </Box>
       {layout === "split" && (
         <>

@@ -137,6 +137,14 @@ POST_LINE = ('You can leave a line for the other agents and the owner: run '
              'reading - a wall of chatter is a wall nobody reads.')
 
 
+def _turn_only(store, tid: int, text: str) -> str:
+    """What to say to a CLI that already HAS this conversation: the new turn, and nothing it
+    was told a minute ago. The system prompt still rides along - a resumed CLI keeps its
+    history, not our instructions."""
+    from .store import task_ref
+    return f'{task_ref(tid)} - the owner says:\n\n{_cut(text, 8_000)}'
+
+
 def _prompt(store, tid: int) -> tuple[str, str]:
     detail = store.task_detail(tid) or {}
     task = detail.get('task') or {}
@@ -283,6 +291,7 @@ class GeneralSession:
         self.rows, self.cols = 32, 110
         self._input, self._lock = '', threading.Lock()
         self._cancel = None                  # the stop switch for the answer being written now
+        self.cli_sid = ''                    # the CLI's OWN conversation, resumed turn to turn
         from .witness import Witness
         self.witness = Witness()
         self._restore_terminal()
@@ -396,10 +405,28 @@ class GeneralSession:
                     self._emit(f'\x1b[33mtool>\x1b[0m {name} {str(target)[:180]}\r\n')
                 elif kind == 'tool_result' and isinstance(detail, dict) and detail.get('is_error'):
                     self._emit(f'\x1b[31mtool error>\x1b[0m {str(detail.get("result") or "")[:240]}\r\n')
+            # Continue the CLI's own conversation rather than starting a new one and re-typing
+            # the transcript into it. Every turn used to be a fresh `claude -p` carrying the
+            # whole chat again - slower, dearer, and silently forgetful once the conversation
+            # outgrew MAX_CONTEXT. Resumed, the CLI still has what it read and did last turn,
+            # so the turn itself is all that has to be said.
             brain = llm_mod.build_llm(self.store, pick=self.pick, model=self.model or None,
-                                      trace=visible, cancel=cancel)
+                                      trace=visible, cancel=cancel, resume=self.cli_sid or None)
             if not brain: raise RuntimeError('the selected AI connector is unavailable')
-            reply = str(brain(system, user, max_tokens=MAX_REPLY_TOKENS, images=_images(paths)) or '').strip()
+            if self.cli_sid: user = _turn_only(self.store, self.task_id, text)
+            try:
+                reply = str(brain(system, user, max_tokens=MAX_REPLY_TOKENS, images=_images(paths)) or '').strip()
+            except Exception:
+                # the CLI could not pick that conversation back up (it was restarted, its history
+                # was cleared, the id aged out). Start a fresh one and say the whole thing, once.
+                if not self.cli_sid or (cancel is not None and cancel.is_set()): raise
+                logger.info(f'assistant could not resume {self.cli_sid} on task {self.task_id}; starting a new one')
+                self.cli_sid = ''
+                system, user = _prompt(self.store, self.task_id)
+                brain = llm_mod.build_llm(self.store, pick=self.pick, model=self.model or None,
+                                          trace=visible, cancel=cancel)
+                reply = str(brain(system, user, max_tokens=MAX_REPLY_TOKENS, images=_images(paths)) or '').strip()
+            self.cli_sid = getattr(brain, 'session_id', '') or self.cli_sid
             if not reply: raise RuntimeError('the model returned an empty response')
             self.store.add_comment(self.task_id, 'assistant', ASSISTANT_TYPE, reply)
             self.store.audit('task', self.task_id, 'assistant_reply', 'assistant', 'agent',

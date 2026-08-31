@@ -1089,11 +1089,17 @@ class SQLiteStore:
     def add_note(self, fields) -> int:
         return self._insert('boardnote', {**fields, 'CreatedAt': _now()},
                             ('TaskId', 'Agent', 'Cwd', 'Kind', 'Body', 'Files', 'CreatedAt', 'ReadBy'))
-    def notes(self, cwd: str = None, limit: int = 60) -> list:
-        """Newest first. A checkout's own wall when cwd is given - a peer in another repo is
-        none of this agent's business - and everything when it is not (the Board shows all)."""
-        if cwd: return self._rows('SELECT * FROM boardnote WHERE Cwd=? ORDER BY NoteId DESC LIMIT ?', (cwd, int(limit)))
-        return self._rows('SELECT * FROM boardnote ORDER BY NoteId DESC LIMIT ?', (int(limit),))
+    def notes(self, cwd: str = None, limit: int = 60, house: bool = True) -> list:
+        """Newest first.
+
+        Given a checkout: that checkout's wall, plus the HOUSE lane - notes written with no
+        checkout at all, by the assistant chat and by the owner. A peer in another repo is none
+        of this agent's business; "do not touch the Intacct credentials today" is everybody's.
+        Given none: everything, which is what the Board shows."""
+        if not cwd: return self._rows('SELECT * FROM boardnote ORDER BY NoteId DESC LIMIT ?', (int(limit),))
+        if not house: return self._rows('SELECT * FROM boardnote WHERE Cwd=? ORDER BY NoteId DESC LIMIT ?', (cwd, int(limit)))
+        return self._rows("SELECT * FROM boardnote WHERE Cwd=? OR IFNULL(Cwd,'')='' ORDER BY NoteId DESC LIMIT ?",
+                          (cwd, int(limit)))
     def mark_note_read(self, note_id: int, who: str):
         """Who has actually read it - the Board shows an unread note differently, and an agent
         that says it read the wall can be taken at its word."""

@@ -537,6 +537,9 @@ class TerminalTests(unittest.TestCase):
         # this test's prompt, and assert it fits, or the failure mode is invisible.
         saved = {n: server.store.get_doc(n) for n in ('coder', 'soul')}
         for n in saved: server.store.save_doc(n, '', 'test')
+        # ...and the wall, which is real prompt content and grows with whatever other tests left
+        # on it: this test measures the seed, so it owns every input to it
+        server.store._exec('DELETE FROM boardnote')
         self.addCleanup(lambda: [server.store.save_doc(n, v or '', 'test') for n, v in saved.items()])
         tid = c.post('/api/tasks', json={'Title': 'payroll adjustments post to the wrong month',
                                          'Kind': 'coding'}).json()['taskId']

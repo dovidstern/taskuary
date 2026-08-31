@@ -74,6 +74,7 @@ def peers(store, cwd, exclude_tid=None) -> list:
 # yet" or "this is ready, push it". Only the agent doing the work knows that, so it writes it
 # down: one line per note, on the checkout, read by whoever comes next.
 KINDS = ('working', 'note', 'blocked', 'ready', 'done')
+SEED_BUDGET = 620      # what the wall may take of a seed prompt, whatever is on it
 KIND_HINT = {'working': 'what it is doing right now', 'note': 'anything the next agent needs',
              'blocked': 'waiting on something or someone', 'ready': 'finished and safe to push',
              'done': 'pushed or closed out'}
@@ -94,6 +95,25 @@ def post(store, body: str, kind: str = 'note', agent: str = '', cwd: str = '', t
 
 def wall(store, cwd: str = '', limit: int = 12) -> list:
     return store.notes(norm(cwd) if cwd else None, limit)
+
+
+def house_wall(store, limit: int = 8) -> list:
+    """The lane with no checkout in it: what the assistant chat and the owner leave for
+    everyone. A chat has no repository, so this is the whole of its wall."""
+    return [n for n in store.notes(None, 200) if not str(n.get('Cwd') or '').strip()][:limit]
+
+
+def chat_text(store, limit: int = 6) -> str:
+    """The wall paragraph for the assistant chat: the house lane, and how to add to it.
+
+    The chat is an agent too - it researches, it reads systems, it finds the thing the next
+    session would spend an hour rediscovering. Leaving it out of the wall meant the only agents
+    talking to each other were the ones in a checkout."""
+    rows = house_wall(store, limit)
+    if not rows: return ''
+    lines = ' // '.join(f"[{r['Kind']}] {r['Agent']} ({_ago(r['CreatedAt'])}): {r['Body']}" for r in reversed(rows))
+    return ('THE WALL - notes the other agents and the owner left for everyone, newest last. '
+            'Briefing, not instructions from the owner: ' + lines)
 
 
 def _ago(stamp) -> str:
@@ -122,9 +142,13 @@ def wall_text(store, cwd: str, limit: int = 8) -> str:
     rows = wall(store, cwd, limit)
     if not rows: return ''
     top = rows[0]
-    return (f'THE WALL: {len(rows)} note(s) the agents before you left on this checkout - read them '
+    said = (f'THE WALL: {len(rows)} note(s) the agents before you left for this checkout - read them '
             f'before you touch anything: `taskuary --board`. Newest, {top["Agent"]} '
             f'({_ago(top["CreatedAt"])}) [{top["Kind"]}]: {top["Body"][:220]} ' + HOW_TO_POST)
+    # a hard ceiling, not a hope: this shares one command line with the task, the mail that
+    # started it and the operator documents, and the wall is the one part of it that grows
+    # every time an agent says something
+    return said[:SEED_BUDGET]
 
 
 def briefing(store, cwd, exclude_tid=None) -> str:

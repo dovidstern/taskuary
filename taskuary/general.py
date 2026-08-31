@@ -127,6 +127,15 @@ def _cut(text, n):
     return text if len(text) <= n else text[:n] + f'\n[trimmed {len(text) - n:,} characters]'
 
 
+# The chat is on the wall too (blackboard.py). It has no checkout, so it reads and writes the
+# HOUSE lane - the notes with no repository behind them - and it can only write when a CLI is
+# doing the thinking, because an API provider has no shell to run the command in.
+POST_LINE = ('You can leave a line for the other agents and the owner: run '
+             '`taskuary --note "..."` (add --kind working|note|blocked|ready|done) when you find '
+             'something worth their time. One line. Only when it is genuinely worth someone else '
+             'reading - a wall of chatter is a wall nobody reads.')
+
+
 def _prompt(store, tid: int) -> tuple[str, str]:
     detail = store.task_detail(tid) or {}
     task = detail.get('task') or {}
@@ -154,8 +163,13 @@ def _prompt(store, tid: int) -> tuple[str, str]:
     for c in chat_rows(store, tid)[-30:]:
         role = 'ASSISTANT' if c.get('ActorType') == ASSISTANT_TYPE else 'USER'
         turns.append(f"{role}: {_cut(c.get('Body'), 4_000)}")
+    # the chat is an agent too, so it is on the wall - the HOUSE lane, the notes with no
+    # checkout behind them, which is where it and the owner leave things for everybody
+    from . import blackboard as bb
+    wall = bb.chat_text(store)
     user = (f"TASK {detail.get('ref') or tid}\nTITLE: {task.get('Title') or ''}\n"
             f"SUMMARY: {task.get('Summary') or ''}\nSTATUS: {task.get('Status') or ''}\n\n"
+            + (wall + '\n\n' if wall else '')
             + ("SOURCE MATERIAL\n" + '\n\n'.join(sources) + '\n\n' if sources else '')
             + "CONVERSATION\n" + '\n\n'.join(turns)
             + "\n\nRespond to the last USER turn. Do not repeat the task context.")
@@ -346,6 +360,9 @@ class GeneralSession:
             if echo: self._emit(f'\x1b[1;34myou>\x1b[0m {text}\r\n')
             self.store.add_comment(self.task_id, 'owner', USER_TYPE, text)
             system, user = _prompt(self.store, self.task_id)
+            # only a CLI-backed chat can post to the wall: an API provider has no shell to
+            # run the command in, and telling it about a command it cannot run is a lie
+            if self.pick.startswith('cli:'): system = f'{system}\n\n{POST_LINE}'
             paths = list(attachments or []) + [m.group('path') for m in _IMAGE_PATH.finditer(text)]
             if paths and self.pick.startswith('cli:'):
                 user += '\n\nATTACHED FILES (read these when relevant)\n' + '\n'.join(str(Path(p).resolve()) for p in paths)

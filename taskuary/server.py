@@ -331,6 +331,9 @@ async def assistant_stream(task_id: int, body: AssistantMessageBody):
         # response. Always terminate the NDJSON stream explicitly instead of leaving the UI's
         # spinner alive forever (missing CLI, provider/network errors, and bugs all land here).
         except Exception as e:
+            # the browser shows this under the question now; the log is for the run nobody was
+            # watching, and for the owner who can only report that nothing happened
+            logger.warning(f'assistant stream for task {task_id} failed: {e}')
             put({'type': 'error', 'error': str(e)})
 
     threading.Thread(target=work, daemon=True).start()

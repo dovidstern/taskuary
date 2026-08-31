@@ -62,7 +62,13 @@ class ReadingTests(unittest.TestCase):
         self.assertNotIn('taking auth.py', text)            # ...and not the whole history
         self.assertIn('taskuary --board', text)             # with the way to read the rest
         self.assertIn('3 note(s)', text)
-        self.assertLess(len(text), 700)                     # it shares a line with the task itself
+        self.assertLessEqual(len(text), bb.SEED_BUDGET)     # it shares one line with the task itself
+
+    def test_a_loud_wall_cannot_eat_the_prompt(self):
+        """The wall is the one part of a seed that grows every time an agent says something."""
+        s = MemoryStore()
+        for i in range(40): bb.post(s, f'note {i} ' + 'x' * 400, 'note', f'agent{i}', CWD)
+        self.assertLessEqual(len(bb.wall_text(s, CWD)), bb.SEED_BUDGET)
 
     def test_an_empty_wall_says_nothing_at_all(self):
         """A prompt paragraph that says "no notes" is tokens spent to say nothing."""
@@ -104,6 +110,43 @@ class TheSeedTests(unittest.TestCase):
         bb.post(s, 'do not touch store.py', 'working', 'codex', CWD)
         seed = terminal.seed_text(s, tid, repo=None, cwd='')
         self.assertNotIn('do not touch store.py', seed)
+
+
+class TheChatIsOnItTooTests(unittest.TestCase):
+    """The chat researches, reads systems, and finds the thing the next session would spend an
+    hour rediscovering. Leaving it out meant the only agents talking to each other were the ones
+    standing in a checkout."""
+    def test_a_note_with_no_checkout_is_everybodys(self):
+        s = MemoryStore()
+        bb.post(s, 'the Intacct credentials are being rotated today', 'blocked', 'you', '')
+        bb.post(s, 'mine alone', 'note', 'codex', CWD)
+        self.assertEqual([n['Body'] for n in bb.house_wall(s)], ['the Intacct credentials are being rotated today'])
+        self.assertEqual(len(bb.wall(s, CWD)), 2)                  # a checkout sees its own AND the house
+        self.assertEqual(len(bb.wall(s, os.path.normcase('/work/other'))), 1)   # ...but never another repo's
+
+    def test_the_chat_reads_the_house_lane_and_not_a_checkouts(self):
+        s = MemoryStore()
+        bb.post(s, 'everybody should know this', 'note', 'you', '')
+        bb.post(s, 'only the people in this repo', 'note', 'codex', CWD)
+        text = bb.chat_text(s)
+        self.assertIn('everybody should know this', text)
+        self.assertNotIn('only the people in this repo', text)
+
+    def test_it_rides_into_the_chats_own_prompt(self):
+        from taskuary import general
+        s = MemoryStore()
+        tid = s.create_task({'Title': 'research', 'Kind': 'general', 'Summary': 'x'}, 'o')
+        bb.post(s, 'the Intacct credentials are being rotated today', 'blocked', 'you', '')
+        _system, user = general._prompt(s, tid)
+        self.assertIn('rotated today', user)
+
+    def test_only_a_cli_backed_chat_is_told_how_to_post(self):
+        """An API provider has no shell; telling it about a command it cannot run is a lie."""
+        from taskuary import general
+        self.assertIn('taskuary --note', general.POST_LINE)
+
+    def test_an_empty_house_lane_says_nothing(self):
+        self.assertEqual(bb.chat_text(MemoryStore()), '')
 
 
 class TheRulesTests(unittest.TestCase):

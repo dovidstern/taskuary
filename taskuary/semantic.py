@@ -95,12 +95,26 @@ def spec_of(metric: dict) -> dict:
     except ValueError: raise ValueError(f"metric {metric.get('Name')} has an unreadable spec")
 
 
-def _aggregate(rows: list, field: str, how: str, sign: float):
+def _cast(raw) -> float | None:
+    """One Intacct cell as a number, or None. Every field comes back as TEXT."""
+    s = str(raw if raw is not None else '').strip().replace(',', '').replace('$', '')
+    if not s: return None
+    neg = s.startswith('(') and s.endswith(')')          # accounting parentheses
+    try: return float(s.strip('()')) * (-1 if neg else 1)
+    except ValueError: return None
+
+
+def _aggregate(rows: list, field: str, how: str, sign: float, sign_field: str = None):
     """The rows Intacct returned, reduced to the one number the metric names.
 
     Intacct returns every field as TEXT, blanks included, so the cast happens here - and a
     blank is skipped rather than counted as zero, because an empty amount column usually means
     the field name is wrong and averaging it to zero would hide exactly that.
+
+    `sign_field` multiplies each row by another column. GLENTRY is why: its AMOUNT is UNSIGNED
+    and the debit/credit direction lives in TR_TYPE (1 / -1). Summing AMOUNT alone adds credits
+    to debits and returns a number that is not wrong by a little - it is meaningless. Nothing in
+    the field list says so, which is exactly the sort of thing only a reconciliation catches.
     """
     how = str(how or 'sum').lower()
     if how not in AGGREGATES: raise ValueError(f'unknown aggregate {how!r} - use one of {", ".join(AGGREGATES)}')
@@ -108,10 +122,13 @@ def _aggregate(rows: list, field: str, how: str, sign: float):
     if not field: raise ValueError(f'{how} needs a value_field - which column holds the number?')
     vals = []
     for r in rows:
-        raw = str(r.get(field, '')).strip().replace(',', '').replace('$', '')
-        if not raw: continue
-        try: vals.append(float(raw.strip('()')) * (-1 if raw.startswith('(') and raw.endswith(')') else 1))
-        except ValueError: continue
+        v = _cast(r.get(field))
+        if v is None: continue
+        if sign_field:
+            s = _cast(r.get(sign_field))
+            if s is None: continue
+            v *= s
+        vals.append(v)
     if not vals:
         if not rows: return 0.0
         raise ValueError(f"no numbers in field {field!r} across {len(rows)} rows - is that the right column?")
@@ -119,22 +136,43 @@ def _aggregate(rows: list, field: str, how: str, sign: float):
     return out * sign
 
 
-def evaluate(store, metric: dict, scope: str = None, period: str = None) -> dict:
-    """Compute the metric for one scope and period. Read-only, through the connector card."""
-    from .reports import resolve_cfg
+def _side(cfg, spec: dict, scope: str, period: str) -> tuple:
+    """One aggregate: query the object, reduce the rows. (value, row count, filters, object)."""
     from .intacct import query
-    spec = spec_of(metric)
     obj = str(spec.get('object') or '').strip()
     if not obj: raise ValueError('the spec names no Intacct object (GLENTRY, APBILL, GLACCOUNT, ...)')
-    value_field = spec.get('value_field')
-    fields = spec.get('fields') or ([value_field] if value_field else None)
+    value_field, sign_field = spec.get('value_field'), spec.get('sign_field')
+    fields = spec.get('fields') or [f for f in (value_field, sign_field) if f] or None
     filters = substitute(spec.get('filters'), scope, period, spec.get('date_format') or 'us')
+    rows = query(cfg, obj, fields, filters, limit=int(spec.get('max_rows') or MAX_ROWS))
+    value = _aggregate(rows, value_field, spec.get('aggregate') or 'sum', float(spec.get('sign') or 1), sign_field)
+    return value, len(rows), filters, obj
+
+
+def evaluate(store, metric: dict, scope: str = None, period: str = None) -> dict:
+    """Compute the metric for one scope and period. Read-only, through the connector card.
+
+    A spec with `over` is a RATIO, and the real ones mostly are: a PPD ("per patient day") is
+    one payer's revenue divided by that same payer's census days - two different account sets,
+    in two different families of account (revenue is a GL account, census days a STATISTICAL
+    one). A metric that could only sum one query could not express the numbers the business
+    actually steers by.
+    """
+    from .reports import resolve_cfg
+    spec = spec_of(metric)
     cfg = resolve_cfg(store, {'type': 'intacct', 'connector_id': metric.get('ConnectorId')})
     t0 = time.time()
-    rows = query(cfg, obj, fields, filters, limit=int(spec.get('max_rows') or MAX_ROWS))
-    value = _aggregate(rows, value_field, spec.get('aggregate') or 'sum', float(spec.get('sign') or 1))
-    return {'value': value, 'rows': len(rows), 'ms': int((time.time() - t0) * 1000),
-            'object': obj, 'filters': filters, 'scope': scope, 'period': period}
+    value, n, filters, obj = _side(cfg, spec, scope, period)
+    out = {'value': value, 'rows': n, 'object': obj, 'filters': filters, 'scope': scope, 'period': period}
+    if over := spec.get('over'):
+        den, dn, dfilters, dobj = _side(cfg, over, scope, period)
+        if not den:
+            raise ValueError(f'the denominator ({over.get("label") or dobj}) came back zero for '
+                             f'{scope or "this scope"} in {period or "this period"} - no rate can be computed')
+        out |= {'value': value / den, 'numerator': value, 'denominator': den,
+                'rows': n + dn, 'denominatorObject': dobj, 'denominatorFilters': dfilters}
+    out['ms'] = int((time.time() - t0) * 1000)
+    return out
 
 
 def reconciles(got, expected, tolerance=None) -> bool:

@@ -103,4 +103,5 @@ beyond localhost.
 
 - Read the [product guide](product-guide.md) for the complete workflow.
 - Review [integrations](integrations.md) for supported systems and connector notes.
+- Read [reports and the Assistant](reports-and-assistant.md) before building your first report.
 - Open the running API reference at `/api/docs`.

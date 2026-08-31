@@ -18,6 +18,7 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import api from "./api";
+import { NL, SOURCE_KEYS, addField, showValue, toShape, toSources } from "./sourceShape.js";
 import { ASSISTANT, PANEL2, BORDER, DIM, FAINT, INK, ACCENT2, card, mono, PILL_COLORS } from "./theme.jsx";
 import { ChannelIcon, StatusDot, timeAgo, Crumb, Empty, FilterPills, SideRail, ConfirmDelete } from "./ui.jsx";
 
@@ -141,6 +142,27 @@ const TYPE_LABELS = {
    list anybody reads - it is a list you scroll while hoping. Grouped by where the data LIVES,
    because that is what you know when you arrive: on this machine, in a database, at AWS, in
    Microsoft, somewhere on the web. Anything new falls into "Other" rather than vanishing. */
+/* An example ask per type. "AP bills due in the next 30 days" tells you what kind of sentence
+   the box wants far better than an empty field does, and the types not listed here fall back to
+   a generic line rather than needing one written for them. */
+const PLACEHOLDER_FOR = {
+  intacct: "AP bills due in the next 30 days — the vendor, the amount and the site",
+  intacct_fields: "what a vendor bill carries in our company",
+  metric: "occupancy for each site, last month",
+  mssql: "yesterday's census by facility",
+  database: "open orders by customer, newest first",
+  sqlite: "the last 50 rows of the events table",
+  local_file: "the newest census export in C:/exports, totalled by site",
+  google_sheets: "the headcount tab of our staffing sheet",
+  sharepoint_list: "open requests in the Ops site's Requests list",
+  rest: "the open incidents from our status API",
+  entra_users: "accounts that are disabled but still licensed",
+  cloudwatch_logs: "errors in the api log group over the last 24 hours",
+  s3_object: "the newest file under reports/ in our exports bucket",
+  agent: "run my weekly user-management review",
+  tavily: "what changed in nursing-home staffing rules this week",
+};
+
 const TYPE_GROUPS = [
   ["This computer", ["local_file", "sqlite", "mcp"]],
   ["Files & sheets", ["google_sheets", "sharepoint_list", "sharepoint_file"]],
@@ -166,57 +188,6 @@ const CARD_LABELS = { mssql: "SQL Server", winrm: "Remote Windows", database: "A
   intacct: "Sage Intacct" };
 const BLANK = { type: "mssql", title: "", every_minutes: "", daily_at: "" };
 const parse = (s) => { try { return JSON.parse(s || "{}"); } catch { return {}; } };
-const NL = String.fromCharCode(10);
-
-/* What the boxes hold is text; what the executors take is lists. One conversion, used by both
-   Test and Save - they each carried their own subset before, which is how a filter that
-   previewed correctly could still be saved as a string. */
-const OPS = ["<=", ">=", "!=", "=", "<", ">", "like", "in", "isnull", "isnotnull"];
-const asFilters = (text) => String(text).split(NL).map((l) => l.trim()).filter(Boolean).map((l) => {
-  // "WHENDUE <= 08/31/2026" - the operator is whatever sits between the field and the value,
-  // longest first so ">=" is never read as ">" with a stray "=" on the value
-  const sp = l.indexOf(" ");
-  if (sp < 1) return null;                       // no space = no field to speak of
-  const op = OPS.find((o) => l.slice(sp + 1).trim().toLowerCase().startsWith(o));
-  if (!op) return null;
-  const at = l.toLowerCase().indexOf(op, sp);
-  const field = l.slice(0, at).trim(), val = l.slice(at + op.length).trim();
-  if (!field) return null;
-  // "in" takes a list; every other operator takes the rest of the line as one value
-  return [field, op, op === "in" ? val.split(",").map((x) => x.trim()).filter(Boolean) : val];
-}).filter(Boolean);
-
-const toShape = (src) => {
-  const c = { ...src };
-  if (typeof c.args === "string") c.args = c.args.split(NL).map((x) => x.trim()).filter(Boolean);
-  if (typeof c.fields === "string") c.fields = c.fields.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
-  if (typeof c.filters === "string") c.filters = asFilters(c.filters);
-  for (const k of ["headers", "params", "tool_args"]) {
-    if (typeof c[k] === "string" && c[k].trim()) { try { c[k] = JSON.parse(c[k]); } catch { /* preview will complain */ } }
-  }
-  if (c.max_rows) c.max_rows = Number(c.max_rows);
-  for (const k of Object.keys(c)) {
-    if (c[k] === "" || c[k] == null || (Array.isArray(c[k]) && !c[k].length)) delete c[k];
-  }
-  return c;
-};
-// Everything that belongs to ONE source card; the rest (title, prompt, schedule) is the
-// report itself. Splitting here is what lets old single-source configs load unchanged.
-const SOURCE_KEYS = ["type", "label", "connector_id", "query", "script", "cmd", "args", "tool", "tool_args", "tail", "sheet", "pick", "region",
-  "db", "url", "headers", "path", "max_rows", "server", "database", "auth", "username", "driver",
-  "service", "operation", "params", "bucket", "key", "prefix", "log_group", "pattern", "hours",
-  "api_version", "path_expr", "account", "container", "blob", "workspace_id",
-  "filter", "select", "group", "failed_only", "days",
-  "object", "fields", "filters", "order",
-  "agent", "skill", "prompt", "cwd", "model",     // the AI-agent source              // Intacct - missing here is why a composed report arrived with only its title
-  "num", "domains", "since", "depth", "time_range", "topic", "answer", "main", "chars"];
-
-const toSources = (cfg) => {
-  if (Array.isArray(cfg.sources) && cfg.sources.length) return cfg.sources;
-  const one = {};
-  for (const k of SOURCE_KEYS) if (cfg[k] !== undefined && cfg[k] !== "") one[k] = cfg[k];
-  return [{ type: cfg.type || "mssql", ...one }];
-};
 
 export default function ReportsView() {
   const [sources, setSources] = useState(null);
@@ -368,8 +339,6 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
   const winrmOk = winrmConn?.LastSyncAt && !winrmConn?.LastError;
   const aiActive = connectors.some((c) => ["anthropic", "openai", "azure_openai"].includes(c.Type) && c.Active && c.HasSecret);
 
-  // one source card -> the shape an executor expects
-  const cleanSource = toShape;
   const bodyCfg = () => {
     const c = { ...cfg };
     // an empty recipient means it was switched on and never filled in - saving that would make
@@ -381,10 +350,10 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
     for (const k of SOURCE_KEYS) delete c[k];            // sources live in sources[] now
     for (const k of Object.keys(c)) if (c[k] === "" || c[k] == null) delete c[k];
     if (c.every_minutes) c.every_minutes = Number(c.every_minutes);
-    const list = srcs.map(cleanSource).filter((x) => x.type);
+    const list = srcs.map(toShape).filter((x) => x.type);
     // the Assistant's own sources ride alongside, never in sources[] - that array IS the report's
     // pipeline, and the Assistant's pipeline is itself; these are systems it reads before it thinks
-    const watch = watchSrcs.map(cleanSource).filter((x) => x.type);
+    const watch = watchSrcs.map(toShape).filter((x) => x.type);
     if (watch.length) c.watch_sources = watch; else delete c.watch_sources;
     // a single source still writes the flat shape too, so a config saved here stays
     // readable by anything (and by an older Taskuary) that expects one source
@@ -464,6 +433,18 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
                 <Typography variant="caption" sx={{ color: DIM, display: "block", mb: 1 }}>
                   Anything a report can read — Intacct queries, databases, REST or MCP tools, cloud systems, files, agent skills. Add it here and nothing else needs to exist: the Assistant pulls it silently on its own schedule and files no intermediate report.
                 </Typography>
+                {/* "I don't know what fields off hand Intacct has set up" - so this step cannot be a
+                    form. Describe what the Assistant should keep an eye on and the composer adds
+                    the cards for it: only systems that are actually connected, field names read off
+                    the real schema, and a question back rather than a guessed filter. */}
+                <SourceComposer hint="Describe what the Assistant should keep an eye on"
+                  placeholder={"AP bills from Intacct due in the next 30 days, and the cash balance by entity."
+                    + NL + "Anything unpaid over 10k, this week's failed sign-ins, and yesterday's census by site."}
+                  onSources={(list, prompt) => {
+                    setWatchSrcs((cur) => [...cur, ...list]);
+                    // its own prompt is the owner's to write; a composed one only fills a blank
+                    if (prompt) setCfg((c) => (c.ai_prompt ? c : { ...c, ai_prompt: prompt }));
+                  }} />
                 {/* "we don't have to choose a pre-existing report to ask the Assistant about other
                     data" - right, and the picker below made that a lie. A source card here IS a
                     source: the same types, the same Test button, owned by this check alone. */}
@@ -473,6 +454,7 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
                       typeOptions={typeOptions.filter((t) => t.type !== "assistant")} connectors={connectors}
                       onChange={(patch) => setWatchSrcs((cur) => cur.map((x, k) => (k === i ? { ...x, ...patch } : x)))}
                       onRetype={(t) => setWatchSrcs((cur) => cur.map((x, k) => (k === i ? { type: t, label: x.label } : x)))}
+                      onFill={(one) => setWatchSrcs((cur) => cur.map((x, k) => (k === i ? { ...one, label: one.label || x.label } : x)))}
                       onCopy={() => setWatchSrcs((cur) => [...cur.slice(0, i + 1), { ...src, label: `${src.label || src.type} copy` }, ...cur.slice(i + 1)])}
                       onRemove={() => setWatchSrcs((cur) => cur.filter((_, k) => k !== i))} />
                   ))}
@@ -516,6 +498,7 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
                     setSrcs((cur) => { const n = [...cur]; const [m] = n.splice(drag, 1); n.splice(i, 0, m); return n; }); setDrag(null); }}
                   onChange={(patch) => setSrcs((cur) => cur.map((x, k) => (k === i ? { ...x, ...patch } : x)))}
                   onRetype={(t) => setSrcs((cur) => cur.map((x, k) => (k === i ? { type: t, label: x.label } : x)))}
+                  onFill={(one) => setSrcs((cur) => cur.map((x, k) => (k === i ? { ...one, label: one.label || x.label } : x)))}
                   onCopy={() => setSrcs((cur) => [...cur.slice(0, i + 1), { ...src, label: `${src.label || src.type} copy` }, ...cur.slice(i + 1)])}
                   onRemove={() => setSrcs((cur) => cur.filter((_, k) => k !== i))} />
               ))}
@@ -917,6 +900,140 @@ function Composer({ onDraft }) {
   );
 }
 
+/* "I don't know what fields off hand Intacct has set up." Right - so a source card is not a form
+   to fill in from memory. Say what you want out of the system and this writes the card: it may
+   only choose a connection that exists, and it goes and READS the schema first (an object's real
+   field list, a table's columns) so the names are this company's own rather than plausible.
+
+   One component for both callers, because they differ only in how many cards come back: a single
+   card fills itself in, and the Assistant's Pipeline step gets the whole set of systems the ask
+   needs plus the instruction to judge them by. */
+function SourceComposer({ typeHint, one, hint, placeholder, onSources }) {
+  const [open, setOpen] = useState(!one);
+  const [ask, setAsk] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [out, setOut] = useState(null);
+  const [answers, setAnswers] = useState({});
+
+  const go = async (withAnswers) => {
+    setBusy(true); setOut(null);
+    try {
+      const { data } = await api.post("/api/reports/compose-sources",
+        { ask, type: typeHint || undefined, answers: withAnswers || undefined });
+      if (data.sources?.length) {
+        onSources(data.sources, data.ai_prompt || "");
+        setAsk(""); setAnswers({});
+        setOut({ done: (data.explain || (one ? "Filled it in." : "Added them."))
+          + (data.confidence === "low" ? " It is not confident about this one — check it before you save." : "") });
+      } else setOut(data);
+    } catch (e) { setOut({ error: e?.response?.data?.detail || "the composer could not be reached" }); }
+    setBusy(false);
+  };
+  const answered = out?.questions?.length && out.questions.every((qq) => String(answers[qq] || "").trim());
+
+  if (!open) {
+    return (
+      <Button size="small" onClick={() => setOpen(true)} startIcon={<AutoAwesomeIcon sx={{ fontSize: 14 }} />}
+        sx={{ fontSize: 11.5, alignSelf: "flex-start" }}>let AI fill this in</Button>
+    );
+  }
+  return (
+    <Box sx={one ? { bgcolor: "#fffdf7", border: "1px solid #d8cfbe", borderRadius: 1, p: 1 }
+      : { ...card, p: 1.5, mb: 1.25, bgcolor: "#fffdf7", borderColor: "#d8cfbe" }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, mb: 0.7 }}>
+        <AutoAwesomeIcon sx={{ fontSize: 14, color: ACCENT2 }} />
+        <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: INK, flex: 1 }}>{hint}</Typography>
+        {one && <CloseIcon onClick={() => { setOpen(false); setOut(null); }} titleAccess="Fill it in by hand instead"
+          sx={{ fontSize: 14, color: FAINT, cursor: "pointer" }} />}
+      </Box>
+      <TextField fullWidth size="small" multiline minRows={2} value={ask} disabled={busy} sx={{ bgcolor: "#fff" }}
+        inputProps={{ style: { fontSize: 12 } }} placeholder={placeholder}
+        onChange={(e) => setAsk(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && ask.trim()) go(); }} />
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.7, flexWrap: "wrap" }}>
+        <Button size="small" variant="contained" disableElevation disabled={busy || !ask.trim()} onClick={() => go()}
+          startIcon={busy ? <CircularProgress size={12} /> : <AutoAwesomeIcon sx={{ fontSize: 14 }} />}>
+          {busy ? "Reading the schema…" : one ? "Write this card" : "Point it at them"}
+        </Button>
+        <Typography sx={{ fontSize: 10.5, color: FAINT }}>
+          It reads the real schema first, and asks rather than guessing a field name.
+        </Typography>
+      </Box>
+      {out?.error && <Alert severity="warning" sx={{ mt: 1, fontSize: 12 }}>{out.error}</Alert>}
+      {out?.done && <Typography sx={{ mt: 0.9, fontSize: 11.5, color: "#47654a", fontWeight: 600 }}>✓ {out.done}</Typography>}
+
+      {/* it did not know something. Better here than as a silently wrong filter. */}
+      {out?.questions?.length > 0 && (
+        <Box sx={{ mt: 1, display: "flex", flexDirection: "column", gap: 0.9 }}>
+          <Typography sx={{ fontSize: 11, color: DIM, fontWeight: 600 }}>A couple of things it will not guess at:</Typography>
+          {out.questions.map((qq) => (
+            <TextField key={qq} size="small" fullWidth label={qq} sx={{ bgcolor: "#fff" }}
+              value={answers[qq] || ""} onChange={(e) => setAnswers({ ...answers, [qq]: e.target.value })} />
+          ))}
+          <Button size="small" variant="contained" disableElevation disabled={busy || !answered}
+            onClick={() => go(answers)} sx={{ alignSelf: "flex-start" }}>Answer &amp; write it</Button>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+/* What does APBILL actually carry? Asked of Intacct itself - lookup, custom fields and all -
+   because the alternative is a list in our heads that is wrong the day somebody adds a field.
+   Click one and it lands in the card's "fields" box. */
+function IntacctFields({ object, connectorId, onPick }) {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState("");
+  const [q, setQ] = useState("");
+  const obj = String(object || "").trim();
+  const load = async () => {
+    setOpen(true); setRows(null); setErr(""); setQ("");
+    try {
+      const { data } = await api.get("/api/intacct/fields", { params: { obj, connector_id: connectorId } });
+      if (data.ok) setRows(data.data || []); else setErr(data.error);
+    } catch (e) { setErr(e?.response?.data?.detail || "the lookup failed"); }
+  };
+  const shown = (rows || []).filter((f) => !q || (f.ID + " " + f.LABEL).toLowerCase().includes(q.toLowerCase()));
+  return (
+    <>
+      <Button size="small" onClick={load} disabled={!obj} sx={{ fontSize: 11.5, alignSelf: "flex-start" }}>
+        {obj ? "What fields does " + obj + " have?" : "Name an object to see its fields"}
+      </Button>
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontSize: 15, fontWeight: 700 }}>
+          {obj}{rows ? " — " + rows.length + " fields in this company" : ""}
+        </DialogTitle>
+        <DialogContent>
+          {err && <Alert severity="error" sx={{ fontSize: 12.5 }}>{err}</Alert>}
+          {!rows && !err && <CircularProgress size={20} sx={{ m: 2 }} />}
+          {rows && (
+            <>
+              <TextField size="small" fullWidth autoFocus placeholder="filter…" value={q}
+                onChange={(e) => setQ(e.target.value)} sx={{ bgcolor: "#fff", mb: 1 }} />
+              <Typography variant="caption" sx={{ color: FAINT, display: "block", mb: 0.75 }}>
+                straight from Sage, custom fields included{onPick ? " — click one to add it to this card" : ""}
+              </Typography>
+              <Box sx={{ maxHeight: 420, overflow: "auto" }}>
+                {shown.map((f) => (
+                  <Box key={f.ID} onClick={() => onPick?.(f.ID)}
+                    sx={{ display: "flex", gap: 1, alignItems: "baseline", py: 0.4, borderBottom: "1px solid " + BORDER,
+                      cursor: onPick ? "pointer" : "default", "&:hover": onPick ? { bgcolor: "#faf8f4" } : {} }}>
+                    <Typography sx={{ ...mono, fontSize: 11.5, color: INK, fontWeight: 700, minWidth: 170 }}>{f.ID}</Typography>
+                    <Typography sx={{ fontSize: 11.5, color: DIM, flex: 1 }} noWrap>{f.LABEL}</Typography>
+                    <Typography variant="caption" sx={{ ...mono, color: FAINT }}>{f.DATATYPE}</Typography>
+                  </Box>
+                ))}
+                {!shown.length && <Typography sx={{ fontSize: 12, color: FAINT, py: 1 }}>nothing matches that.</Typography>}
+              </Box>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 /* "What does this actually return?" - answerable on the card now, before the whole pipeline is
    assembled and without the AI pass in the way. The wizard's own Test showed the HEADLINE only
    ("12 items"), which is the one thing you can already guess; the rows are the question. */
@@ -968,7 +1085,7 @@ const FILE_FIELD_FOR = { tail: ['', '.log', '.txt', '.md', '.out', '.err'], shee
 /* `removable` is the Assistant's case: every one of its own sources can go, including the last,
    because zero of them is a valid Assistant - a report with zero sources is not a report. */
 function SourceCard({ src, index, count, typeOptions, connectors, dragging, onDragStart, onDragEnd,
-                      onDropHere, onChange, onRetype, onCopy, onRemove, removable = count > 1 }) {
+                      onDropHere, onChange, onRetype, onCopy, onRemove, onFill, removable = count > 1 }) {
   const fields = (FIELDS[src.type] || []).filter(([, key]) => {
     if (key === "ai_prompt") return false;
     if (src.type !== "local_file") return true;
@@ -1033,6 +1150,9 @@ function SourceCard({ src, index, count, typeOptions, connectors, dragging, onDr
           </Typography>
         </>
       )}
+      {onFill && src.type !== "assistant" && <SourceComposer one typeHint={src.type} hint="say what you want out of it"
+        placeholder={PLACEHOLDER_FOR[src.type] || "the rows this card should return"}
+        onSources={(list) => onFill(list[0])} />}
       {(count > 1 || removable) && (
         <TextField size="small" label="label" value={src.label || ""} sx={{ bgcolor: "#fff" }}
           placeholder="cash balances" onChange={(e) => onChange({ label: e.target.value })} />
@@ -1050,7 +1170,7 @@ function SourceCard({ src, index, count, typeOptions, connectors, dragging, onDr
       )}
       {fields.map(([label, key, kind, ph]) => {
         const v = src[key];
-        const shown = Array.isArray(v) ? v.join(NL) : typeof v === "object" && v ? JSON.stringify(v) : (v ?? "");
+        const shown = showValue(v, kind);
         if (kind === "pick_file") {
           return (
             <Select key={key} size="small" value={src.pick || "newest"} sx={{ fontSize: 12.5, bgcolor: "#fff" }}
@@ -1072,6 +1192,10 @@ function SourceCard({ src, index, count, typeOptions, connectors, dragging, onDr
             ? { style: { fontFamily: "Consolas, monospace", fontSize: 11.5 } } : undefined}
           onChange={(e) => onChange({ [key]: e.target.value })} />;
       })}
+      {["intacct", "intacct_fields"].includes(src.type) && (
+        <IntacctFields object={src.object} connectorId={src.connector_id}
+          onPick={src.type === "intacct" ? (id) => onChange({ fields: addField(src.fields, id) }) : undefined} />
+      )}
       {/* blank is not "no cap" - it is the 200-row default, and the field has to say so or
           the timeline's "capped at 200" points at a setting you never made */}
       {/* blank is not "no cap" - it is the 200-row default, and the field has to say so or

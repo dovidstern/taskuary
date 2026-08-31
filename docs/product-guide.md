@@ -79,6 +79,14 @@ Three controls shape it:
 
 Delete the Assistant report to turn it off.
 
+It also watches the systems you point it at. Its Pipeline step takes source cards of its own—an
+Intacct query, a database, a REST or MCP tool, a file, an agent skill—and no saved report needs
+to stand behind them. Because that step asks you to know an object name and a list of field ids,
+you can describe what it should keep an eye on instead and the AI writes the cards: it may only
+choose connections that exist, it reads the real schema before writing a query, and it asks
+rather than guessing. The same help sits on every individual source card, in the report builder
+and here. [Reports and the Assistant](reports-and-assistant.md) covers the whole builder.
+
 ## Learning from your decisions
 
 Every verdict is evidence. Editing a draft teaches voice; rejecting one teaches what should
@@ -183,6 +191,7 @@ plain-text CLIs work as well.
 ## Related documentation
 
 - [Getting started](getting-started.md)
+- [Reports and the Assistant](reports-and-assistant.md)
 - [Integrations](integrations.md)
 - [Status and roadmap](roadmap.md)
 - [Contributing](../CONTRIBUTING.md)

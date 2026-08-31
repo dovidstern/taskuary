@@ -15,6 +15,12 @@ So this turns the sentence into the config. Three things keep it from being a wi
 3. It is allowed to say it does not know. Questions come back as questions; a guessed WHERE
    clause on a finance report is worse than a five-second ask.
 
+There are two front doors. `compose` writes a WHOLE report from a sentence. `compose_sources`
+writes only the source cards - what you need when you are already in the builder with one card
+open and cannot remember whether a bill's amount is AMOUNT or TOTALENTERED, or what the
+Assistant should be pointed at in the first place. Same fences, same peeking, no title and no
+schedule: it fills in the part of the form that requires knowing the system.
+
 Nothing is saved. The composer drafts, /api/reports/preview runs it for real, and the owner
 looks at actual rows before anything is scheduled - which is the honest version of "the AI set
 it up for you".
@@ -30,6 +36,14 @@ MAX_PEEKS = 3         # schema look-ups per compose: a table, its columns, and o
 REQUIRED = {'agent': ('prompt|skill',), 'intacct': ('object',), 'intacct_fields': ('object',), 'mssql': ('query',), 'database': ('query',), 'sqlite': ('db', 'query'),
             'rest': ('url',), 'local_file': ('path',), 'winrm': ('script',), 's3_object': ('bucket',), 'cloudwatch_logs': ('log_group',),
             'metric': ('name',)}       # metric_check with no name is valid: it checks every one
+
+# A source card is not a report: whatever the model says about scheduling, titling or summarising
+# belongs to the report around the card, and is dropped rather than written into a card that
+# ignores it. A blocklist, not an allowlist - a new executor key must not need editing here.
+REPORT_KEYS = ('title', 'ai_prompt', 'ai_brain', 'every_minutes', 'daily_at', 'cron', 'on_startup',
+               'deliver', 'alert', 'charts', 'sources', 'watch_sources', 'watch_source_ids')
+MAX_SOURCES = 6      # the Assistant reads every one of them on every check; a wall of them is a slow check
+NOT_A_SOURCE = ('assistant',)   # a check reading its own output is a loop, not a data source
 
 # Sage Intacct, as the model needs it spelled out: the executor docstring says what the keys are,
 # not how the system thinks. Fields are UPPERCASE ids; readByQuery filters, never SQL; nothing
@@ -75,6 +89,17 @@ def catalog(store) -> list:
     return out
 
 
+# The same four rules govern both composers, so they are written once. A model that guesses a
+# column name produces a report that is wrong forever and never says so.
+JUDGEMENT = (
+    'JUDGEMENT\n'
+    '- A query you had to guess at is the thing to ask about. A wrong filter on a finance report '
+    'is silently wrong forever; a question costs five seconds.\n'
+    '- Never invent a table, column, object or field name. Peek, or ask.\n'
+    '- The owner describes what they WANT, not what exists. "Our headcount file" is a path you do '
+    'not have - ask for it.\n'
+    '- confidence "low" is a real answer. Say so in explain and the owner will check it.\n')
+
 SYSTEM = (
     'You turn a plain-English request into ONE Taskuary scheduled-report configuration.\n\n'
     'Answer with JSON only, in exactly one of three shapes:\n'
@@ -101,16 +126,35 @@ SYSTEM = (
     '- "max_rows" only when the ask implies a size.\n'
     '- "agent" is the type for "run my <skill> every week", "have the AI research X on a schedule", or any '
     'report whose source is the AI itself doing work: set "skill" to the slash command (without the slash is fine) '
-    'and/or "prompt" to the instruction; the answer is the report, so ai_prompt is usually unnecessary.\n\n'
-    'JUDGEMENT\n'
-    '- A query you had to guess at is the thing to ask about. A wrong filter on a finance report '
-    'is silently wrong forever; a question costs five seconds.\n'
-    '- Never invent a table, column, object or field name. Peek, or ask.\n'
-    '- The owner describes what they WANT, not what exists. "Our headcount file" is a path you do '
-    'not have - ask for it.\n'
-    '- confidence "low" is a real answer. Say so in explain and the owner will check it.\n'
+    'and/or "prompt" to the instruction; the answer is the report, so ai_prompt is usually unnecessary.\n\n' +
+    JUDGEMENT +
     '- A config is not finished until it carries what its type needs to RUN: an Intacct report has an object, a SQL '
     'report has a query, a REST report has a url. A title alone is the owner\'s form handed back to them - peek or ask instead.')
+
+
+# The same fence, aimed one step lower down. The report composer answers "what report do I
+# want"; this one answers "what does this card have to say to reach that system", which is the
+# question the Assistant's Pipeline step actually asks - and the one nobody can answer from
+# memory, because it is the object names and field ids of somebody else's finance system.
+SOURCE_SYSTEM = """You configure the DATA SOURCES a Taskuary check reads. Not a whole report: the owner is standing in the builder with the source cards in front of them and cannot remember what the systems here are called or what fields they carry. You write that part.
+
+Answer with JSON only, in exactly one of three shapes:
+  {"questions": ["...", "..."]} - you cannot write it yet and need the owner to decide something. At most three, each answerable in a few words.
+  {"peek": {"type": "<a schema type from the catalog>", ...its keys}} - you need to SEE the schema first: which objects exist, what the fields are really called. The result comes back and you answer again.
+  {"sources": [{"type": "...", "label": "...", ...its keys}], "ai_prompt": "...", "explain": "<one or two sentences: what these will read and any assumption you made>", "confidence": "high|medium|low"} - the finished cards.
+
+SOURCE RULES
+- "type" MUST be one of the catalog types, and one whose ready flag is true. If the ask needs a system nobody here has connected, do not substitute a different one: return questions saying what would have to be connected.
+- Use exactly the config keys the catalog lists under "takes" for that type. Do not invent keys.
+- Every source carries what its type needs to RUN: an Intacct source has an object, a SQL source has a query, a REST source has a url. A card with only a type is the owner's own empty form handed back to them - peek or ask instead.
+- "label" is a short human name for the card ("AP bills due", "cash balances"). It is how the check refers to that data, so give every card one whenever there is more than one.
+- "max_rows" only when the ask implies a size. Nothing else: no title, no schedule, no delivery - those belong to the report around these cards and are ignored here.
+- Respect max_sources, and write ONE source per system-and-question: two questions of the same database are two cards with different queries, never one query trying to answer both.
+- "ai_prompt" is one instruction over ALL these sources together - what the check should SURFACE. Concrete ("Flag any vendor over 10k or new this month; give the number and the site"), never "summarize the data". Write it when the ask says what matters; leave it out when the owner asked only for the data.
+- Never choose "assistant" as a source. That is the check itself; reading its own output is a loop.
+- the_card_you_are_filling_in names the type already chosen on the card. Keep it unless the ask plainly needs another system, and then say so in explain.
+
+""" + JUDGEMENT
 
 
 def _json(text):
@@ -136,20 +180,9 @@ def _peek(store, spec):
     except Exception as e:
         return f'(the lookup failed: {str(e)[:300]})'
 
-
-def compose(store, ask: str, llm, answers: dict = None, rounds: int = MAX_PEEKS) -> dict:
-    """{'questions': [...]} or {'config': {...}, 'explain': ..., 'confidence': ..., 'looked_at': [...]}.
-
-    `answers` are the owner's replies to a previous round's questions, so asking is a
-    conversation rather than a dead end."""
-    if not llm: return {'error': 'no AI connector is configured - Connectors → AI'}
-    if not (ask or '').strip(): return {'error': 'say what you want the report to do'}
-
-    cat = catalog(store)
-    # the Intacct playbook rides along only where Intacct is actually connected
-    system = SYSTEM + ('\n\n' + INTACCT_PLAYBOOK if any(c['type'] == 'intacct' and c['ready'] for c in cat) else '')
-    user = {'request': ask.strip(), 'catalog': cat,
-            **({'answers_to_your_questions': answers} if answers else {})}
+def _rounds(store, llm, system, user, rounds, finish):
+    """The loop both composers share: the model may go and READ a real schema before it writes
+    anything, a question comes back as a question, and `finish` reads its final answer."""
     looked = []
     for _ in range(max(1, rounds + 1)):
         out = _json(llm(system, json.dumps(user, default=str), max_tokens=2000))
@@ -163,27 +196,94 @@ def compose(store, ask: str, llm, answers: dict = None, rounds: int = MAX_PEEKS)
             user.setdefault('what_you_looked_at', []).append(
                 {'you_asked_for': spec, 'result': _peek(store, spec)})
             continue
+        return finish(out, looked)
+    return {'error': 'the model kept asking to look at schemas without answering'}
+
+
+def _playbook(cat) -> str:
+    """A system's own briefing rides along only where that system is actually connected - there
+    is no point teaching the model Intacct's field ids on an install that cannot reach Intacct."""
+    return ('\n\n' + INTACCT_PLAYBOOK) if any(c['type'] == 'intacct' and c['ready'] for c in cat) else ''
+
+
+def compose(store, ask: str, llm, answers: dict = None, rounds: int = MAX_PEEKS) -> dict:
+    """{'questions': [...]} or {'config': {...}, 'explain': ..., 'confidence': ..., 'looked_at': [...]}.
+
+    `answers` are the owner's replies to a previous round's questions, so asking is a
+    conversation rather than a dead end."""
+    if not llm: return {'error': 'no AI connector is configured - Connectors → AI'}
+    if not (ask or '').strip(): return {'error': 'say what you want the report to do'}
+    cat = catalog(store)
+    user = {'request': ask.strip(), 'catalog': cat,
+            **({'answers_to_your_questions': answers} if answers else {})}
+
+    def finish(out, looked):
         cfg = out.get('config')
         if not isinstance(cfg, dict): return {'error': 'the model answered without a config'}
         ok, why = validate(store, cfg)
         if not ok: return {'error': why, 'config': cfg}
         return {'config': cfg, 'explain': str(out.get('explain') or '')[:600],
                 'confidence': out.get('confidence') or 'medium', 'looked_at': looked}
-    return {'error': 'the model kept asking to look at schemas without answering'}
+    return _rounds(store, llm, SYSTEM + _playbook(cat), user, rounds, finish)
+
+
+def compose_sources(store, ask: str, llm, one_type: str = None, answers: dict = None,
+                    rounds: int = MAX_PEEKS) -> dict:
+    """{'sources': [...], 'ai_prompt': ...} - the source CARDS for a check and nothing else: no
+    title, no schedule, no delivery. This is the composer the Assistant needs, because "point it
+    at the systems it should read" is the step that requires knowing the systems.
+
+    `one_type` is the card the owner is standing on: exactly one source comes back, of that type
+    unless the ask plainly needs another system - and then `explain` says which and why."""
+    if not llm: return {'error': 'no AI connector is configured - Connectors → AI'}
+    if not (ask or '').strip(): return {'error': 'say what it should read'}
+    cat = catalog(store)
+    if one_type:
+        # standing on a card whose connection is off: say so now rather than after a model call
+        row = next((c for c in cat if c['type'] == one_type), None)
+        if row and not row['ready']: return {'error': f"{one_type} cannot run: {row['why_not']}"}
+    cap = 1 if one_type else MAX_SOURCES
+    user = {'request': ask.strip(), 'catalog': cat, 'max_sources': cap,
+            'the_card_you_are_filling_in': one_type or
+            'nothing yet - the owner is pointing a check at whatever systems the ask needs',
+            **({'answers_to_your_questions': answers} if answers else {})}
+
+    def finish(out, looked):
+        srcs = out.get('sources') or out.get('source')
+        if isinstance(srcs, dict): srcs = [srcs]          # one card asked for, one card answered
+        if not isinstance(srcs, list) or not srcs: return {'error': 'the model answered without a data source'}
+        srcs = [{k: v for k, v in s.items() if k not in REPORT_KEYS} for s in srcs if isinstance(s, dict)]
+        srcs = [s for s in srcs if s.get('type') not in NOT_A_SOURCE][:cap]
+        if not srcs: return {'error': 'the only source it chose was the check itself - say which system it should read'}
+        for s in srcs:
+            ok, why = validate_source(store, s)
+            if not ok: return {'error': why, 'sources': srcs}
+        return {'sources': srcs, 'ai_prompt': str(out.get('ai_prompt') or '')[:2000],
+                'explain': str(out.get('explain') or '')[:600],
+                'confidence': out.get('confidence') or 'medium', 'looked_at': looked}
+    return _rounds(store, llm, SOURCE_SYSTEM + _playbook(cat), user, rounds, finish)
+
+
+def validate_source(store, src: dict, noun: str = 'source'):
+    """(ok, why) for ONE source: a real type, a CONNECTED one, and the keys its executor needs to
+    run at all. The model is not trusted to have got this right - it is a language model reading a
+    list, and the failure it would otherwise produce arrives days later as a scheduled report
+    that has never once run."""
+    from .reports import REGISTRY, PLANNED
+    t = (src or {}).get('type')
+    if t not in REGISTRY: return False, f'unknown report type: {t}'
+    if t in PLANNED: return False, f'{t} is not built yet'
+    row = next((c for c in catalog(store) if c['type'] == t), None)
+    if row and not row['ready']: return False, f"{t} cannot run: {row['why_not']}"
+    # 'a|b' means either will do (an agent source needs a skill OR a prompt)
+    missing = [k for k in REQUIRED.get(t, ()) if not any(src.get(alt) for alt in k.split('|'))]
+    if missing: return False, (f"the {t} {noun} is not finished: it has no {' / '.join(missing)} - "
+                               'the composer should have looked the schema up or asked')
+    return True, ''
 
 
 def validate(store, cfg: dict):
-    """(ok, why). The model is not trusted to have picked a real type or a connected one - it is
-    a language model reading a list, and the failure it would otherwise produce arrives days
-    later as a scheduled report that has never once run."""
-    from .reports import REGISTRY, PLANNED
-    t = cfg.get('type')
-    if t not in REGISTRY: return False, f'unknown report type: {t}'
-    if t in PLANNED: return False, f'{t} is not built yet'
-    if not str(cfg.get('title') or '').strip(): return False, 'the report has no title'
-    row = next((c for c in catalog(store) if c['type'] == t), None)
-    if row and not row['ready']: return False, f"{t} cannot run: {row['why_not']}"
-    # 'a|b' means either will do (an agent report needs a skill OR a prompt)
-    missing = [k for k in REQUIRED.get(t, ()) if not any(cfg.get(alt) for alt in k.split('|'))]
-    if missing: return False, f"the {t} report is not finished: it has no {' / '.join(missing)} - the composer should have looked the schema up or asked"
-    return True, ''
+    """(ok, why) for a whole report: a source that can run, plus the one thing only a report
+    has - a name a person will recognise on a list."""
+    if not str((cfg or {}).get('title') or '').strip(): return False, 'the report has no title'
+    return validate_source(store, cfg, 'report')

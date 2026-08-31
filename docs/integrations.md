@@ -54,7 +54,7 @@ Nothing is polled without an enabled role.
 | Azure | Available | Discovers blob containers and Log Analytics workspaces; supports arbitrary ARM paths and can reuse the Outlook app registration |
 | Microsoft Entra ID | Available | People, transitive group membership, sign-in activity, and license usage when the connected app has permission |
 | Prometheus and Datadog | Available | PromQL instant queries and Datadog monitor states |
-| Sage Intacct | Available | Read-only XML gateway access for GL detail, AP bills, vendors, budgets, statistical accounts, and schema discovery |
+| Sage Intacct | Available | Read-only XML gateway access for GL detail, AP bills, vendors, budgets, statistical accounts, and schema discovery. A source card can list the fields an object carries in your company, and the composer reads that list before writing a query |
 | WinRM | Available | Runs PowerShell on a remote Windows machine and returns output to the Timeline |
 | MCP | Available | Uses an MCP server tool as a scheduled report source |
 | SQLite, REST, RSS | Available | Scheduled reports with optional AI summaries |
@@ -87,4 +87,5 @@ The full interactive API reference is available at `/api/docs` while Taskuary is
 
 - [Getting started](getting-started.md)
 - [Product guide](product-guide.md)
+- [Reports and the Assistant](reports-and-assistant.md)
 - [Status and roadmap](roadmap.md)

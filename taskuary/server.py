@@ -1751,6 +1751,35 @@ def report_compose(body: dict):
                                                            'confidence': out.get('confidence')})
     return out
 
+@app.get('/api/intacct/fields')
+def intacct_object_fields(obj: str, connector_id: int = None):
+    """What this company's copy of an Intacct object actually carries, custom fields and all.
+
+    "I don't know what fields off hand Intacct has set up" is not a question anybody should answer
+    from memory - Sage knows, the lookup call is cheap, and a hardcoded field list is wrong the day
+    somebody adds a field. The source card asks this and the owner clicks the ones they want."""
+    from .intacct import fields_of
+    from .reports import intacct_connection
+    try: return {'ok': True, 'data': fields_of(intacct_connection(store, connector_id), (obj or '').strip())}
+    except Exception as e: return {'ok': False, 'error': str(e)[:500]}
+
+@app.post('/api/reports/compose-sources')
+def report_compose_sources(body: dict):
+    """Say what a check should READ; get the source cards back. The step below /compose: no title,
+    no schedule, just the part of the form that needs knowing an object name or a field id.
+
+    This is what the Assistant's Pipeline step calls - and what a single source card calls with its
+    own type in `type`, so "AP bills due in the next 30 days" comes back as the object, the fields
+    this company's Intacct actually has, and the filter."""
+    from .compose import compose_sources
+    b = body or {}
+    out = compose_sources(store, b.get('ask') or '', _llm(), (b.get('type') or '').strip() or None, b.get('answers'))
+    if out.get('sources'):
+        store.audit('report', 0, 'compose_sources', ACTOR,
+                    detail={'ask': (b.get('ask') or '')[:300], 'confidence': out.get('confidence'),
+                            'types': [s.get('type') for s in out['sources']]})
+    return out
+
 @app.post('/api/reports/preview')
 def report_preview(body: dict):
     """Dry-run a report config - executor plus the AI pass when ai_prompt is set -

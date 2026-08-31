@@ -87,6 +87,7 @@ connection before it goes live.
 - [Getting started](docs/getting-started.md)—installation, first-run setup, Docker, and data
 - [Product guide](docs/product-guide.md)—the workflow, learning loop, agents, and operator documents
 - [Integrations](docs/integrations.md)—channels, AI providers, work systems, and report sources
+- [Reports and the Assistant](docs/reports-and-assistant.md)—the report pipeline, letting the AI write the source cards, and what the Assistant watches
 - [Status and roadmap](docs/roadmap.md)—what works today and what is next
 - [Contributing](CONTRIBUTING.md)—development setup and contribution guide
 

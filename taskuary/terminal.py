@@ -394,6 +394,27 @@ def _codex_windows_auto(argv: list) -> list:
     return argv[:i] + ['--dangerously-bypass-approvals-and-sandbox'] + argv[i + 4:]
 
 
+def _codex_browser_tui(argv: list) -> list:
+    """Keep Codex's composer responsive inside xterm.js.
+
+    Codex's default alternate-screen TUI redraws the whole screen around its composer. Over
+    ConPTY -> websocket -> xterm that makes each typed character wait behind repaint work;
+    Claude does not exercise that path in the same way. Codex officially exposes both knobs,
+    so browser-hosted sessions use inline mode and disable decorative animations without
+    changing the owner's global config.toml. An explicit profile value still wins.
+    """
+    if not any('codex' in os.path.basename(str(a)).lower() for a in argv): return argv
+    out = list(argv)
+    if '--no-alt-screen' not in out: out.append('--no-alt-screen')
+    configured = any(
+        (a in ('-c', '--config') and i + 1 < len(out) and str(out[i + 1]).split('=', 1)[0] == 'tui.animations')
+        or (str(a).startswith('--config=') and str(a).split('=', 1)[1].split('=', 1)[0] == 'tui.animations')
+        for i, a in enumerate(out)
+    )
+    if not configured: out += ['-c', 'tui.animations=false']
+    return out
+
+
 def agent_argv(profile: dict, model: str = None) -> list:
     """Interactive invocation of a configured CLI: its command, its own flags minus the pipe
     ones, and the model flag the headless runner uses (`model_arg`, e.g. codex wants -m).
@@ -403,7 +424,8 @@ def agent_argv(profile: dict, model: str = None) -> list:
     argv = _resolve_cmd(profile.get('cmd') or 'claude')
     argv += list(profile['interactive_args']) if profile.get('interactive_args') else interactive_args(profile.get('args') or preset_args(profile.get('cmd') or 'claude'))
     model = model or profile.get('model')
-    return _codex_windows_auto(argv + ([profile.get('model_arg') or '--model', str(model)] if model else []))
+    argv += [profile.get('model_arg') or '--model', str(model)] if model else []
+    return _codex_windows_auto(_codex_browser_tui(argv))
 
 
 def open_session(store, agent: str = None, task_id: int = None, repo: str = None, cwd: str = None,

@@ -627,6 +627,20 @@ class TerminalTests(unittest.TestCase):
             self.assertEqual(terminal.agent_argv({'cmd': 'claude', 'args': ['-p', '--output-format', 'stream-json']}), ['claude'])
             self.assertEqual(terminal.agent_argv({'cmd': 'codex', 'interactive_args': ['tui']}), ['claude', 'tui'])
 
+    def test_codex_uses_the_low_repaint_tui_inside_the_browser_terminal(self):
+        with mock.patch('taskuary.agents._resolve_cmd', return_value=['C:/npm/codex.exe']):
+            argv = terminal.agent_argv({'cmd': 'codex', 'args': ['exec']})
+        self.assertIn('--no-alt-screen', argv)
+        self.assertIn('tui.animations=false', argv)
+
+    def test_codex_profile_can_explicitly_override_the_tui_defaults(self):
+        configured = ['--no-alt-screen', '--config', 'tui.animations=true']
+        with mock.patch('taskuary.agents._resolve_cmd', return_value=['C:/npm/codex.exe']):
+            argv = terminal.agent_argv({'cmd': 'codex', 'interactive_args': configured})
+        self.assertEqual(argv.count('--no-alt-screen'), 1)
+        self.assertIn('tui.animations=true', argv)
+        self.assertNotIn('tui.animations=false', argv)
+
 
 class ShimResolutionTests(unittest.TestCase):
     """An npm .CMD shim is four lines of batch around one real program. Reaching THROUGH it

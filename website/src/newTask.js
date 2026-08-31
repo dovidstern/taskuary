@@ -11,6 +11,11 @@ export const NO_REPO = "none";
 // cleared it. Server state does not race: the chat reads the tag when it opens, asks, and
 // strips it, so a reload never re-asks and a chat opened later still gets the question.
 export const ASK_TAG = "ask:assistant";
+
+// ...and the other thing a task can need: a browser of its own. Marked here, the session
+// STARTS one (bound to it, restored from your saved cookies, closed with it) instead of
+// waiting for the agent to think of running agent-browser - and the agent is told it is there.
+export const BROWSER_TAG = "needs:browser";
 export const wantsAsk = (task) => new RegExp(`(^|[\\s,])${ASK_TAG}([\\s,]|$)`).test(String(task?.Tags || ""));
 export const withoutAsk = (tags) => String(tags || "").split(/[\s,]+/).filter((t) => t && t !== ASK_TAG).join(",");
 
@@ -20,10 +25,11 @@ export const repoOf = (pick) => (pick && pick !== NO_REPO ? pick : null);
 // how: "live" (an agent starts now), "file" (nobody starts), or "terminal" - which is "live"
 // for a question you would rather work in a CLI than in the chat. Asked for explicitly, because
 // a General task landing in a terminal by ACCIDENT is the bug this module exists to stop.
-export const planTask = (pick, how) => {
+export const planTask = (pick, how, browser = false) => {
   const repo = repoOf(pick);
   const chat = !repo && how !== "terminal";
   const ask = chat && how === "live";              // "Ask the assistant", not "just file it"
-  return { repo, kind: chat ? "general" : "coding", chat, ask,
-    tags: repo ? `repo:${repo}` : (ask ? ASK_TAG : null), start: how === "live" || how === "terminal" };
+  const tags = [repo ? `repo:${repo}` : (ask ? ASK_TAG : ""), browser ? BROWSER_TAG : ""].filter(Boolean);
+  return { repo, kind: chat ? "general" : "coding", chat, ask, browser,
+    tags: tags.join(",") || null, start: how === "live" || how === "terminal" };
 };

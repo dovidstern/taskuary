@@ -145,6 +145,58 @@ def close(sid: str):
     _CACHE.pop(sid, None); LAST.pop(sid, None)
 
 
+# One profile's worth of cookies, keyed here and not on the session id: a session is born and
+# dies per task, and a login the owner typed by hand in the pane last week should still be
+# there this week. --restore is agent-browser's own auto-save/restore of cookies and storage.
+RESTORE_KEY = 'taskuary'
+WANTS = 'needs:browser'
+
+
+def wanted(task: dict | None) -> bool:
+    """Did the owner say this task needs a browser? (the tag the New task dialog writes)"""
+    import re as _re
+    return bool(_re.search(rf'(^|[\s,]){_re.escape(WANTS)}([\s,]|$)', str((task or {}).get('Tags') or '')))
+
+
+def start(sid: str, url: str = 'about:blank') -> bool:
+    """Open the browser FOR this session, before the agent asks for one.
+
+    Until now a browser existed only if the agent thought to run agent-browser, which meant a
+    task that plainly needs one - a portal with no API, a page behind a login - started with
+    nothing on screen and the owner watching text. A task marked "needs a browser" gets one
+    with the session: bound to it by name, restored from the owner's own saved cookies, and
+    closed with it (Term._pump -> close).
+    """
+    exe = shutil.which('agent-browser')
+    if not exe: return False
+    if state(sid, fresh=True)['open']: return True                # the agent got there first
+    cmd = [exe, '--session', session_name(sid), '--restore', RESTORE_KEY, 'open', url or 'about:blank']
+    try:
+        # detached: it outlives this request and answers on its own screencast port. Output is
+        # dropped - the pane IS the output, and a full pipe would block the browser.
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         stdin=subprocess.DEVNULL, close_fds=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.warning(f'could not start the browser for {sid}: {e}')
+        return False
+    for _ in range(40):                                            # it has a Chrome to launch
+        time.sleep(0.25)
+        if state(sid, fresh=True)['open']: return True
+    logger.warning(f'the browser for {sid} did not come up within 10s')
+    return False
+
+
+def brief() -> str:
+    """What an agent with a browser of its own needs to know. Longer than hint() on purpose -
+    this only rides when the owner asked for a browser, so it can afford to say how to drive
+    it and where the line is."""
+    return ('A BROWSER IS OPEN for this task and the owner is WATCHING it beside your terminal. '
+            'Drive it with `agent-browser` - it is already bound to this session, so no --session '
+            'flag. Read `agent-browser skills get core --full` before your first command. '
+            'NEVER type a password, a 2FA code or a card number: navigate to the page that asks '
+            'and tell the owner here - they type it in the pane themselves.')
+
+
 def hint() -> str:
     """One line for the seed, only when the tool is installed: an agent has to be TOLD the browser
     exists and that the owner is watching it - and told that credentials are typed by the owner,

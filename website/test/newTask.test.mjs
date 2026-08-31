@@ -3,7 +3,7 @@
 // question to answer", which has no checkout for a CLI to stand in and belongs in the chat.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ASK_TAG, NO_REPO, planTask, repoOf, wantsAsk, withoutAsk } from "../src/newTask.js";
+import { ASK_TAG, BROWSER_TAG, NO_REPO, planTask, repoOf, wantsAsk, withoutAsk } from "../src/newTask.js";
 
 test("a repository means a coding task for a CLI in that checkout", () => {
   const p = planTask("acme/fanapp", "live");
@@ -70,6 +70,19 @@ test("'just file it' starts nobody, on either kind", () => {
   assert.equal(planTask("acme/fanapp", "file").start, false);
   assert.equal(planTask(NO_REPO, "file").start, false);
   assert.equal(planTask(NO_REPO, "live").start, true);
+});
+
+test("a task can say it needs a browser, on either kind", () => {
+  assert.equal(planTask("acme/fanapp", "live", true).tags, `repo:acme/fanapp,${BROWSER_TAG}`);
+  assert.equal(planTask(NO_REPO, "live", true).tags, `${ASK_TAG},${BROWSER_TAG}`);
+  assert.equal(planTask(NO_REPO, "terminal", true).tags, BROWSER_TAG);
+  assert.equal(planTask(NO_REPO, "file", true).tags, BROWSER_TAG);
+});
+
+test("and by default it does not", () => {
+  for (const how of ["live", "file", "terminal"])
+    assert.equal(String(planTask("acme/fanapp", how).tags || "").includes(BROWSER_TAG), false);
+  assert.equal(planTask(NO_REPO, "live").browser, false);
 });
 
 test("repoOf is what the API is given", () => {

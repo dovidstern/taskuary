@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, MenuItem, Select, TextField, Tooltip, Typography,
+  DialogTitle, MenuItem, Select, Switch, TextField, Tooltip, Typography,
 } from "@mui/material";
 import ViewKanbanIcon from "@mui/icons-material/ViewKanban";
 import ViewInArIcon from "@mui/icons-material/ViewInAr";
@@ -259,7 +259,7 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
   const [live, setLive] = useState({});                // TaskId -> {tail, AgentName} while a run works
   // how = does an agent start on it now, or does it just get filed. There is no third
   // option: work always happens in a session you can watch and talk to.
-  const [nt, setNt] = useState({ Title: "", Summary: "", how: "live", repo: "", agent: "coder", model: "" });
+  const [nt, setNt] = useState({ Title: "", Summary: "", how: "live", repo: "", agent: "coder", model: "", browser: false });
   const shots = usePromptImages();      // screenshots on the new task's prompt, same as the Wall's queue box
 
   const load = useCallback(async () => {
@@ -297,7 +297,7 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
 
   // one reading of the repository box (newTask.js): who works it, and what the two fields
   // under it should say about that
-  const plan = planTask(nt.repo, nt.how);
+  const plan = planTask(nt.repo, nt.how, nt.browser);
   const noRepo = !plan.repo;                    // which of the two "live" readings the box offers
   const create = async () => {
     const { repo, kind, chat, tags } = plan;
@@ -568,6 +568,14 @@ export default function BoardView({ onOpenTask, onOpenReports }) {
               </MenuItem>}
               <MenuItem value="file" sx={{ fontSize: 12.5 }}>Just file it — nobody starts working yet</MenuItem>
             </Select>
+            {/* a portal with no API, a page behind a login: the session opens a browser with it,
+                you watch it beside the terminal, and you type the password yourself */}
+            <Box sx={{ display: "flex", alignItems: "center", mt: 0.5 }}>
+              <Switch size="small" checked={!!nt.browser} onChange={(e) => setNt({ ...nt, browser: e.target.checked })} />
+              <Typography variant="caption" sx={{ color: nt.browser ? INK : DIM }}>
+                It needs a browser — one opens with the session, watched beside it, and you type any password
+              </Typography>
+            </Box>
           </Box>
         </DialogContent>
         <DialogActions>

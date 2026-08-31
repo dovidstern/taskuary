@@ -6,7 +6,7 @@ agent's own TUI, its approval prompts and your typing all go through this.
 
 Windows uses ConPTY via pywinpty; POSIX uses the stdlib pty module.
 """
-import os, re, subprocess, threading, time, uuid
+import os, re, shutil, subprocess, threading, time, uuid
 from collections import deque
 from datetime import datetime
 from loguru import logger
@@ -499,6 +499,15 @@ def open_session(store, agent: str = None, task_id: int = None, repo: str = None
         except Exception as e: logger.debug(f'claude hooks not installed in {cwd}: {e}')
     t = Term(argv, cwd, label, task_id, agent, rows, cols, store)
     SESSIONS[t.sid] = t
+    # A task the owner marked "needs a browser" gets one WITH its session - bound to it by name,
+    # restored from the owner's own saved cookies, closed with it (Term._pump). Until now a
+    # browser existed only if the agent thought to run agent-browser, so a task that plainly
+    # needs one started with nothing on screen. On its own thread: Chrome takes a few seconds
+    # and the session must not wait for it.
+    if task_id and store:
+        from . import browserview as _bv
+        if _bv.wanted(store.get_task(task_id)):
+            threading.Thread(target=_bv.start, args=(t.sid,), daemon=True).start()
     if agent and task_id and 'codex' in os.path.basename(str(argv[0])).lower():
         from .witness import RolloutTail
         RolloutTail(t).start()
@@ -750,6 +759,8 @@ def seed_text(store, tid: int, instruction: str = None, repo: str = None, cwd: s
     # the blackboard: agents sharing THIS checkout, told to a newcomer once, up front. Another
     # repo's agents are deliberately absent - awareness costs prompt tokens, so it is spent
     # only where a collision is physically possible.
+    from . import browserview as _bv
+    if _bv.wanted(t) and shutil.which('agent-browser'): parts.append(_bv.brief())
     from . import blackboard as bb
     aware = bb.briefing(store, cwd, exclude_tid=tid) if cwd else ''
     if aware: parts.append(aware)

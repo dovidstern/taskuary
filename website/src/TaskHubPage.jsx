@@ -253,12 +253,14 @@ export default function TaskHubPage() {
             window, and every tab inside already caps its own content width where it wants to */}
         <Box sx={{ px: { xs: 1.5, md: 1.75 }, py: { xs: 1.5, md: 2.25 } }}>
           {tab === "Timeline" && <FeedView key={`f${tick}`} onOpenTask={openTask} onChanged={refreshPending} />}
-          {tab === "Board" && <BoardView key={`b${tick}`} onOpenTask={openTask} />}
+          {tab === "Board" && <BoardView key={`b${tick}`} onOpenTask={openTask}
+            onOpenReports={(sid) => { window.location.hash = `report=${sid}`; go("Reports"); }} />}
           {everTasks && (
             <Box sx={{ display: tab === "Tasks" ? "block" : "none" }}>
               <TasksView key={`t${tick}`} selected={selectedTask} onSelect={selectTask} active={tab === "Tasks"}
                 onChanged={refreshPending} autostart={autostart} onAutostarted={() => setAutostart(null)}
-                onGoReview={() => { refreshPending(); go("Review"); }} />
+                onGoReview={() => { refreshPending(); go("Review"); }}
+                onGoReports={(sid) => { window.location.hash = `report=${sid}`; go("Reports"); }} />
             </Box>
           )}
           {tab === "Review" && <ReviewView key={`r${tick}`} onOpenTask={openTask} onChanged={refreshPending} />}

@@ -118,7 +118,17 @@ def run_agent(cfg):
     name = str(cfg.get('agent') or 'coder').strip()
     llm = make_cli_llm(store, name, cfg.get('model') or None, cwd=cfg.get('cwd') or None)
     if llm is None: raise RuntimeError(f'no CLI agent named {name!r} - add one under Connectors -> AI CLI agents')
-    ask = (f'/{skill}' + (' ' if prompt else '') if skill else '') + prompt
+    # Long workflows promoted from an assistant conversation live in Taskuary's neutral skill
+    # store. Expand them into the prompt so one skill works through Claude, Codex, Gemini, or any
+    # custom CLI. A skill that is not there remains the provider's normal `/skill-name` command.
+    owned = None
+    if skill:
+        from . import config
+        candidate = config.home() / 'skills' / skill / 'SKILL.md'
+        try: owned = candidate.read_text(encoding='utf-8') if candidate.is_file() else None
+        except OSError: owned = None
+    ask = (f'TASKUARY SKILL /{skill}\n\n{owned}\n\nRUN INPUT\n{prompt}' if owned is not None
+           else (f'/{skill}' + (' ' if prompt else '') if skill else '') + prompt)
     # Two runs twenty minutes apart came back as two different documents - 106 lines with a
     # fast-risers table, then 83 lines in another shape. A fresh agent has no memory of the last
     # run, so the last run's SHAPE (headings, table columns - never the content) rides along.

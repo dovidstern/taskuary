@@ -596,6 +596,44 @@ def talk(store, idea_id: int, text: str, actor: str = 'owner', llm=None) -> dict
     return {'ideaId': idea_id, 'reply': answer, 'chat': chat}
 
 
+def discussion_task(store, idea_id: int, actor: str = 'owner') -> dict:
+    """Open one Timeline idea as a normal Assistant workspace conversation.
+
+    The Timeline used to own a second, smaller chat implementation. A discussion now gets
+    one non-coding task and the task's comment history becomes the sole conversation record.
+    ``discussion_tid`` is separate from ``tid`` because an idea about an existing coding task
+    must not turn that task's terminal workspace into an Assistant workspace.
+    """
+    i = store.get_idea(idea_id)
+    if not i: raise ValueError(f'no idea {idea_id}')
+    try: action = json.loads(i.get('ActionJson') or '{}')
+    except ValueError: action = {}
+    existing = action.get('discussion_tid')
+    if existing and store.get_task(existing):
+        return {'ideaId': idea_id, 'taskId': existing, 'ref': task_ref(existing), 'created': False}
+
+    title = str(action.get('title') or i.get('Text') or 'Discuss assistant suggestion').strip()[:200]
+    why = str(action.get('why') or '').strip()
+    summary = str(i.get('Text') or '').strip()
+    if why: summary += f'\n\nWhy the assistant raised it: {why}'
+    tid = store.create_task({'Title': title, 'Summary': summary[:2000], 'Kind': 'assistant',
+                             'Source': 'assistant', 'SourceRef': f'assistant:idea:{idea_id}'}, actor)
+    seed = str(i.get('Text') or '').strip()
+    if why: seed += f'\n\nWhy I raised this: {why}'
+    if action.get('tid'): seed += f'\n\nRelated task: {task_ref(action["tid"])}'
+    store.add_comment(tid, 'assistant', 'assistant_agent', seed)
+    for turn in [t for t in (action.get('chat') or []) if isinstance(t, dict)]:
+        text = str(turn.get('text') or '').strip()
+        if text:
+            role = 'assistant_agent' if turn.get('role') == 'assistant' else 'assistant_user'
+            store.add_comment(tid, 'assistant' if role == 'assistant_agent' else actor, role, text)
+    action['discussion_tid'] = tid
+    store.set_idea_action(idea_id, action)
+    store.audit('task', tid, 'create_from_assistant_idea', actor,
+                detail={'idea_id': idea_id, 'message_id': i.get('MessageId'), 'related_task_id': action.get('tid')})
+    return {'ideaId': idea_id, 'taskId': tid, 'ref': task_ref(tid), 'created': True}
+
+
 def reviewed(cands: list, say: list, recent: str, open_: str, said: str, model: bool, week: str = '(', people: str = '(') -> dict:
     """What this post was built from, so the owner can judge it: the candidates by kind, the ones it
     looked at and let go (with their facts), how much of the day and the open work it read, how many

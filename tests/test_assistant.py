@@ -305,6 +305,29 @@ class ApiTests(unittest.TestCase):
             talked = c.post(f"/api/assistant/talk/{ideas[0]['id']}", json={'body': 'I already sent it.'})
         self.assertEqual(talked.status_code, 200); self.assertIn('missed your reply', talked.json()['reply'])
 
+    def test_discuss_opens_one_assistant_task_and_carries_the_old_exchange(self):
+        from fastapi.testclient import TestClient
+        from taskuary import general, server
+        s = _store()
+        related = s.create_task({'Title': 'Existing code work', 'Kind': 'coding', 'Status': 'open'}, 't')
+        idea = s.upsert_idea({'key': 'idea:workspace', 'kind': 'idea', 'text': 'Watch this ownership change.',
+                              'action': {'why': 'The source is unresolved.', 'tid': related,
+                                         'chat': [{'role': 'owner', 'text': 'Which source?'},
+                                                  {'role': 'assistant', 'text': 'The state filing.'}]}}, _ago())
+        with mock.patch.object(server, 'store', s):
+            c = TestClient(server.app)
+            first = c.post(f"/api/assistant/ideas/{idea['IdeaId']}/discuss")
+            again = c.post(f"/api/assistant/ideas/{idea['IdeaId']}/discuss")
+        self.assertEqual(first.status_code, 200)
+        self.assertTrue(first.json()['created']); self.assertFalse(again.json()['created'])
+        self.assertEqual(first.json()['taskId'], again.json()['taskId'])
+        task = s.get_task(first.json()['taskId'])
+        self.assertEqual(task['Kind'], 'assistant')
+        self.assertEqual(s.get_task(related)['Kind'], 'coding')
+        history = general.history(s, task['TaskId'])
+        self.assertEqual([m['role'] for m in history], ['assistant', 'user', 'assistant'])
+        self.assertIn('Why I raised this', history[0]['content'][0]['text'])
+
 
 class NotesToSelf(unittest.TestCase):
     """A check ends with a note to the next one, and the next one reads it - even when the check

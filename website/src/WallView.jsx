@@ -31,7 +31,7 @@ const hKey = (c) => `tq.wall.h.${c}`;
 const savedH = (c) => { try { return Number(localStorage.getItem(hKey(c))) || 0; } catch { return 0; } };
 const storeH = (c, h) => { try { h ? localStorage.setItem(hKey(c), String(h)) : localStorage.removeItem(hKey(c)); } catch { /* private */ } };
 
-export default function WallView({ onOpenTask, refresh = 0 }) {
+export default function WallView({ onOpenTask, onOpenReports, refresh = 0 }) {
   const [sessions, setSessions] = useState(null);   // alive pty sessions with a task
   const [tasks, setTasks] = useState({});           // TaskId -> task row (title, ref)
   const [live, setLive] = useState({});             // TaskId -> {work, StartedAt, ...} from runs/live
@@ -228,7 +228,7 @@ export default function WallView({ onOpenTask, refresh = 0 }) {
                 <Box sx={{ flex: 1, minHeight: 0, p: 0.75, display: "flex", flexDirection: "column", "& > *": { flex: 1, minHeight: 0 } }}>
                   {s.mode === "assistant"
                     ? <React.Suspense fallback={<CircularProgress size={18} sx={{ m: "auto" }} />}>
-                        <GeneralWorkspace task={{ ...t, TaskId: s.taskId }} onSession={load} compact />
+                        <GeneralWorkspace task={{ ...t, TaskId: s.taskId }} onSession={load} onOpenReports={onOpenReports} compact />
                       </React.Suspense>
                     : <TerminalPane sid={s.sid} height="100%" onExit={load} />}
                 </Box>

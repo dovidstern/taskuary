@@ -1646,7 +1646,6 @@ const AssistantPost = ({ sel, onOpenTask, onChanged }) => {
   const rv = briefOf(sel.Brief)?.reviewed;
   const [showSkipped, setShowSkipped] = useState(false);
   const [busy, setBusy] = useState(null);
-  const [talk, setTalk] = useState({});
   const [notes, setNotes] = useState({});
   const [err, setErr] = useState("");
   const load = useCallback(async () => {
@@ -1662,15 +1661,13 @@ const AssistantPost = ({ sel, onOpenTask, onChanged }) => {
     } catch (e) { setErr(e?.response?.data?.detail || "That did not work"); }
     setBusy(null); load(); onChanged?.();
   };
-  const answer = async (i) => {
-    const body = (talk[i.id] || "").trim();
-    if (!body) return;
-    setBusy(`${i.id}:talk`); setErr("");
+  const discuss = async (i) => {
+    setBusy(`${i.id}:discuss`); setErr("");
     try {
-      await api.post(`/api/assistant/talk/${i.id}`, { body });
-      setTalk((old) => ({ ...old, [i.id]: "" }));
+      const { data } = await api.post(`/api/assistant/ideas/${i.id}/discuss`, {});
       await load();
-    } catch (e) { setErr(e?.response?.data?.detail || "The assistant could not answer"); }
+      if (data.taskId) onOpenTask?.(data.taskId);
+    } catch (e) { setErr(e?.response?.data?.detail || "The Assistant workspace could not open"); }
     setBusy(null);
   };
   const btn = { textTransform: "none", fontSize: 11.5, minWidth: 0, minHeight: 27, px: 1.1, lineHeight: 1.2 };
@@ -1729,15 +1726,14 @@ const AssistantPost = ({ sel, onOpenTask, onChanged }) => {
                   )}
                   {a.tid && <Button size="small" variant="outlined" onClick={() => onOpenTask?.(a.tid)} sx={{ ...btn, ...quiet }}>Open {ref(a.tid)}</Button>}
                 </Box>
-                <Box sx={{ mt: 0.7, display: "flex", gap: 0.6, alignItems: "flex-end" }}>
-                  <TextField size="small" fullWidth multiline maxRows={4} value={talk[i.id] || ""}
-                    onChange={(e) => setTalk((old) => ({ ...old, [i.id]: e.target.value }))}
-                    onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); answer(i); } }}
-                    placeholder="Tell the assistant what it missed, or ask a follow-up…"
-                    sx={{ bgcolor: PANEL, "& .MuiInputBase-input": { fontSize: 11.5, lineHeight: 1.35 } }} />
-                  <Button size="small" variant="contained" disableElevation disabled={!!busy || !(talk[i.id] || "").trim()}
-                    onClick={() => answer(i)} sx={{ ...btn, ...primary, flexShrink: 0 }}>
-                    {busy === `${i.id}:talk` ? "answering…" : "Send"}</Button>
+                <Box sx={{ mt: 0.7 }}>
+                  <Button size="small" variant="contained" disableElevation disabled={!!busy}
+                    onClick={() => discuss(i)} sx={{ ...btn, ...primary }}>
+                    {busy === `${i.id}:discuss` ? "opening…" : a.discussion_tid ? `Continue in ${ref(a.discussion_tid)}` : "Discuss in Assistant"}
+                  </Button>
+                  <Typography variant="caption" sx={{ display: "block", color: FAINT, mt: 0.35 }}>
+                    Opens the full Assistant chat with this idea and its context carried over.
+                  </Typography>
                 </Box>
               </>
             ) : (

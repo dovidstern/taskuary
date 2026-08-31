@@ -8,6 +8,10 @@
 .tq-aui-user-bubble { justify-self: start; max-width: 88%; border: 1px solid #dfdbd3; background: #f1eee8; border-radius: 13px; padding: 9px 13px; font-size: 13px; line-height: 1.48; }
 .tq-aui-user-bubble p { margin: 0; white-space: pre-wrap !important; }
 .tq-aui-agent-body { min-width: 0; padding: 5px 3px; }
+.tq-aui-report-action { width: min(760px, 92%); margin: 2px auto 14px; padding: 10px 12px; border: 1px dashed #d8d1c5; border-radius: 11px; background: #f8f5ee; display: flex; align-items: center; gap: 12px; }
+.tq-aui-report-action > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tq-aui-report-action b { color: #4d514b; font-size: 12px; }
+.tq-aui-report-action span { color: #858078; font-size: 10.5px; }
 .tq-aui-progress { margin: 0 0 8px; border: 1px dashed #ddd7cd; border-radius: 9px; color: #77766f; font-size: 11.5px; }
 .tq-aui-progress summary { cursor: pointer; padding: 6px 9px; font-weight: 650; color: #676b64; }
 .tq-aui-progress > div { padding: 0 9px 8px; white-space: pre-wrap; line-height: 1.45; }

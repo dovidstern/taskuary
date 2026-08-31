@@ -46,6 +46,20 @@ class AgentSourceTests(unittest.TestCase):
             _, body = reports.REGISTRY['agent'](reports.resolve_cfg(self.s, {'type': 'agent', 'skill': 'weekly-user-review'}))
             self.assertIn('ASKED[/weekly-user-review]', body)
 
+    def test_a_taskuary_owned_skill_is_expanded_for_any_cli_provider(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        calls = []
+        with TemporaryDirectory() as tmp, mock.patch('taskuary.config.home', return_value=Path(tmp)):
+            skill = Path(tmp) / 'skills' / 'daily-watch'; skill.mkdir(parents=True)
+            (skill / 'SKILL.md').write_text('# Daily watch\nCheck every current source and cite it.', encoding='utf-8')
+            with mock.patch('taskuary.llm.make_cli_llm', self._fake_cli(calls)):
+                _, body = reports.REGISTRY['agent'](reports.resolve_cfg(self.s, {
+                    'type': 'agent', 'skill': 'daily-watch', 'prompt': "Produce today's report."}))
+        self.assertIn('TASKUARY SKILL /daily-watch', body)
+        self.assertIn('Check every current source', body)
+        self.assertIn("RUN INPUT\nProduce today's report.", body)
+
     def test_the_last_run_shape_rides_along_so_runs_stay_comparable(self):
         """Two runs twenty minutes apart were two different documents. The previous run's headings
         and table columns - never its content - go into the next ask; a failed run anchors nothing."""

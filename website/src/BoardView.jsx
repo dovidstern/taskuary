@@ -229,7 +229,7 @@ const COLS = [
   { key: "done", title: "Done", dot: "#47654a", status: "done" },
 ];
 
-export default function BoardView({ onOpenTask }) {
+export default function BoardView({ onOpenTask, onOpenReports }) {
   const [tasks, setTasks] = useState(null);
   const [err, setErr] = useState("");
   const [view, setView] = useState("columns");   // columns | studio | wall - three looks at one board
@@ -359,7 +359,7 @@ export default function BoardView({ onOpenTask }) {
       </Dialog>
 
       {view === "studio" && <StudioView onOpenTask={onOpenTask} refresh={boardTick} />}
-      {view === "wall" && <WallView onOpenTask={onOpenTask} refresh={boardTick} />}
+      {view === "wall" && <WallView onOpenTask={onOpenTask} onOpenReports={onOpenReports} refresh={boardTick} />}
 
       <Box sx={{ display: view === "columns" ? "grid" : "none", gridTemplateColumns: { xs: "1fr", md: "repeat(4, minmax(0, 1fr))" }, gap: 2, alignItems: "start" }}>
         {COLS.map((col) => {

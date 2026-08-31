@@ -7,6 +7,7 @@ import AttachFileIcon from "@mui/icons-material/AttachFile";
 import CloseIcon from "@mui/icons-material/Close";
 import SendIcon from "@mui/icons-material/ArrowUpward";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
+import EventRepeatIcon from "@mui/icons-material/EventRepeat";
 import TerminalIcon from "@mui/icons-material/Terminal";
 import ViewDayIcon from "@mui/icons-material/ViewDay";
 import api from "./api.js";
@@ -57,7 +58,7 @@ const AssistantMessage = () => (
   </MessagePrimitive.Root>
 );
 
-function AssistantThread({ task, messages, selectionRef, attachmentsRef, onSent, onClearAttachments, onAttach }) {
+function AssistantThread({ task, messages, selectionRef, attachmentsRef, onSent, onClearAttachments, onAttach, onReport, reportBusy }) {
   const modelAdapter = useMemo(() => ({
     async *run({ messages: runMessages, abortSignal }) {
       const prompt = textOf([...runMessages].reverse().find((m) => m.role === "user"));
@@ -126,6 +127,13 @@ function AssistantThread({ task, messages, selectionRef, attachmentsRef, onSent,
             </div>
           )}
           <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
+          {messages?.some((m) => m.role === "assistant") && (
+            <div className="tq-aui-report-action">
+              <div><b>Worth running again?</b><span>Creates a daily report from this workflow; adjust its cadence in Reports.</span></div>
+              <Button size="small" variant="outlined" startIcon={<EventRepeatIcon sx={{ fontSize: 15 }} />}
+                disabled={reportBusy} onClick={onReport}>{reportBusy ? "Creating…" : "Make recurring report"}</Button>
+            </div>
+          )}
         </ThreadPrimitive.Viewport>
           <div className="tq-aui-footer">
             {!!attachmentsRef.current.length && (
@@ -151,7 +159,7 @@ function AssistantThread({ task, messages, selectionRef, attachmentsRef, onSent,
   );
 }
 
-export function GeneralWorkspace({ task, onSession, compact = false }) {
+export function GeneralWorkspace({ task, onSession, onOpenReports, compact = false }) {
   const [data, setData] = useState(null);
   const [view, setView] = useState(savedView);
   const [connectorId, setConnectorId] = useState("");
@@ -160,6 +168,7 @@ export function GeneralWorkspace({ task, onSession, compact = false }) {
   const [threadKey, setThreadKey] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
   const fileRef = useRef(null);
   const selectionRef = useRef({ connectorId: "", model: "" });
   const attachmentsRef = useRef([]);
@@ -217,6 +226,17 @@ export function GeneralWorkspace({ task, onSession, compact = false }) {
   };
   const clearAttachments = useCallback((path) => setAttachments((old) => path ? old.filter((a) => a.path !== path) : []), []);
   const sent = useCallback((payload) => accept(payload), [accept]);
+  const makeReport = async () => {
+    setError(""); setReportBusy(true);
+    try {
+      const { data: made } = await api.post(`/api/tasks/${task.TaskId}/assistant/report`, {
+        pick: connectorId || null, model: model || null,
+      });
+      if (onOpenReports) onOpenReports(made.sourceId);
+      else setError(`Created “${made.title}” in Reports.`);
+    } catch (e) { setError(errText(e)); }
+    finally { setReportBusy(false); }
+  };
   const pasted = (e) => {
     const images = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/"));
     if (images.length) { e.preventDefault(); upload(images); }
@@ -259,7 +279,7 @@ export function GeneralWorkspace({ task, onSession, compact = false }) {
           <SessionPane sid={session.sid} height="100%">
             <AssistantThread key={`${task.TaskId}-${threadKey}`} task={task} messages={data.messages} selectionRef={selectionRef}
               attachmentsRef={attachmentsRef} onSent={sent} onClearAttachments={clearAttachments}
-              onAttach={() => fileRef.current?.click()} />
+              onAttach={() => fileRef.current?.click()} onReport={makeReport} reportBusy={reportBusy} />
           </SessionPane>
         ) : null}
       </Box>

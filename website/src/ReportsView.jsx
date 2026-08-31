@@ -217,7 +217,10 @@ export default function ReportsView() {
   const [syncing, setSyncing] = useState(false);
   const [note, setNote] = useState(null);
   const [err, setErr] = useState("");
-  const [bucket, setBucket] = useState("all");   // which rail section is open
+  const [bucket, setBucket] = useState(() => {
+    const found = /report=(\d+)/.exec(window.location.hash || "");
+    return found ? Number(found[1]) : "all";
+  });   // which rail section is open (a newly promoted discussion links straight to its editor)
   const [q, setQ] = useState("");
 
   const [lastRuns, setLastRuns] = useState({});   // per source: what its last run read and did

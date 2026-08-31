@@ -88,7 +88,7 @@ const KIND_OPTIONS = [
 const KINDS = KIND_OPTIONS.map((o) => o.key);
 const kindLabel = (kind) => KIND_OPTIONS.find((o) => o.key === kind)?.label || kind;
 
-export default function TasksView({ selected, onSelect, onChanged, autostart, onAutostarted, onGoReview, active = true }) {
+export default function TasksView({ selected, onSelect, onChanged, autostart, onAutostarted, onGoReview, onGoReports, active = true }) {
   const [tasks, setTasks] = useState(null);
   // "live" on arrival: what is still on somebody's plate is what you came here for. "all"
   // opens on a list whose top is whatever finished most recently. ("" = all; the rest derive.)
@@ -516,7 +516,7 @@ export default function TasksView({ selected, onSelect, onChanged, autostart, on
                 )}
                 {isGeneral ? (
                   <React.Suspense fallback={<Box sx={{ flex: 1, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}>
-                    <GeneralWorkspace task={t} onSession={generalSession} />
+                    <GeneralWorkspace task={t} onSession={generalSession} onOpenReports={onGoReports} />
                   </React.Suspense>
                 ) : wrapping && !wrapped ? (
                   <Box sx={{ ...card, bgcolor: "#e3e6e1", border: "1px solid #d2d6cf" }}>

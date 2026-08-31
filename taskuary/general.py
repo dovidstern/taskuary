@@ -21,7 +21,17 @@ GENERAL_KINDS = {'general', 'research', 'marketing', 'triage'}
 SCROLLBACK = 200_000
 MAX_CONTEXT = 24_000
 MAX_REPLY_TOKENS = 2_000
+REPORT_DRAFT_TOKENS = 1_200
+REPORT_SKILL_CHARS = 2_400
 _IMAGE_PATH = re.compile(r'(?P<path>(?:[A-Za-z]:\\|/)[^\r\n<>|"?*]+?\.(?:png|jpe?g|gif|webp))', re.I)
+
+REPORT_DRAFT_SYSTEM = """You turn a completed assistant conversation into a REUSABLE scheduled-report instruction.
+Return ONLY JSON: {"title":"short recurring report title","prompt":"standalone instruction"}.
+The prompt must reproduce the useful work on every future run using CURRENT information. Preserve the goal,
+sources or systems to inspect, important search/query steps, comparison criteria, caveats, provenance requirements,
+and the desired report sections or output shape. Convert one-off dates into relative windows when appropriate.
+Never copy secrets, access tokens, incidental debugging, old findings, or the previous answer as if it were current.
+Do not mention this conversation. Do not add a schedule; the user chooses that separately."""
 
 
 def handles(task: dict | None) -> bool:
@@ -108,6 +118,79 @@ def _prompt(store, tid: int) -> tuple[str, str]:
             + "CONVERSATION\n" + '\n\n'.join(turns)
             + "\n\nRespond to the last USER turn. Do not repeat the task context.")
     return system, _cut(user, MAX_CONTEXT)
+
+
+def _fallback_report_draft(store, tid: int) -> dict:
+    """A useful editable draft even when the selected brain is unavailable or returns prose."""
+    detail = store.task_detail(tid) or {}
+    task = detail.get('task') or {}
+    asks = [str(c.get('Body') or '').strip() for c in chat_rows(store, tid)
+            if c.get('ActorType') == USER_TYPE and str(c.get('Body') or '').strip()]
+    title = str(task.get('Title') or 'Recurring assistant report').strip()[:100]
+    prompt = ('Repeat this work using current information at every run. Verify claims with the available tools, '
+              'include dates and source links, distinguish confirmed facts from unknowns, and end with the practical '
+              'changes or follow-ups that matter now.')
+    if asks:
+        prompt += '\n\nThe original requests to preserve:\n' + '\n'.join(f'- {_cut(a, 1800)}' for a in asks[-8:])
+    return {'title': title, 'prompt': prompt[:12000]}
+
+
+def report_draft(store, tid: int, pick=None, model=None) -> dict:
+    """Condense a task conversation into the prompt of an ``agent`` report.
+
+    This is deliberately a separate model call: it neither adds a chat turn nor reruns the work.
+    The deterministic fallback remains editable, so a formatting failure cannot block scheduling.
+    """
+    task = store.get_task(tid)
+    if not task: raise ValueError(f'no task {tid}')
+    if not handles(task): raise ValueError('only assistant discussions can become recurring reports here')
+    rows = chat_rows(store, tid)
+    if not any(c.get('ActorType') == ASSISTANT_TYPE for c in rows):
+        raise ValueError('finish at least one assistant exchange before turning it into a report')
+    fallback = _fallback_report_draft(store, tid)
+    chosen, _provider, chosen_model = _selected(store, model=model, pick=pick)
+    try:
+        brain = llm_mod.build_llm(store, pick=chosen or None, model=chosen_model or None)
+    except Exception as e:
+        logger.warning(f'assistant report draft could not select a model for task {tid}: {e}')
+        return fallback
+    if not brain: return fallback
+    conversation = '\n\n'.join(
+        f"{'ASSISTANT' if c.get('ActorType') == ASSISTANT_TYPE else 'USER'}: {_cut(c.get('Body'), 3500)}"
+        for c in rows[-24:])
+    user = (f"TASK TITLE: {task.get('Title') or ''}\nTASK SUMMARY: {task.get('Summary') or ''}\n\n"
+            f"CONVERSATION\n{_cut(conversation, 20000)}")
+    try:
+        raw = str(brain(REPORT_DRAFT_SYSTEM, user, max_tokens=REPORT_DRAFT_TOKENS) or '').strip()
+        clean = re.sub(r'^```(?:json)?\s*|\s*```$', '', raw, flags=re.I)
+        try: made = json.loads(clean)
+        except (ValueError, TypeError):
+            block = re.search(r'\{.*\}', clean, flags=re.S)
+            made = json.loads(block.group(0)) if block else {}
+        title, prompt = str(made.get('title') or '').strip(), str(made.get('prompt') or '').strip()
+        if not prompt: return fallback
+        return {'title': (title or fallback['title'])[:100], 'prompt': prompt[:12000]}
+    except Exception as e:
+        logger.warning(f'assistant report draft fell back for task {tid}: {e}')
+        return fallback
+
+
+def save_report_skill(tid: int, title: str, prompt: str) -> str:
+    """Persist a long generated workflow as a Taskuary-owned, provider-neutral skill.
+
+    ``reports.run_agent`` expands this file into the CLI prompt, so the same recurring skill
+    works with Claude, Codex, Gemini, or another configured CLI instead of being installed into
+    one provider's private skill directory.
+    """
+    from . import config
+    slug = re.sub(r'[^a-z0-9]+', '-', str(title or '').lower()).strip('-')[:52] or 'recurring-report'
+    slug = f'{slug}-tq-{tid}'
+    folder = config.home() / 'skills' / slug
+    folder.mkdir(parents=True, exist_ok=True)
+    text = (f'---\nname: {slug}\ndescription: Reusable workflow promoted from Taskuary task {tid}.\n---\n\n'
+            f'# {title.strip()}\n\n{prompt.strip()}\n')
+    (folder / 'SKILL.md').write_text(text, encoding='utf-8')
+    return slug
 
 
 def _images(paths) -> list:

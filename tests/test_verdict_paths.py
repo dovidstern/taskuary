@@ -8,8 +8,10 @@ next burst on the same chat went to the classifier as if nothing had ever been s
 
 These tests walk the three verdicts an owner gives on a triaged item, and what the NEXT
 message on that conversation does afterwards:
-  - not a task            -> the rest of the conversation is filed (an email thread for life,
-                             a chat for CHAT_VERDICT_HOURS - a chat id is a relationship)
+  - not a task            -> the rest of an email THREAD is filed (same thread, same topic).
+                             A CHAT carries nothing forward: a room is a relationship, and
+                             "nothing to do here" is about the line it was said on. That
+                             verdict still reaches the classifier as evidence.
   - task, but no agent    -> reclassified to a reply: the follow-up joins the task, no coder
   - sent to a coding agent -> the follow-up joins that task; nothing re-triages it
 """
@@ -77,34 +79,34 @@ class NotATaskTests(unittest.TestCase):
         self.assertTrue(c.post(f"/api/messages/{first['message_id']}/file").json()['taskDeleted'])
         asked = []
         second = push(2, sent_at=stamp(hours=2), calls=asked)
-        self.assertEqual((second['status'], second['task_id']), ('filed', None))
-        self.assertEqual(asked, [])                                  # decided, not advised
-        row = feed_row(second['message_id'])
-        self.assertEqual(row['NeedsYou'], 0)
-        self.assertIn('already ruled on this conversation', row['RouteReason'])
-        self.assertIn('nothing to do', row['RouteReason'])
+        # ...and the NEXT line in that chat is judged on its own merits. It used to be filed
+        # unread for a day, so "I just remembered..." never reached the funnel (2026-08-31).
+        self.assertEqual(second['status'], 'created')
+        self.assertEqual(len(asked), 1)                              # advised, not decided
 
-    def test_a_chat_ruling_never_covers_somebody_elses_ask(self):
-        """The support chat is a ROOM. Richard's "Thank you" was filed as nothing to do; Ivan's
-        request in the same chat the next morning is Ivan's, and the classifier is asked."""
+    def test_a_chat_ruling_covers_nobody_else_and_not_the_person_either(self):
+        """The support chat is a ROOM. Richard's "Thank you" was filed as nothing to do - which
+        says nothing about Ivan's request, and nothing about Richard's NEXT one either."""
         conv = CHAT + '-room'
         first = push(1, conv=conv, about='vpn', from_name='Richard Spencer')
         c.post(f"/api/messages/{first['message_id']}/file")
         asked = []
         other = push(2, conv=conv, about='badge', from_name='Ivan Stanley', sent_at=stamp(hours=3), calls=asked)
         self.assertEqual(other['status'], 'created')
-        self.assertEqual(len(asked), 1)
         same = push(3, conv=conv, about='vpn', from_name='Richard Spencer', sent_at=stamp(hours=4), calls=asked)
-        self.assertEqual(same['status'], 'filed')                    # the ruled person's own burst still is
+        self.assertNotEqual(same['status'], 'filed')                 # ...and Richard is not muted either
+        self.assertGreaterEqual(len(asked), 1)
 
-    def test_a_chat_verdict_covers_the_episode_not_the_relationship(self):
+    def test_a_chat_verdict_decides_nothing_about_the_next_line(self):
+        """Not an hour later, not a day later, not ever: a room is not a topic."""
         conv = CHAT + '-episode'
         first = push(1, conv=conv, about='vpn')
         c.post(f"/api/messages/{first['message_id']}/file")
-        asked = []
-        later = push(2, conv=conv, about='vpn', sent_at=stamp(hours=store_mod.CHAT_VERDICT_HOURS + 6), calls=asked)
-        self.assertEqual(later['status'], 'created')                 # a new ask days later is a new episode
-        self.assertEqual(len(asked), 1)
+        for hours in (1, 26):
+            later = push(hours + 1, conv=conv, about='vpn', sent_at=stamp(hours=hours))
+            # it may open a task or join the one already open - what it must never be is FILED
+            # unread because of something the owner said about an earlier line
+            self.assertNotEqual(later['status'], 'filed', f'{hours}h later')
 
     def test_an_email_thread_stays_ruled_for_life(self):
         conv = 'AAQkADNj-email-thread-1'
@@ -116,18 +118,18 @@ class NotATaskTests(unittest.TestCase):
         self.assertEqual((later['status'], later['task_id']), ('filed', None))
         self.assertEqual(asked, [])
 
-    def test_the_task_level_not_a_task_rules_the_thread_even_when_it_learns_nothing(self):
-        """Teams messages carry no email address, so the task-level verdict used to write
-        nothing at all - not even for the chat it was given on."""
+    def test_the_task_level_not_a_task_still_writes_the_verdict_down(self):
+        """It records the ruling (and used to write nothing at all for a chat) - it just no
+        longer DECIDES the next line of that chat."""
         conv = CHAT + '-tasklevel'
         first = push(1, conv=conv, about='badge')
         r = c.post(f"/api/tasks/{first['task_id']}/not-a-task", json={'learn': False}).json()
         self.assertEqual((r['ok'], r['learned']), (True, None))
+        ruled = store_mod  # keep the import used
         asked = []
         second = push(2, conv=conv, about='badge', sent_at=stamp(hours=1), calls=asked)
-        self.assertEqual((second['status'], second['task_id']), ('filed', None))
-        self.assertEqual(asked, [])
-        self.assertIn('not a task - Badge printer offline', feed_row(second['message_id'])['RouteReason'])
+        self.assertEqual(second['status'], 'created')
+        self.assertEqual(len(asked), 1)
 
     def test_another_conversation_from_the_same_people_is_still_triaged(self):
         first = push(1, conv=CHAT + '-a', about='wifi')

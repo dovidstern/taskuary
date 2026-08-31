@@ -210,8 +210,9 @@ def ingest_message(store, msg: dict, actor: str = 'router', llm=None, file_only:
             except Exception as e:
                 logger.warning(f'answer_to_agent failed for task {tid}: {e}')
     else:
-        # The one verdict that decides without a model: you already ruled on THIS conversation
-        # (same thread, or the same chat within its episode window). Everything else you have
+        # The one verdict that decides without a model: you already ruled on THIS email THREAD.
+        # A chat carries nothing forward - a room is a relationship, not a topic, and "nothing to
+        # do here" is about the line it was said on. Everything else you have
         # ever said - about a sender, about a topic - reaches the classifier below as EVIDENCE,
         # with the sender and subject it was given on, and the model judges how alike this
         # message really is. The owner's call (2026-08-27): a topic rule that decided
@@ -513,14 +514,16 @@ def owner_addresses(store) -> set:
 
 
 def ruled_on_thread(store, msg: dict) -> str:
-    """The owner's own "this is not work" on THIS conversation, if they gave one - the route
+    """The owner's own "this is not work" on THIS email thread, if they gave one - the route
     reason they left, so the timeline can quote what decided it. Same thread = same topic for
-    life; a chat id is a relationship, so there the ruling covers an episode (see
-    store.owner_verdict_on_thread). This is the only verdict that decides without a model:
+    life; a chat id is a relationship, not a topic, so a chat ruling decides nothing about the
+    next line (see store.owner_verdict_on_thread). This is the only verdict that decides
+    without a model:
     a verdict about a person or a topic is EVIDENCE for the classifier (relevant_notes), because
     the same topic can arrive asking something new, and only a reader can tell."""
     on_thread = store.owner_verdict_on_thread(msg.get('conversation_id'), msg.get('sent_at'),
-                                              sender=msg.get('from_email') or msg.get('from_name'))
+                                              sender=msg.get('from_email') or msg.get('from_name'),
+                                              channel=msg.get('channel'))
     return f'you already ruled on this conversation: {on_thread}' if on_thread else ''
 
 

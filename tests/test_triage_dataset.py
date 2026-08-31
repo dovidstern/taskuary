@@ -56,8 +56,8 @@ def replay(case: dict):
     msg = evalset.as_message(case)
     if not msg['body']: msg['body'] = stand_in_body(case.get('body_signals') or {})
     if case.get('owner_ruled_thread_before'):
-        # a chat ruling covers the SAME SENDER'S episode (store.owner_verdict_on_thread), so the
-        # ruled line is this sender's own earlier one - a room-wide ruling was the 2026-08-27 bug
+        # the ruled line is this sender's own earlier one where there is one. A chat ruling no
+        # longer decides anything either way (store.owner_verdict_on_thread); an email thread does
         prior = s.thread_messages(msg['conversation_id'])
         me = {(msg.get('from_email') or '').lower(), (msg.get('from_name') or '').lower()} - {''}
         mine = [p for p in prior if {(p.get('FromEmail') or '').lower(), (p.get('FromName') or '').lower()} & me]
@@ -133,11 +133,18 @@ class ReplayTests(unittest.TestCase):
                 self.assertEqual(seen['user'].get('addressed_to_you'), c['addressed_to_you'], c['id'])
                 self.assertEqual(seen['user'].get('recipients'), c['recipients'], c['id'])
 
-    def test_a_ruled_conversation_decides_without_a_model(self):
+    def test_a_ruled_email_thread_decides_without_a_model(self):
+        """An email THREAD is a topic, so a ruling on it settles the rest of it. A CHAT is a
+        room: a ruling there decides nothing about the next line, and the model is asked
+        (the owner, 2026-08-31 - "it should not judge the same sender sending something else")."""
+        chat = {'teams', 'slack', 'telegram', 'whatsapp', 'discord', 'imessage'}
         for c in cases():
             if c['label'] != 'fyi' or not c.get('owner_ruled_thread_before'): continue
             with self.subTest(c['id']):
                 _, out, seen = replay(c)
+                if str(c.get('channel') or '').lower() in chat:
+                    self.assertIn('user', seen, f"{c['id']}: a chat ruling must not decide the next line")
+                    continue
                 self.assertEqual(out['status'], 'filed', c['id'])
                 self.assertNotIn('user', seen, f"{c['id']}: the owner had already decided this, and a model was still asked")
 

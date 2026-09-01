@@ -143,6 +143,24 @@ const TermOnly = ({ sid, height = "70vh", onExit }) => {
       if (rows !== term.rows) term.resize(term.cols, rows);
     };
     fitSafely();
+    // the static demo has no socket to open: the session's recorded scrollback is typed out
+    // instead, at reading speed, so an agent is visibly working on a page with no server
+    if (import.meta.env.VITE_DEMO === "1") {
+      let stop = false;
+      (async () => {
+        const api = (await import("./api.js")).default;
+        const { data } = await api.get(`/api/terminals/${sid}`).catch(() => ({ data: null }));
+        const NL = String.fromCharCode(10);
+        const text = String(data?.scrollback || (data?.tail || []).join(NL)
+          || "the agent's session replays here");
+        for (const line of text.split(NL)) {
+          if (stop) return;
+          term.writeln(line);
+          await new Promise((r) => setTimeout(r, 90));
+        }
+      })();
+      return () => { stop = true; };
+    }
     const ws = new WebSocket(wsUrl(sid));
     const send = (m) => ws.readyState === 1 && ws.send(JSON.stringify(m));
     // ResizeObserver may fire several times for one unchanged box (and every parent poll used

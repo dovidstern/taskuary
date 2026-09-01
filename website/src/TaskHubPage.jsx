@@ -95,6 +95,9 @@ function DemoBadge() {
 function StaleBuild() {
   const [stale, setStale] = useState(false);
   useEffect(() => {
+    // the static demo IS a recording: its /api/build is whatever the instance it was dumped
+    // from was running, which is not a newer version of anything
+    if (import.meta.env.VITE_DEMO === "1") return undefined;
     const mine = loadedAsset();
     const check = () => api.get("/api/build")
       .then(({ data }) => setStale(isStale(mine, data.asset))).catch(() => {});

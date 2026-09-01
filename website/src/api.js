@@ -1,6 +1,7 @@
 // One axios instance for the whole UI; the local server
 // needs no auth (localhost) - if [server].token is set, put it in localStorage.
 import axios from "axios";
+import demoApi, { DEMO } from "./demoApi.js";
 const api = axios.create({ baseURL: "" });
 api.interceptors.request.use((c) => {
   const t = localStorage.getItem("taskuary_token");
@@ -18,4 +19,7 @@ api.interceptors.response.use(null, (e) => {
   }
   return Promise.reject(e);
 });
-export default api;
+// taskuary.com/demo is this same bundle with no server behind it: every call is answered from
+// a recording of a real --demo instance instead (demoApi.js). One swap, here, so no component
+// has to know which it is talking to.
+export default DEMO ? demoApi : api;

@@ -1265,6 +1265,8 @@ const ReviewCanvas = ({ sel, detail, editText, setEditText, decide, onOpenTask, 
   // you usually realise it is somebody else's job while reading it here, not after opening
   // the Tasks tab - so the hand-off form opens in this panel too
   const [handoff, setHandoff] = useState(false);
+  const [more, setMore] = useState(false);        // the rest of the tray, folded away
+  const [filed, setFiled] = useState(false);      // ...and the scope line that follows a filing
   // a reply opened from THIS panel on a message with no pending review
   const [opened, setOpened] = useState(null);
   const [opening, setOpening] = useState(false);
@@ -1286,7 +1288,8 @@ const ReviewCanvas = ({ sel, detail, editText, setEditText, decide, onOpenTask, 
     try { await api.post(`/api/tasks/${sel.TaskId}/answer`, { message_id: sel.MessageId }); setHanded(true); }
     catch { /* session gone between render and click: the row's hint still points at the task */ }
   };
-  useEffect(() => { setHandoff(false); setReshape(false); setOpened(null); setOpening(false); setHanded(false); }, [sel.MessageId]);
+  useEffect(() => { setHandoff(false); setReshape(false); setOpened(null); setOpening(false); setHanded(false);
+    setMore(false); setFiled(false); }, [sel.MessageId]);
   const skipSender = async () => {
     const { data } = await api.post("/api/policies", { Name: `skip:${sel.FromEmail}`, Kind: "sender", Pattern: sel.FromEmail,
       Action: "skip", Reason: "flood sender — skipped from the timeline", SortOrder: 10, Active: true });
@@ -1442,6 +1445,10 @@ const ReviewCanvas = ({ sel, detail, editText, setEditText, decide, onOpenTask, 
           <Box sx={{ flexShrink: 0, borderTop: `1px solid ${BORDER}`, bgcolor: PANEL2, px: 2, pt: 0.25, pb: 1.25 }}>
           {/* These were four buttons in two rows, four sizes, two right-aligned - so "what are
               my options" needed a hunt, and a long message pushed the fourth off-screen. */}
+            {/* FOUR OUTCOMES, always these four, always this order: work it, answer it, keep
+                it, drop it. Everything else this panel can do is a variation on one of them and
+                lives behind "more ways" - eleven rows meant the question "what are my options"
+                had a scroll in it, and the two that matter most were somewhere in the middle. */}
             <PanelLabel>What should happen with this?</PanelLabel>
             <ChoiceList>
               {onIt ? (
@@ -1468,7 +1475,29 @@ const ReviewCanvas = ({ sel, detail, editText, setEditText, decide, onOpenTask, 
               ) : (
                 <MineToDo messageId={sel.MessageId} onMade={() => onRefresh?.()} />
               )}
-              {sel.TaskId && (
+              {/* THE HARMLESS EXIT: it files this and the rest of the conversation and teaches
+                  nothing. Teaching is the line underneath, asked once, afterwards - it used to be
+                  a separate button ("Not our task") whose one wrong click told the funnel to stop
+                  listening to a colleague. */}
+              <ChoiceRow tint="#e9e3d8" busy={!!filed} onClick={async () => {
+                  await api.post(`/api/messages/${sel.MessageId}/file`);
+                  setFiled(true); onRefresh?.();
+                }}
+                icon={<CloseIcon sx={{ fontSize: 14, color: "#5e685f" }} />}
+                label={filed ? "Filed — nothing to do here" : sel.TaskId ? "Not a task — just conversation" : "Nothing to do here"}
+                hint={filed ? "this and the rest of the conversation are off your list"
+                  : sel.TaskId ? `delete ${ref(sel.TaskId)} and file the rest of this conversation`
+                               : "file it and the rest of this conversation"} />
+              {filed && <LearnScope row={sel} onDone={() => onSkipped?.()} />}
+              {/* one line instead of seven rows: the rest are real, and none of them is what the
+                  question above is asking */}
+              <Box component="button" onClick={() => setMore((m) => !m)}
+                sx={{ width: "100%", textAlign: "left", px: 1.25, py: 0.6, cursor: "pointer", border: "none",
+                  borderTop: `1px solid ${BORDER}`, bgcolor: "transparent", color: DIM, fontSize: 11.5,
+                  "&:hover": { color: INK } }}>
+                {more ? "▾ fewer ways" : "▸ more ways to handle this"}
+              </Box>
+              {more && sel.TaskId && (
                 <ChoiceRow tint="#eae4d8" onClick={() => setHandoff((h) => !h)}
                   icon={<ForwardToInboxIcon sx={{ fontSize: 14, color: "#55697a" }} />}
                   label="Hand it to a person" hint="not ours to do — the AI writes the forward, you send it" />
@@ -1476,7 +1505,7 @@ const ReviewCanvas = ({ sel, detail, editText, setEditText, decide, onOpenTask, 
               {/* under the row that OPENED it. It used to render after the whole list, past the
                   drawer, so clicking a button near the top scrolled a tray in at the bottom with
                   nothing connecting the two - and every other tray here expands in place. */}
-              {handoff && sel.TaskId && (
+              {more && handoff && sel.TaskId && (
                 <Box sx={{ width: "100%", bgcolor: PANEL2, borderTop: `1px solid ${BORDER}`, px: 1.25, py: 1 }}>
                   <PanelLabel>Hand this to a person</PanelLabel>
                   <Handoff taskId={sel.TaskId} onSent={() => onRefresh?.()} />
@@ -1485,16 +1514,17 @@ const ReviewCanvas = ({ sel, detail, editText, setEditText, decide, onOpenTask, 
               {/* the default is the agent - everything that is work goes to it - so the exception is
                   the button: real work, not for the coder. The task stays on your list and the
                   verdict is remembered for the next message like it. */}
-              {sel.TaskId && (
+              {more && sel.TaskId && (
                 <ChoiceRow tint="#eee7d6" onClick={async () => { await api.post(`/api/tasks/${sel.TaskId}/not-coding`); onRefresh?.(); }}
                   icon={<CloseIcon sx={{ fontSize: 14, color: "#8a7a5c" }} />}
                   label="Not a coding task" hint={`keep ${ref(sel.TaskId)} on your list, take the agent off it — and remember that for mail like this`} />
               )}
-              <VoiceNoteRow sel={sel}
+              {more && <VoiceNoteRow sel={sel}
                 body={voiceNoteBody(sel, (detail?.messages || []).find((m) => m.MessageId === sel.MessageId))}
-                onRefresh={onRefresh} onMessageChanged={onMessageChanged} />
-              <SplitTask row={sel} onSplit={() => onRefresh?.()} />
-              {sel.TaskId && (
+                onRefresh={onRefresh} onMessageChanged={onMessageChanged} />}
+              {more && <SplitTask row={sel} onSplit={() => onRefresh?.()} />}
+              {more && <NotMine row messageId={sel.MessageId} onDone={onSkipped} onLock={onLock} />}
+              {more && sel.TaskId && (
                 <ChoiceRow tint="#e3e6e1" onClick={() => setReshape(true)}
                   icon={<CallSplitIcon sx={{ fontSize: 14, color: "#6f8a6e" }} />}
                   label="Two jobs in here, or a duplicate?"
@@ -1503,25 +1533,10 @@ const ReviewCanvas = ({ sel, detail, editText, setEditText, decide, onOpenTask, 
               {/* a chat about someone's job is not a coding job. Triage already said so, and
                   leading with "send it to a coding agent" argued with its own verdict - the
                   offer stays available, it just stops being the first thing you reach for */}
-              {codeless && !onIt && (
+              {more && codeless && !onIt && (
                 <SendToAgent row messageId={sel.MessageId} subject={sel.Subject} onOpenTask={onOpenTask} />
               )}
-              {/* THE HARMLESS EXIT, and it used to be missing whenever there was no task: the
-                  only way off the timeline was "Not our task", which writes a verdict against
-                  the sender - or against EVERY sender on a channel with no address, like Teams.
-                  One wrong click there teaches the funnel to stop listening to a colleague. */}
-              <ChoiceRow tint="#e9e3d8" onClick={async () => {
-                  await api.post(`/api/messages/${sel.MessageId}/file`);
-                  onSkipped?.();
-                }}
-                icon={<CloseIcon sx={{ fontSize: 14, color: "#5e685f" }} />}
-                label={sel.TaskId ? "Not a task — just conversation" : "Nothing to do here"}
-                hint={sel.TaskId ? `delete ${ref(sel.TaskId)} and file the rest of this conversation; nothing is learned about the sender`
-                                 : "file it and the rest of this conversation — nothing is learned about the sender or the topic"} />
-              {/* not ours -> the reason goes to memory, and triage reads it next time. Below the
-                  harmless one on purpose: this is the durable verdict, not the tidy-up. */}
-              <NotMine row messageId={sel.MessageId} onDone={onSkipped} onLock={onLock} />
-              {sel.Channel === "email" && sel.FromEmail && (skipped !== null ? (
+              {more && sel.Channel === "email" && sel.FromEmail && (skipped !== null ? (
                 <ChoiceRow tint="#dfeade" busy
                   icon={<VolumeOffIcon sx={{ fontSize: 14, color: "#47654a" }} />}
                   label="Sender skipped"
@@ -1910,6 +1925,62 @@ const MineToDo = ({ messageId, onMade }) => {
       icon={<AssignmentIndIcon sx={{ fontSize: 14, color: "#55697a" }} />}
       label={made ? `${made} — on your list` : "Mine to do"}
       hint={err || (made ? "a task with your name on it, no agent" : "a task on your own list — nobody is dispatched")} />
+  );
+};
+
+/* WHAT TRIAGE SHOULD LEARN, asked once, after a verdict that corrects it.
+   It used to be a button of its own ("Not our task"), which made teaching a different ACT from
+   deciding - so the quick verdict taught nothing and the teaching one felt heavy. It is the
+   same verdict at a different scope: this one, this person, this kind of work, or never ours.
+   Default is "just this one", so one click stays one click and nothing is learned by accident. */
+const LearnScope = ({ row, onDone }) => {
+  const [scope, setScope] = useState("");            // '' = just this one, the default
+  const [topic, setTopic] = useState("");
+  const [saved, setSaved] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    api.get(`/api/messages/${row.MessageId}/not-mine/suggest`)
+      .then(({ data }) => setTopic(data.topic || "")).catch(() => {});
+  }, [row.MessageId]);
+  const learn = async (which) => {
+    setBusy(which); setErr("");
+    try {
+      const { data } = await api.post(`/api/messages/${row.MessageId}/not-mine`,
+        { scope: which === "topic" ? "subject" : which === "everyone" ? "global" : "sender",
+          topic: which === "topic" ? topic : null, note: null });
+      setSaved(data); onDone?.();
+    } catch (e) { setErr(e?.response?.data?.detail || "that did not save"); }
+    setBusy("");
+  };
+  if (saved) return (
+    <Typography variant="caption" sx={{ color: "#47654a", fontWeight: 600, px: 1.25, py: 0.75, display: "block" }}>
+      ✓ triage will apply this to {saved.scope === "global" ? "every sender"
+        : saved.scope === "subject" ? `any mail about “${saved.scopeKey}”` : saved.scopeKey} from now on
+      {!!saved.alsoCovered?.length && ` · ${saved.alsoCovered.length} open task${saved.alsoCovered.length === 1 ? "" : "s"} already match it`}
+    </Typography>
+  );
+  const chip = (key, label, hint) => (
+    <Box component="button" key={key} title={hint} disabled={!!busy} onClick={() => key !== "one" && learn(key)}
+      sx={{ px: 0.9, py: 0.3, borderRadius: 99, cursor: key === "one" ? "default" : "pointer", fontSize: 11,
+        fontWeight: key === "one" ? 700 : 500, border: `1px solid ${key === "one" ? "#c9c0ae" : BORDER}`,
+        bgcolor: key === "one" ? "#eae4d8" : PANEL, color: key === "one" ? "#55697a" : DIM,
+        "&:hover": key === "one" ? {} : { bgcolor: "#f1ead9", color: INK } }}>
+      {busy === key ? "…" : label}
+    </Box>
+  );
+  return (
+    <Box sx={{ width: "100%", px: 1.25, py: 0.85, bgcolor: PANEL2, borderTop: `1px solid ${BORDER}`,
+      display: "flex", alignItems: "center", gap: 0.6, flexWrap: "wrap" }}>
+      <Typography variant="caption" sx={{ color: FAINT, mr: 0.25 }}>Should triage learn this?</Typography>
+      {chip("one", "just this one", "nothing is learned - the default")}
+      {row.FromEmail || row.FromName ? chip("sender", `from ${(row.FromName || row.FromEmail || "").split(" ")[0] || "them"}`,
+        "mail from this person like this one") : null}
+      {topic ? chip("topic", `mail about “${topic.slice(0, 28)}${topic.length > 28 ? "…" : ""}”`,
+        "any mail about this, whoever sends it") : null}
+      {chip("everyone", "never ours", "nobody's mail like this is our work")}
+      {err && <Typography variant="caption" sx={{ color: "#b42318", fontWeight: 600 }}>{err}</Typography>}
+    </Box>
   );
 };
 

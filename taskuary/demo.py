@@ -194,6 +194,72 @@ Want me to say that in the draft?"""),
 ]
 
 
+# The days BEFORE this one. A demo that opens on a single day ends halfway down the screen and
+# reads as an app with six things in it; a week of finished work is what a funnel actually looks
+# like, and it is the only way to see the day rail, the scroll and the "already handled" rows -
+# which are most of what Taskuary does. Everything here is closed: the open work is today's.
+# (days ago, hours into that day, channel, who, subject, body, verdict, why)
+HISTORY = [
+    (1, 21, 'email', 0, 'Bank feed reconnected - August is complete',
+     'The feed dropped on Thursday and has caught up. Nothing is missing.', 'fyi',
+     'a notice that something is fixed: nothing is asked'),
+    (1, 19, 'teams', 3, '', 'can you approve the Fairhaven PO before you go?', 'reply',
+     'a yes-or-no a sentence settles'),
+    (1, 16, 'email', 1, 'Agency invoices for October - approve by Friday',
+     'Six invoices are queued for approval. The list is attached.', 'task',
+     'a batch with a deadline: real work, and it is yours'),
+    (1, 13, 'github', 3, '#211 census sync retries forever on a 502',
+     'It backs off but never gives up, so a bad night fills the log with the same line.', 'task',
+     'an issue with a reproduction: a coding agent can start on this'),
+    (1, 9, 'email', 2, 'Statement of account - August',
+     'Attached is your statement. No action required.', 'fyi', 'an automated statement, nothing asked'),
+    (2, 20, 'email', 0, 'Payroll export mismatched two employee ids',
+     'Two rows came through with the old ids after the site merge. Can the export map them?', 'task',
+     'a concrete defect in a system you own'),
+    (2, 17, 'whatsapp', 3, '', 'badge printer is back, ignore my last', 'fyi',
+     'a retraction closes its own thread'),
+    (2, 15, 'email', 1, 'RE: New starter on Monday - laptop + accounts',
+     'Adding that she needs the AP group and PO approval up to 5k.', 'reply',
+     'more detail on a thread already being worked'),
+    (2, 11, 'email', 2, 'Price increase effective 1 October',
+     'A 4% increase across the contract lines from October.', 'task',
+     'a change to a contract you pay: someone has to look before October'),
+    (3, 18, 'email', 0, 'Quarter close checklist - anything outstanding?',
+     'Sending the checklist round. Reply with anything still open on your side.', 'reply',
+     'a round-robin that wants one line back'),
+    (3, 14, 'teams', 1, '', 'the Lakeview dashboard is showing yesterday again', 'task',
+     'the same symptom as the overnight import: worth a look, not a chat'),
+    (3, 10, 'email', 3, 'Vendor portal password reset',
+     'Your password was reset as requested.', 'fyi', 'a transactional notice'),
+    (4, 21, 'email', 1, 'Fairhaven wifi is down in the east wing',
+     'Staff cannot chart from the east wing. The switch cupboard light is amber.', 'task',
+     'an outage with people waiting on it'),
+    (4, 18, 'teams', 0, '', 'thanks for turning the payroll thing round so fast', 'fyi',
+     'a thank-you closes a thread'),
+    (4, 15, 'email', 3, 'RE: Month-end close - the bank feed',
+     'Confirming the feed is back and the balances agree as of this morning.', 'reply',
+     'a confirmation on a thread you are already on'),
+    (4, 12, 'github', 0, '#209 nightly import writes the same warning 4,000 times',
+     'One row with a null manager, logged once per retry. The log is unreadable by morning.', 'task',
+     'noise with a cause: small, and a coding agent can take it'),
+    (4, 8, 'email', 2, 'Contract renewal - Cardinal Food Services',
+     'Your agreement renews on 1 November. No action is needed to continue.', 'fyi',
+     'an auto-renewal notice, nothing asked'),
+    (5, 20, 'email', 0, 'Can we get the AP ageing weekly instead of monthly?',
+     'Monthly is too late to chase anything. Weekly on Mondays would work.', 'task',
+     'a change to something you run: a report, and it is yours'),
+    (5, 17, 'whatsapp', 1, '', 'are you around for ten minutes about the cutover?', 'reply',
+     'a request for your time: an answer, not a task'),
+    (5, 14, 'email', 3, 'Access review - please confirm your team list',
+     'Confirm who should keep access to the finance systems by Friday.', 'task',
+     'a compliance ask with a name and a date on it'),
+    (5, 11, 'teams', 2, '', 'the Riverside export ran clean last night', 'fyi',
+     'a green run is not work'),
+    (5, 9, 'email', 1, 'FW: Regional operations newsletter',
+     'Sharing for visibility.', 'fyi', 'cc-for-visibility, nothing asked'),
+]
+
+
 def seed(store) -> int:
     """Build the demo's world. Idempotent: a home that already has work in it is left alone."""
     from . import artifacts, general
@@ -272,6 +338,22 @@ def seed(store) -> int:
         if str(m.get('SentAt') or '')[:10] != datetime.now().strftime('%Y-%m-%d'): continue
         store._exec('UPDATE message SET SentAt=? WHERE MessageId=?',
                     ((datetime.now() - timedelta(minutes=37 * i + 11)).strftime('%Y-%m-%d %H:%M:%S'), m['MessageId']))
+
+    # the week behind today: finished, so it reads as history rather than a backlog
+    for days, hour, channel, who, subject, body, verdict, why in HISTORY:
+        name, email = PEOPLE[who]
+        when = f.ago(hours=days * 24 + (22 - hour))
+        subject = subject or (body[:60] + ('…' if len(body) > 60 else ''))
+        source = ('Ops chat' if channel == 'teams' else 'northwind/importers' if channel == 'github'
+                  else f'{name.split()[0]} (whatsapp)' if channel == 'whatsapp' else None)
+        tid = f.task(title=subject, status='done', kind='coding' if channel == 'github' else 'general',
+                     ) if verdict == 'task' else None
+        mid = f.message(task_id=tid, channel=channel, subject=subject, body=body, from_name=name,
+                        from_email=email if channel == 'email' else None, sent_at=when,
+                        status='filed' if verdict == 'fyi' else 'routed',
+                        conversation_id=f'{channel}:{email or name}:{days}', source_name=source)
+        f.route(mid, tid, 'create' if verdict == 'task' else 'file' if verdict == 'fyi' else 'reply', why)
+        made += 1
 
     store.save_doc('soul', SOUL, 'demo')
     store.add_comment(next(t['TaskId'] for t in store.list_tasks()), 'assistant', 'assistant_agent',

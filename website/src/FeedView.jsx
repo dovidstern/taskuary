@@ -879,8 +879,6 @@ export default function FeedView({ onOpenTask, onChanged }) {
     { label: "ignored", n: todays.filter((r) => r.MsgStatus === "ignored").length, f: "" },
   ];
 
-  const open = !!(sel || calSel);   // ...is there a panel? the page's second track answers to this
-
   return (
     // rowGap is tighter than columnGap on purpose: the stats caption already pads the
     // header's bottom edge, and a full 16px under it left the timeline floating loose
@@ -892,12 +890,12 @@ export default function FeedView({ onOpenTask, onChanged }) {
       // 44% to the panel: a timeline row is one line of text and gains nothing past a readable
       // measure, while the panel holds a whole message, the draft and the action list - so the
       // width belongs there. The rows were running to 1100px of mostly empty middle.
-      // ...and the second track only exists while something is IN it. Reserved unconditionally,
-      // it left 44% of a wide monitor empty for as long as you were only reading the timeline -
-      // which is most of the time. The list spans at rest and makes room when you open a message.
-      width: "100%", transition: "grid-template-columns .18s ease",
-      gridTemplateColumns: open ? { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(520px, 44%)" }
-                                : "minmax(0, 1fr)" }}>
+      // Both tracks stand whether or not a panel is in one. Collapsing the second when nothing
+      // is selected does use the empty width - and re-flows the whole list every time the
+      // cursor enters or leaves it, because the panel opens on hover. A steady column that is
+      // sometimes half empty beats a list that resizes under the mouse.
+      width: "100%",
+      gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(520px, 44%)" } }}>
       {/* floating dock: one detached pill with Sync now DEAD-CENTER between the two filter
           groups, and the stats as a quiet caption line beneath. The old two-row toolbar
           card boxed the controls into the timeline column; the dock frees them to belong
@@ -1052,8 +1050,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
             (the inner grid mirrors the page's tracks), not over the whole page. */}
         {!!Object.keys(days).length && (
           <Box sx={{ width: "100%", display: "grid", columnGap: 2,
-            gridTemplateColumns: open ? { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(520px, 44%)" }
-                                      : "minmax(0, 1fr)" }}>
+            gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(520px, 44%)" } }}>
             <Typography variant="caption" sx={{ ...mono, color: INK, fontWeight: 800, fontSize: 11.5,
               letterSpacing: 0.5, pt: 0.75, pb: 0.25, textAlign: "center" }}>
               {fmtDay(curDay || dayEntries[0]?.[0] || "")}

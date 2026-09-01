@@ -18,7 +18,7 @@ const OUT = process.argv[3] || new URL("./src/demoFixtures.json", import.meta.ur
 const PATHS = [
   "/api/version", "/api/build", "/api/demo", "/api/owner", "/api/whoami", "/api/settings",
   "/api/setup", "/api/funnel", "/api/ingest/status", "/api/problems", "/api/runs/live",
-  "/api/feed?days=3&limit=200", "/api/feed", "/api/tasks?active=1", "/api/tasks",
+  "/api/feed?limit=200", "/api/tasks?active=1", "/api/tasks",
   "/api/reviews", "/api/terminals", "/api/agents", "/api/brains", "/api/cli/detect",
   "/api/connectors", "/api/sources", "/api/report-types", "/api/reports/last-runs",
   "/api/board/notes", "/api/people", "/api/send-targets", "/api/memory", "/api/policies",
@@ -30,7 +30,7 @@ const out = {};
 for (const path of PATHS) {
   try {
     const r = await fetch(BASE + path);
-    out[path] = r.ok ? await r.json() : null;
+    out[path.split("?")[0] === "/api/feed" ? "/api/feed" : path] = r.ok ? await r.json() : null;
   } catch (e) {
     out[path] = null;
     console.error(`skip ${path}: ${e.message}`);
@@ -57,7 +57,7 @@ for (const t of (out["/api/tasks"]?.data || [])) {
 // spreadsheet the visitor cannot download is a footnote, a chart that does not draw is a hole.
 out["/api/messages/attachments"] = {};
 out["/api/messages/one"] = {};
-for (const row of (out["/api/feed?days=3&limit=200"]?.data || [])) {
+for (const row of (out["/api/feed"]?.data || [])) {
   // the panel reads the whole message for any row with no task behind it - a report, a filed
   // notice - and without this it got an empty object and drew a message with no id, which is
   // why a report's own chart never appeared next to it

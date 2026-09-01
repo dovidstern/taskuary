@@ -53,6 +53,8 @@ npx wrangler d1 execute taskuary-demo --remote --file functions/schema.sql
 Then in the Pages project: **Settings → Functions → D1 bindings** → `DEMO_EVENTS` →
 `taskuary-demo`, and **Environment variables** → `ANALYTICS_TOKEN` → any long random string.
 
-Read it back with `https://taskuary.com/api/ev?token=<ANALYTICS_TOKEN>&days=30` — sessions per
-day, what was clicked, and how many sessions bounced after one event versus stayed for fifteen.
-Without the token that URL is a 404, so the numbers are not public.
+Read it at **`https://taskuary.com/stats.html`** — paste the token once and it shows sessions per
+day, how far people got (bounced after one event, or stayed for fifteen), which buttons were
+pressed and which tabs were opened. The page is not linked from the site and has no data of its
+own; it reads `https://taskuary.com/api/ev?token=<ANALYTICS_TOKEN>&days=30`, which is a 404 to
+anyone without the token, so the numbers are not public.

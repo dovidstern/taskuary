@@ -24,14 +24,17 @@ test("each mode reaches a visibly different place at the same age", () => {
   assert.equal(at3("off"), 1);
   assert.ok(at3("gentle") > at3("normal"), "gentle dims less than normal");
   assert.ok(at3("normal") > at3("sharp"), "normal dims less than sharp");
-  assert.ok(at3("sharp") < 0.5, "sharp is clearly quiet by three hours");
-  assert.ok(at3("gentle") > 0.9, "gentle is barely started at three hours");
+  assert.ok(at3("sharp") < 0.75, "sharp is clearly quiet by three hours");
+  assert.ok(at3("gentle") > 0.95, "gentle is barely started at three hours");
+  // the default is a hint about age, not a disabled state - a whole afternoon of rows at half
+  // opacity read as an app that had greyed itself out
+  assert.ok(ageOpacity(8, "normal") > 0.75, "normal is still legible after a working day");
 });
 
 test("nothing ever fades past its floor", () => {
-  assert.equal(ageOpacity(1e6, "sharp"), 0.35);
-  assert.equal(ageOpacity(1e6, "normal"), 0.5);
-  assert.equal(ageOpacity(1e6, "gentle"), 0.7);
+  assert.equal(ageOpacity(1e6, "sharp"), 0.5);
+  assert.equal(ageOpacity(1e6, "normal"), 0.72);
+  assert.equal(ageOpacity(1e6, "gentle"), 0.85);
 });
 
 test("the curve only ever darkens as a row gets older", () => {

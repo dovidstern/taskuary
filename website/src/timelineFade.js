@@ -5,7 +5,12 @@
 // {grace hours before it starts, span hours from there to the floor, floor}. On the cream palette a
 // gentle fade is nearly invisible; normal is the default so the live part stays distinct without
 // rows becoming quiet as abruptly as the sharper option.
-export const FADE = { off: null, gentle: [2, 20, 0.7], normal: [0.5, 5, 0.5], sharp: [0.33, 2, 0.35] };
+//
+// The default used to land at half opacity after five and a half hours, which by mid-afternoon
+// left most of a day's timeline looking DISABLED rather than merely older - a page of grey text
+// with three live rows in it. Age is a hint, not a verdict: the floor is 0.72 now and it takes
+// eleven hours to get there. `sharp` is still there for anyone who wants the old contrast.
+export const FADE = { off: null, gentle: [3, 24, 0.85], normal: [1, 10, 0.72], sharp: [0.5, 4, 0.5] };
 
 export const FADE_MODES = Object.keys(FADE);
 

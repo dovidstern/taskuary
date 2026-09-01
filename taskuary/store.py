@@ -174,6 +174,18 @@ CREATE TABLE IF NOT EXISTS metric (MetricId INTEGER PRIMARY KEY, Name TEXT UNIQU
 CREATE TABLE IF NOT EXISTS metric_fixture (FixtureId INTEGER PRIMARY KEY, MetricId INTEGER, Scope TEXT,
   Period TEXT, Expected REAL, Tolerance REAL, Source TEXT, LastGot REAL, LastAt TEXT, LastPass INTEGER,
   LastError TEXT, CreatedBy TEXT, CreatedAt TEXT);
+-- THE HANDBOOK (handbook.py): what the agents have worked out about this company, by topic.
+-- Not what they DID - that is the task's record, and it goes stale the moment the task closes.
+-- This is the part that is still true next month: how the deploy works, which system owns the
+-- census, that the finance close is the first Wednesday. Posts are durable and commentable;
+-- the wall (boardnote) stays what it is, a checkout's chatter for the next hour.
+CREATE TABLE IF NOT EXISTS lore (LoreId INTEGER PRIMARY KEY, Topic TEXT, Title TEXT, Body TEXT,
+  Author TEXT, Kind TEXT DEFAULT 'howto', TaskId INTEGER, Cwd TEXT, Score INTEGER DEFAULT 0,
+  Status TEXT DEFAULT 'live', Sig TEXT, CreatedAt TEXT, UpdatedAt TEXT);
+CREATE INDEX IF NOT EXISTS idx_lore_topic ON lore(Topic, LoreId);
+CREATE TABLE IF NOT EXISTS lore_comment (CommentId INTEGER PRIMARY KEY, LoreId INTEGER, Body TEXT,
+  Author TEXT, CreatedAt TEXT);
+CREATE INDEX IF NOT EXISTS idx_lore_comment ON lore_comment(LoreId, CommentId);
 """
 # the knowledge base's search index (knowledge.py). A VIRTUAL table, kept out of SCHEMA: a Python
 # built without FTS5 must still open the store - search then falls back to LIKE over kb_chunk.
@@ -304,6 +316,9 @@ DEFAULT_ROLES = {'outlook': 'trigger,tool', 'teams': 'trigger,tool', 'slack': 't
                  'aws': 'report,tool', 'azure': 'report,tool',
                  'sharepoint': 'report,tool', 'google_sheets': 'report,tool',
                  'knowledge': 'report,tool',       # indexed documents: a kb_search report, and a tool for agents and the drafter
+                 # the handbook the agents write themselves (handbook.py). tool, because the only
+                 # things that read and write it are agents; no trigger, because it never arrives.
+                 'handbook': 'report,tool',
                  'jira': 'trigger', 'asana': 'trigger', 'monday': 'trigger',
                  'clickup': 'trigger', 'todoist': 'trigger',
                  'gitlab': 'trigger', 'azdo': 'trigger', 'linear': 'trigger', 'trello': 'trigger',
@@ -420,7 +435,7 @@ class SQLiteStore:
                          ('database', 'Any database (connection string)'),
                          ('aws', 'Amazon Web Services'), ('azure', 'Microsoft Azure'),
                          ('sharepoint', 'SharePoint'), ('google_sheets', 'Google Sheets'),
-                         ('knowledge', 'Knowledge base'),
+                         ('knowledge', 'Knowledge base'), ('handbook', 'Company handbook'),
                          ('jira', 'Jira'), ('asana', 'Asana'), ('monday', 'Monday.com'),
                          ('clickup', 'ClickUp'), ('todoist', 'Todoist'),
                          ('gitlab', 'GitLab'), ('azdo', 'Azure DevOps'), ('linear', 'Linear'),
@@ -625,6 +640,19 @@ class SQLiteStore:
                        "WHERE TaskId=? AND Status='pending'", (actor, _now(), task_id))
         self._bump_snapshots()
     def get_task(self, task_id): return self._one('SELECT * FROM task WHERE TaskId=?', (task_id,))
+
+    def tag_task(self, task_id, tag, on=True, actor='router'):
+        """Add or remove ONE tag, leaving the others alone. Tags is a csv the UI and the router
+        both write (repo:x, needs:browser, hold:new-sender), so read-modify-write on the whole
+        field is how two writers lose each other's tag."""
+        cur = [t for t in re.split(r'[\s,]+', str((self.get_task(task_id) or {}).get('Tags') or '')) if t]
+        want = [t for t in cur if t != tag] + ([tag] if on else [])
+        if want == cur: return False
+        self.update_task(task_id, {'Tags': ','.join(want) or None}, actor)
+        return True
+
+    def task_has_tag(self, task_id, tag) -> bool:
+        return tag in re.split(r'[\s,]+', str((self.get_task(task_id) or {}).get('Tags') or ''))
     def list_tasks(self, status=None, active_only=False):
         q = '''SELECT t.*, rv.Status ReviewStatus, rv.Kind ReviewKind,
                        rn.Status RunStatus, rn.AgentName RunAgent,
@@ -1254,15 +1282,19 @@ class SQLiteStore:
     # The aliases (rv, t, rn) are the JOINs in feed() - one pass, not a correlated
     # subquery per row. The chip and the pending_only filter MUST keep using this
     # same expression or they will disagree.
+    # A note you left yourself is work on your list, but it is not work waiting on you UNTIL
+    # ITS TIME: "chase this Tuesday" nagging from Monday is the thing that makes a reminder
+    # useless. A note's row is stamped with when it is FOR (ownwork.note), so the clock decides.
     NEEDS_YOU = """(CASE WHEN rv.Status='pending'
                           OR (m.TaskId IS NOT NULL AND IFNULL(t.Status,'') NOT IN ('done', 'dropped')
-                              AND rn.TaskId IS NULL)
+                              AND rn.TaskId IS NULL
+                              AND (IFNULL(t.Kind,'') <> 'note' OR m.SentAt <= datetime('now', 'localtime')))
                     THEN 1 ELSE 0 END)"""
 
     def feed(self, limit=100, days=14, pending_only=False, channel=None, offset=0, source=None):
         q = f'''SELECT m.MessageId, m.Channel, m.SourceName, m.Subject, m.FromName, m.FromEmail, m.SentAt,
                        substr(m.BodyText, 1, 4000) Preview, m.Status MsgStatus, m.SourceLink, m.TaskId, m.Direction, m.Brief,
-                       t.Title, t.Status TaskStatus, t.Priority, t.Kind TaskKind, {self.NEEDS_YOU} NeedsYou,
+                       t.Title, t.Status TaskStatus, t.Priority, t.Kind TaskKind, t.Tags TaskTags, {self.NEEDS_YOU} NeedsYou,
                        IFNULL(ch.n, 0) ChainSize,
                        rt.Decision, rt.Reason RouteReason,
                        rv.ReviewId, rv.Status ReviewStatus, rv.Kind ReviewKind,
@@ -1306,16 +1338,23 @@ class SQLiteStore:
         # NEEDS_YOU (SQL) only sees `run` rows; a coder in a LIVE pty session is working the task
         # just as much, and the row said "needs you - no agent is working it" over a running
         # console. Working carries the agent's name so the chip can say who.
-        live = {r['TaskId']: r.get('AgentName') or 'agent' for r in self.running_runs()}
+        live, parked = {r['TaskId']: r.get('AgentName') or 'agent' for r in self.running_runs()}, set()
         try:
             from . import terminal as hub_term
-            live.update({t['taskId']: t.get('agent') or t.get('label') or 'coder' for t in hub_term.live_sessions(tail=0) if t.get('taskId')})
+            for t in hub_term.live_sessions(tail=0):
+                if not t.get('taskId'): continue
+                live[t['taskId']] = t.get('agent') or t.get('label') or 'coder'
+                # "an agent has it" and "an agent stopped and is waiting on you" are opposite
+                # facts and the row wore the same chip for both, so a session sitting on an
+                # unanswered question read as work in progress for as long as nobody looked.
+                if t.get('waiting'): parked.add(t['taskId'])
         except Exception:
             pass                                   # no pty support here: runs alone decide
         for r in rows:
             if r.get('TaskId') in live and r.get('TaskStatus') not in ('done', 'dropped'):
                 r['Working'] = live[r['TaskId']]
-                if r.get('ReviewStatus') != 'pending': r['NeedsYou'] = 0
+                r['AgentWaiting'] = r['TaskId'] in parked
+                if r.get('ReviewStatus') != 'pending': r['NeedsYou'] = 1 if r['TaskId'] in parked else 0
         return rows
 
     def feed_tag(self, days=14, pending_only=False, channel=None, source=None):
@@ -1427,6 +1466,71 @@ class SQLiteStore:
                         'seq': r['Seq'], 'score': round(-float(r['score']), 3), 'snippet': ' '.join(str(r['snip'] or '').split())})
             if len(out) >= limit: break
         return out
+
+    # ── the handbook (handbook.py): what the agents worked out about this company, by topic ──
+    # LIKE, not FTS5. The knowledge base indexes thousands of documents and needs bm25; the
+    # handbook is hundreds of short posts an agent WROTE, and a second virtual table for that is
+    # infrastructure nobody asked for. Ranking is what the caller asks for: recency, or score.
+    def lore_put(self, p: dict, actor: str = 'agent') -> int:
+        """Write a post, or UPDATE the one that already says this. `Sig` is what makes a fact
+        durable rather than repeated: the same agent working the same ground twice writes the
+        same signature, and the second run refreshes the post instead of adding a duplicate."""
+        sig = (p.get('Sig') or '').strip()
+        have = self._one('SELECT LoreId FROM lore WHERE Sig=? AND Sig<>""', (sig,)) if sig else None
+        if have:
+            self._exec('UPDATE lore SET Topic=?, Title=?, Body=?, Author=?, Kind=?, TaskId=?, Cwd=?, UpdatedAt=? WHERE LoreId=?',
+                       (p.get('Topic'), p.get('Title'), p.get('Body'), p.get('Author') or actor, p.get('Kind') or 'howto',
+                        p.get('TaskId'), p.get('Cwd'), _now(), have['LoreId']))
+            return have['LoreId']
+        return self._insert('lore', {**p, 'Author': p.get('Author') or actor, 'Sig': sig},
+                            ('Topic', 'Title', 'Body', 'Author', 'Kind', 'TaskId', 'Cwd', 'Score', 'Status', 'Sig'),
+                            {'CreatedAt': _now(), 'UpdatedAt': _now()})
+    def lore_get(self, lid): return self._one('SELECT * FROM lore WHERE LoreId=?', (lid,))
+    def lore_topics(self) -> list:
+        return self._rows("SELECT Topic, COUNT(*) n, MAX(UpdatedAt) last FROM lore WHERE Status='live' "
+                          'AND IFNULL(Topic,"")<>"" GROUP BY Topic ORDER BY n DESC, Topic')
+    LORE_STOP = {'the', 'and', 'for', 'you', 'are', 'not', 'with', 'this', 'that', 'have', 'from',
+                 'was', 'will', 'has', 'but', 'all', 'our', 'your', 'their', 'its', 'any', 'out',
+                 'can', 'when', 'what', 'how', 'why', 'who', 'does', 'did', 'about', 're'}
+
+    def lore_posts(self, topic=None, q=None, limit=50, sort='new') -> list:
+        """Ranked by HOW MANY of the query's distinctive words a post carries, not by whether it
+        carries all of them. Requiring all is right for a person typing three words and wrong for
+        handbook.block, which hands a whole task's text in - that found nothing at all, because no
+        one entry mentions every word of a mail. A post the query touches twice beats one it
+        touches once, and the top of that list is what an agent is handed."""
+        # the substring runs off the SINGULAR stem so a query's plural finds a singular entry:
+        # 'adjustments' must reach a post about an 'adjustment', which is the case that found nothing
+        terms = list(dict.fromkeys(t.rstrip('s') for t in re.findall(r'[a-z][a-z0-9-]{2,}', str(q or '').lower())
+                                   if t not in self.LORE_STOP))[:12]
+        hay = 'lower(l.Title || " " || IFNULL(l.Body,"") || " " || IFNULL(l.Topic,""))'
+        score = ' + '.join(f'(CASE WHEN {hay} LIKE ? THEN 1 ELSE 0 END)' for _ in terms) if terms else '0'
+        like = [f'%{t}%' for t in terms]
+        # params bind in TEXTUAL order across the whole statement: the score expression in SELECT,
+        # then the topic in WHERE, then the score expression again in WHERE. ORDER BY uses the
+        # alias, which is why it costs no third copy.
+        w = ["l.Status='live'"] + (['l.Topic=?'] if topic else []) + ([f'({score}) > 0'] if terms else [])
+        p = [*like] + ([topic] if topic else []) + [*like]
+        order = ('Hits DESC, ' if terms else '') + ('l.Score DESC, l.UpdatedAt DESC' if sort == 'top' or terms else 'l.UpdatedAt DESC')
+        return self._rows(f'SELECT l.*, ({score}) Hits, (SELECT COUNT(*) FROM lore_comment WHERE LoreId=l.LoreId) Comments '
+                          f'FROM lore l WHERE {" AND ".join(w)} ORDER BY {order} LIMIT ?', (*p, int(limit)))
+    def lore_vote(self, lid, delta: int):
+        self._exec('UPDATE lore SET Score=IFNULL(Score,0)+?, UpdatedAt=UpdatedAt WHERE LoreId=?', (int(delta), lid))
+    def lore_retire(self, lid, actor='owner'):
+        """Wrong, or no longer true. Retired rather than deleted: the post is how somebody once
+        understood this, and a handbook that silently loses entries cannot be trusted either."""
+        self._exec("UPDATE lore SET Status='retired', UpdatedAt=? WHERE LoreId=?", (_now(), lid))
+    def lore_comments(self, lid) -> list:
+        return self._rows('SELECT * FROM lore_comment WHERE LoreId=? ORDER BY CommentId', (lid,))
+    def lore_comment(self, lid, body, author='owner') -> int:
+        cid = self._insert('lore_comment', {'LoreId': lid, 'Body': body, 'Author': author},
+                           ('LoreId', 'Body', 'Author'), {'CreatedAt': _now()})
+        self._exec('UPDATE lore SET UpdatedAt=? WHERE LoreId=?', (_now(), lid))
+        return cid
+    def lore_count(self) -> dict:
+        return {'posts': self._one("SELECT COUNT(*) n FROM lore WHERE Status='live'")['n'],
+                'topics': self._one("SELECT COUNT(DISTINCT Topic) n FROM lore WHERE Status='live'")['n'],
+                'comments': self._one('SELECT COUNT(*) n FROM lore_comment')['n']}
 
     # ── the semantic layer (semantic.py): what a business number MEANS in this company's books ──
     # A metric is a definition plus the known-good numbers it was proved against. It is only

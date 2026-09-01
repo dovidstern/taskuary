@@ -66,8 +66,16 @@ def session_env(agent: str = '', task_id=None, cwd: str = '') -> dict:
     """What a CLI needs to know about ITSELF. `taskuary --note "..."` inside an agent's terminal
     should not have to be told which agent or which task it is - the session already knows, so
     it says so in the environment."""
-    return {k: str(v) for k, v in (('TASKUARY_AGENT', agent), ('TASKUARY_TASK', task_id or ''),
-                                   ('TASKUARY_CWD', cwd)) if v}
+    from . import config, guard
+    out = {k: str(v) for k, v in (('TASKUARY_AGENT', agent), ('TASKUARY_TASK', task_id or ''),
+                                  ('TASKUARY_CWD', cwd)) if v}
+    # ...and the token that says WHO IS ASKING. It is what --note, --learned and --done
+    # authenticate with, and it is what the middleware reads to refuse this session the routes
+    # that send (guard.DENIED). Less authority than the owner has, by construction rather than by
+    # instruction: an untrusted message can argue with a paragraph, not with a header.
+    tok = config.load()['server'].get('agent_token')
+    if tok: out[guard.AGENT_ENV] = tok
+    return out
 
 
 class _WinPty:
@@ -122,6 +130,7 @@ class Term:
         self.argv, self.cwd, self.label, self.task_id, self.agent = argv, cwd, label, task_id, agent
         self.rows, self.cols = rows, cols                 # replaying the stream needs the real geometry
         self.started = datetime.now().isoformat(sep=' ', timespec='seconds')
+        self.started_ts = time.time()                     # the same instant a clock can subtract (selfclose's age gate)
         self.buf, self.n, self.ended, self.last = deque(), 0, None, time.time()
         self.calm_until = 0                               # output until then must not reset idle()
         self.seeded = ''                                  # the prompt we typed: echoed back, not said
@@ -842,6 +851,18 @@ def seed_text(store, tid: int, instruction: str = None, repo: str = None, cwd: s
                  + ('You may push and deploy as the work needs. ' if push_ok else
                     'Do NOT push, deploy, publish or release - commit locally and stop; the owner reviews and pushes. ')
                  + 'Ask the owner here in the session if something is genuinely missing.')
+    # how this session ENDS. Without it the only ending is a person clicking Done, so a task
+    # finished overnight produced no report and the sender got no answer (selfclose.py).
+    from . import selfclose
+    if selfclose.mode(store) != 'off': parts.append(selfclose.SEED_LINE)
+    # what earlier agents worked out about this ground, and how to add to it (handbook.py). The
+    # wall says what is happening in this checkout this hour; the handbook says what is still
+    # true next month, and no agent could see it before.
+    from . import handbook
+    if handbook.enabled(store):
+        known = handbook.block(store, task_blob(store, tid))
+        if known: parts.append(no_emails(' '.join(known.split())))
+        parts.append(handbook.SEED_LINE)
     out = ' '.join(' '.join(parts).split())
     # A command line has a hard limit (32767 on Windows) and the OS does not warn - it refuses
     # or clips. If we are over, the ASK is what gives, never the rules that keep an agent
@@ -1029,6 +1050,11 @@ def start_on_task(store, tid: int, agent: str = 'coder', model: str = None, inst
     store.add_comment(tid, actor, 'human' if actor == 'owner' else 'agent',
                       f'{agent} started on this task in a live session ({term.cwd}).')
     if t.get('Status') != 'in_progress': store.update_task(tid, {'Status': 'in_progress'}, actor)
+    # A task started from the Board or the Tasks tab has no message behind it, so it had no
+    # Timeline row - and an agent could work it for forty minutes while the page that is
+    # supposed to be the record of the day said nothing. Stamped at the session's own start.
+    from . import ownwork
+    ownwork.ensure(store, tid, term.started, f'{agent} started here', actor)
     return {**term.info(), 'existing': False}
 
 

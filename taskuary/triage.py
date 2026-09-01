@@ -158,7 +158,7 @@ def _agreement(notes) -> tuple:
 
 def classify_intent(msg: dict, llm=None, soul: str = None, notes: list = None, images=None,
                     learned: str = None, system: str = None, notes_left: int = 0, mine=(),
-                    thread: dict = None) -> dict:
+                    thread: dict = None, watch: str = None) -> dict:
     """`notes` are the owner's past verdicts that may bear on this message - each one dated,
     with the sender and subject it was given on - selected by sender and topic overlap
     (ingest.relevant_notes). They are EVIDENCE: the model judges how alike this message is,
@@ -171,6 +171,12 @@ def classify_intent(msg: dict, llm=None, soul: str = None, notes: list = None, i
     replied. Supplied as a signal for the same reason as the To/Cc lines: the code's job is to
     put the fact in front of the model, and how much it counts for is a judgement that belongs
     in TRIAGE.md where the owner can argue with it.
+
+    `watch` is a SCHEDULED REPORT's standing brief: why the owner set the report up and what
+    would count as something being off in it. A report is a message like any other here, and
+    without the brief the classifier is reading a table of numbers with no idea which numbers
+    would be bad - so every run came out fyi, which made the whole "a report can start work"
+    road dead on arrival. With it, the report's own definition of wrong is what decides.
 
     `system` is TRIAGE.md, the owner-editable classifier instructions - HTML comments are
     stripped (the doc's own how-to-edit note is for the owner, not the model), and a blanked
@@ -219,6 +225,17 @@ def classify_intent(msg: dict, llm=None, soul: str = None, notes: list = None, i
             # SUPPLY the signal; how much it counts for is a judgement, and judgement belongs in
             # TRIAGE.md where the owner can argue with it. An untouched document tracks the
             # shipped template, so the paragraph reaches existing installs that way.
+            # a report reading itself against its own brief. Deliberately the LAST thing added to
+            # the instructions: it is about this one source, so it must not be able to argue with
+            # TRIAGE.md's definitions of task/reply_only/fyi - only to say what "off" looks like.
+            if watch:
+                system += ('\n\nTHIS IS A SCHEDULED REPORT, and the owner wrote down why they run it and what '
+                           'they are watching for:\n' + str(watch)[:1200] +
+                           '\nJudge the run AGAINST THAT. Something in the data matching what they are watching '
+                           'for is a task - say what you saw, in the reason, using the report\'s own numbers or '
+                           'names. Nothing matching is fyi, however interesting the rest of it is: a report that '
+                           'becomes work every time it runs is a report nobody reads. A reply is never right here '
+                           '- nobody sent this and there is nobody to answer.')
             how = addressed_to_you(msg, mine)
             user = json.dumps({'from': msg.get('from_email'), 'subject': msg.get('subject'),
                                **({'addressed_to_you': how,

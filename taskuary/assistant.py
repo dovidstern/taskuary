@@ -301,6 +301,10 @@ CONTRACT = ('\n\nYou are writing your POST on the owner\'s Timeline - the short 
             'CALENDAR, what arrived (with each report\'s schedule and each failure\'s cause), what got done, what is open, and WHAT '
             'YOU ALREADY SAID. Answer JSON only: {"say": [{"key": "<a candidate key, or idea:<short-slug> for a thought of your own>", '
             '"text": "<one line, under 30 words, first person: the fact and what I would do - quote the phrase or name the cause when there is one>", '
+            '"section": "<people|loose|ideas|systems - which part of the post this belongs under: people = what somebody said '
+            'or asked, loose = something waiting on somebody (a chase, a promise, work gone quiet), systems = a threshold, a '
+            'failure or a number out of a connected system, ideas = your own thought. A candidate the hub found has a section '
+            'already and yours is ignored for those; this is for idea:* lines>", '
             '"why": "<one line: what this rests on - the mail, the date, the silence, the pattern - named as it appears in what you '
             'were given (sender, subject, mid, TQ-ref), so the owner can check it>", "mid": <the message id it is '
             'about, or null>, "task": "<idea:* only - a task title the owner could accept as-is, or null>"}], '
@@ -495,6 +499,9 @@ def parse(text: str, cands: list, max_lines: int = MAX_LINES) -> list:
             mid = s.get('mid') if isinstance(s.get('mid'), int) else None
             title = _short(s.get('task'), 120) or None
             act = {'type': 'task', 'mid': mid, 'title': title} if title and mid else {'type': 'message', 'mid': mid} if mid else {'type': 'note'}
+            # where in the post it goes. Only an idea gets to choose: a candidate the hub found is
+            # placed by the producer that found it, and no model answer overrides that.
+            act['section'] = section_of({'section': s.get('section'), 'kind': 'idea'})
             out.append({'key': key[:120], 'kind': 'idea', 'sig': txt[:60], 'text': txt, 'action': act,
                         'why': why or 'the model gave no reason - treat it as a hunch' + (f' (about mid {mid})' if mid else '')})
         else: continue
@@ -633,10 +640,81 @@ def _notes(text: str) -> str:
 
 
 # ── the post ─────────────────────────────────────────────────────────────────────────────────
+# ── the post's shape ────────────────────────────────────────────────────────────────────
+# A flat list of lines is what the post used to be, and the owner (2026-09-01): "it should
+# summarize into sections... summary of what the info emails said to you, then open tasks and
+# what they are working on, then things you forgot to follow up from last week, then some stats".
+# The lines themselves stay exactly as they were - each one still carries its own buttons and its
+# own state, which is the whole value of them - they are just SORTED into sections that say what
+# kind of thing you are looking at.
+#
+# Two of the sections are not the model's work at all. What is in flight and what the day counted
+# are FACTS the hub already holds, and asking a model to restate them is how a brief starts
+# inventing a task that is not there (the digest did exactly that: TQ-0032 "pending review" when
+# nothing was pending). So they are computed here and the model never sees them as its own output.
+SECTIONS = (
+    ('people',  '📥', 'What people said',  'the ask in a thread, the thing somebody told you, the answer nobody picked up'),
+    ('flight',  '🚀', 'In flight',         'what an agent has, what closed, what has gone quiet'),
+    ('loose',   '🧵', 'Loose ends',        'what you are waiting on, what you promised, what went cold'),
+    ('ideas',   '💡', 'Worth a thought',   'the connection nobody made, the thing to do now so the next ask never comes'),
+    ('systems', '🛠️', 'From the systems',  'a threshold crossed, a job failing the same way twice, a number that moved'),
+)
+SECTION_KEYS = tuple(s[0] for s in SECTIONS)
+# where a candidate lands when the model does not say (and it never says for hub-found ones)
+KIND_SECTION = {'followup': 'loose', 'promise': 'loose', 'cold': 'loose', 'prep': 'people', 'idea': 'ideas'}
+
+
+def section_of(line: dict) -> str:
+    """Which section one line belongs in. The model's own choice wins for its ideas; a candidate
+    the hub found is placed by its kind, which is the thing that produced it."""
+    s = str(line.get('section') or '').strip().lower()
+    if s in SECTION_KEYS: return s
+    return KIND_SECTION.get(str(line.get('kind') or ''), 'ideas')
+
+
+def in_flight(store) -> list:
+    """What is being worked, straight off the tasks - never the model's recollection of it.
+    [{ref, tid, title, state}] newest activity first, the ones an agent has at the top."""
+    from . import terminal as term
+    live = {}
+    try: live = {t['taskId']: (t.get('agent') or t.get('label') or 'an agent') for t in term.live_sessions(tail=0) if t.get('taskId')}
+    except Exception: pass
+    out = []
+    for t in store.list_tasks(active_only=True):
+        if t.get('Status') not in ('open', 'in_progress', 'waiting'): continue
+        tid = t['TaskId']
+        agent = live.get(tid) or (t.get('RunAgent') if t.get('RunStatus') == 'running' else None)
+        last = _dt(store.task_last_activity(tid) or t.get('UpdatedAt') or t.get('CreatedAt'))
+        quiet_h = int((datetime.now() - last).total_seconds() // 3600) if last else None
+        state = (f'{agent} has it' if agent
+                 else 'a reply is drafted and waiting on you' if t.get('ReviewStatus') == 'pending'
+                 else f'quiet for {quiet_h}h' if quiet_h and quiet_h >= 24
+                 else 'nobody is on it')
+        out.append({'tid': tid, 'ref': task_ref(tid), 'title': _short(t.get('Title'), 90),
+                    'kind': t.get('Kind') or '', 'agent': agent or '', 'state': state,
+                    'hot': bool(agent) or t.get('ReviewStatus') == 'pending'})
+    out.sort(key=lambda r: (not r['hot'],))
+    return out[:8]
+
+
+def day_stats(store) -> list:
+    """The few numbers that mean something, counted - not asked for. [{n, label}]."""
+    from .categories import category_of, team_domains_of
+    team = team_domains_of(store.get_settings())
+    rows = store.feed(400, 1)
+    cats = [category_of(r, team) for r in rows]
+    tasks = [t for t in store.list_tasks(active_only=True) if t.get('Status') in ('open', 'in_progress', 'waiting')]
+    return [{'n': len(rows), 'label': 'arrived today'},
+            {'n': sum(1 for c in cats if c in ('info', 'automated', 'promo', 'feed', 'report')), 'label': 'wanted nothing'},
+            {'n': len(tasks), 'label': 'open'},
+            {'n': sum(1 for t in tasks if t.get('ReviewStatus') == 'pending'), 'label': 'waiting on you', 'hot': True}]
+
+
 def _public(i: dict) -> dict:
     try: a = json.loads(i.get('ActionJson') or '{}')
     except ValueError: a = {}
-    return {'id': i['IdeaId'], 'key': i['Key'], 'kind': i['Kind'], 'text': i['Text'], 'why': a.pop('why', ''), 'action': a, 'status': i.get('Status')}
+    return {'id': i['IdeaId'], 'key': i['Key'], 'kind': i['Kind'], 'text': i['Text'], 'why': a.pop('why', ''), 'action': a, 'status': i.get('Status'),
+            'section': section_of({'section': a.get('section'), 'kind': i['Kind']})}
 
 
 def talk(store, idea_id: int, text: str, actor: str = 'owner', llm=None) -> dict:
@@ -791,7 +869,11 @@ def _run(store, llm, instruction) -> dict:
                              'BodyText': body, 'Status': 'feed'})
     store.add_route(mid, None, 'feed', None, "the assistant's post: what it noticed and what it would do - open it to talk back or act",
                     [], 'assistant')
-    store.set_brief(mid, json.dumps({'ideas': [_public(i) for i in rows], 'reviewed': rv}))
+    # the two blocks the model does not write. What is in flight and what the day counted are facts
+    # the hub already holds; asking a model to restate them is how a brief starts describing work
+    # that is not there. Snapshotted onto the post so it still reads correctly tomorrow.
+    store.set_brief(mid, json.dumps({'ideas': [_public(i) for i in rows], 'reviewed': rv,
+                                     'flight': in_flight(store), 'stats': day_stats(store)}))
     store.set_ideas_message([i['IdeaId'] for i in rows], mid)
     store.audit('message', mid, 'assistant_post', 'assistant', 'agent', {'ideas': len(rows)})
     logger.info(f'assistant: posted {len(rows)} idea(s) as message {mid}')

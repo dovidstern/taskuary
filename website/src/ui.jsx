@@ -9,6 +9,10 @@ import api from "./api";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import GroupsIcon from "@mui/icons-material/Groups";
 import GitHubIcon from "@mui/icons-material/GitHub";
+// the assistant wears TASKUARY's own mark, not a robot head: it is this app talking, and a
+// generic bot glyph read as some third party bolted on the side
+import HubIcon from "@mui/icons-material/Hub";
+import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import TerminalIcon from "@mui/icons-material/Terminal";
 import TagIcon from "@mui/icons-material/Tag";
@@ -40,15 +44,16 @@ export const CHANNEL_COLORS = { teams: "#6264A7", email: "#41525f", github: "#2b
   jira: "#0052CC", asana: "#F06A6A", monday: "#6161FF", clickup: "#7b68ee", todoist: "#e44332",
   gitlab: "#fc6d26", azdo: "#0078d4", linear: "#5e6ad2", trello: "#0079bf", notion: "#37352f",
   discord: "#5865F2", sentry: "#7b6bc9", pagerduty: "#048a24",
-  aws: "#ff9900", azure: "#0078d4", database: "#6b6459", smb_file: "#6b6459" };
-const CHANNEL_ICONS = { teams: GroupsIcon, github: GitHubIcon, report: AssessmentIcon, assistant: SmartToyIcon,
+  aws: "#ff9900", azure: "#0078d4", database: "#6b6459", smb_file: "#6b6459", own: "#8a7a5c" };
+const CHANNEL_ICONS = { teams: GroupsIcon, github: GitHubIcon, report: AssessmentIcon, assistant: HubIcon,
   followup: SendIcon, promise: ChecklistIcon, prep: GroupsIcon, cold: ErrorOutlineIcon, idea: AutoAwesomeIcon,
   email: MailOutlineIcon, slack: TagIcon, telegram: SendIcon, whatsapp: WhatsAppIcon, imessage: SendIcon,
   ai: AutoAwesomeIcon, jira: BugReportIcon, asana: ChecklistIcon, monday: ViewKanbanIcon,
   clickup: ViewKanbanIcon, todoist: ChecklistIcon,
   gitlab: MergeTypeIcon, azdo: ViewKanbanIcon, linear: ChecklistIcon, trello: ViewKanbanIcon,
   notion: ArticleIcon, discord: TagIcon, sentry: ErrorOutlineIcon, pagerduty: NotificationsActiveIcon,
-  aws: CloudQueueIcon, azure: CloudQueueIcon, database: StorageIcon, smb_file: StorageIcon };
+  aws: CloudQueueIcon, azure: CloudQueueIcon, database: StorageIcon, smb_file: StorageIcon,
+  own: PersonOutlineIcon };
 // A product named on a card wears its OWN logo where we have one (logos.jsx, self-colored);
 // everything else falls back to a Material glyph tinted with the channel's brand color.
 export const ChannelIcon = ({ channel, sx }) => {

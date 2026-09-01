@@ -1,0 +1,240 @@
+// ＋ New — the only door on the Timeline that starts something instead of reacting to it.
+//
+// Until now every row on the Timeline was something that HAPPENED to the owner. Sending a
+// message meant opening Outlook (the app this one exists to keep them out of); starting a job
+// meant the Board; and a reminder had nowhere to go at all, so it went in a notebook and the
+// screen they watch all day knew nothing about it.
+//
+// Four things, one sheet, and all four land on the Timeline at the minute the button was
+// pressed. Nothing here sends: "Send something" produces a DRAFT the owner approves, which is
+// the one send path the app has and the only one that respects the per-channel reply switches.
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  Alert, Box, Button, CircularProgress, Dialog, DialogContent, DialogTitle, IconButton,
+  MenuItem, Select, TextField, Typography,
+} from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
+import api from "./api";
+import { ACCENT, ACCENT2, BORDER, DIM, FAINT, GRADIENT, INK, PANEL, PANEL2, ROLES, mono } from "./theme.jsx";
+import { ChannelIcon, AgentPicker, useAgents } from "./ui.jsx";
+import { planTask } from "./newTask.js";
+
+const KINDS = [
+  { key: "send",   mark: "✉️", label: "Send something", hint: "a message you start, drafted in your voice and approved by you" },
+  { key: "agent",  mark: "🤖", label: "Give an agent a job", hint: "the same live session triage would have opened" },
+  { key: "note",   mark: "💡", label: "Note to self", hint: "a reminder or an idea — nothing works it, it just sits on the day you pick" },
+];
+
+const Label = ({ children }) => (
+  <Typography sx={{ ...mono, fontSize: 9.5, fontWeight: 600, letterSpacing: ".11em",
+    textTransform: "uppercase", color: ACCENT2, mb: 0.75 }}>{children}</Typography>
+);
+
+const Fork = ({ on, title, hint, onClick }) => (
+  <Box onClick={onClick} role="button" tabIndex={0}
+    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onClick()}
+    sx={{ flex: 1, minWidth: 0, border: `1px solid ${on ? ACCENT : BORDER}`, borderRadius: 2,
+      p: 1.25, cursor: "pointer", bgcolor: on ? "#fff" : "#fcfaf7",
+      boxShadow: on ? `inset 0 0 0 1px ${ACCENT}` : "none", transition: "border-color .15s" }}>
+    <Typography sx={{ fontSize: 12.5, fontWeight: 600, color: INK, mb: 0.4 }}>{title}</Typography>
+    <Typography sx={{ fontSize: 11, color: FAINT, lineHeight: 1.5 }}>{hint}</Typography>
+  </Box>
+);
+
+export default function NewSheet({ open, onClose, onDone, onOpenTask }) {
+  const [kind, setKind] = useState("send");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState("");
+
+  // send
+  const [targets, setTargets] = useState([]);          // [{channel, to: [{to, name, hint}]}]
+  const [channel, setChannel] = useState("");
+  const [to, setTo] = useState("");
+  const [about, setAbout] = useState("");
+  const [mode, setMode] = useState("draft");
+  // agent
+  const { agents, models } = useAgents();
+  const [agent, setAgent] = useState("coder");
+  const [model, setModel] = useState("");
+  // note
+  const [when, setWhen] = useState("");
+
+  useEffect(() => { if (!open) return; setErr(""); setOk(""); }, [open]);
+  useEffect(() => { if (agents.length && !agents.includes(agent)) setAgent(agents[0]); }, [agents, agent]);
+  useEffect(() => {
+    if (!open) return;
+    api.get("/api/send-targets").then(({ data }) => {
+      const list = data.data || [];
+      setTargets(list);
+      setChannel((c) => c || list[0]?.channel || "");
+    }).catch(() => setTargets([]));
+  }, [open]);
+
+  const chanTargets = (targets.find((t) => t.channel === channel)?.to) || [];
+  const close = () => { if (!busy) onClose?.(); };
+
+  const submit = useCallback(async () => {
+    setBusy(true); setErr(""); setOk("");
+    try {
+      if (kind === "send") {
+        const { data } = await api.post("/api/outbox", { channel, to: to.trim(), about: about.trim(), mode });
+        setOk(mode === "task"
+          ? `${data.ref} — an agent is finding out first; the message is drafted when it is done.`
+          : `${data.ref} — drafted. It is on the Timeline waiting for you to send it.`);
+        setAbout(""); onDone?.(); onOpenTask?.(data.taskId);
+      } else if (kind === "agent") {
+        const plan = planTask(null, "terminal");
+        const { data } = await api.post("/api/tasks", { Title: about.trim().slice(0, 300), Summary: about.trim(),
+          Kind: plan.kind, Tags: plan.tags });
+        await api.post(`/api/tasks/${data.taskId}/dispatch`, { agent, model: model || null });
+        setOk(`${data.ref} — ${agent} is on it in a live session.`);
+        setAbout(""); onDone?.(); onOpenTask?.(data.taskId);
+      } else {
+        const { data } = await api.post("/api/notes", { title: about.trim().slice(0, 300), body: "", when: when || null });
+        setOk(`Noted — it sits on ${String(data.at).slice(0, 16)} and nothing will touch it.`);
+        setAbout(""); setWhen(""); onDone?.();
+      }
+    } catch (e) { setErr(e?.response?.data?.detail || "That did not go through"); }
+    setBusy(false);
+  }, [kind, channel, to, about, mode, agent, model, when, onDone, onOpenTask]);
+
+  const canGo = about.trim() && (kind !== "send" || (channel && to.trim()));
+  const verb = kind === "send" ? (mode === "task" ? "Send an agent" : "Draft it")
+    : kind === "agent" ? "Start the session" : "Note it";
+
+  return (
+    <Dialog open={!!open} onClose={close} fullWidth maxWidth="sm" data-tq-keep>
+      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1, pb: 0.5 }}>
+        <Box sx={{ flex: 1 }}>What are we starting?</Box>
+        <IconButton size="small" onClick={close}><CloseIcon sx={{ fontSize: 17 }} /></IconButton>
+      </DialogTitle>
+
+      {/* the kinds are tabs, not a select: three doors that all exist is the point of the sheet,
+          and a closed dropdown hides two of them behind a click */}
+      <Box sx={{ display: "flex", gap: 0.25, px: 3, borderBottom: `1px solid ${BORDER}` }}>
+        {KINDS.map((k) => (
+          <Box key={k.key} onClick={() => { setKind(k.key); setErr(""); setOk(""); }} role="tab"
+            aria-selected={kind === k.key} title={k.hint}
+            sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1.5, py: 1, cursor: "pointer",
+              fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", mb: "-1px",
+              color: kind === k.key ? INK : FAINT,
+              borderBottom: `2px solid ${kind === k.key ? ACCENT : "transparent"}`,
+              transition: "color .15s" }}>
+            <Box component="span" aria-hidden sx={{ fontSize: 13, lineHeight: 1 }}>{k.mark}</Box>{k.label}
+          </Box>
+        ))}
+      </Box>
+
+      <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 2.5 }}>
+        {kind === "send" && (
+          <>
+            <Box>
+              <Label>Channel</Label>
+              <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
+                {targets.map((t) => (
+                  <Box key={t.channel} onClick={() => { setChannel(t.channel); setTo(""); }}
+                    sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1.25, py: 0.75, cursor: "pointer",
+                      border: `1px solid ${channel === t.channel ? ACCENT : BORDER}`, borderRadius: 2,
+                      boxShadow: channel === t.channel ? `inset 0 0 0 1px ${ACCENT}` : "none",
+                      fontSize: 12.5, fontWeight: 600, color: channel === t.channel ? INK : DIM }}>
+                    <ChannelIcon channel={t.channel} sx={{ fontSize: 15 }} />{t.channel}
+                  </Box>
+                ))}
+                {!targets.length && (
+                  <Typography variant="caption" sx={{ color: FAINT }}>
+                    No channel here can send yet — turn replies on for a mailbox or a chat in Connectors.
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+            <Box>
+              <Label>To</Label>
+              {/* the addresses this install actually knows, from the same list a report's
+                  delivery offers - a JID typed from memory is a message that goes nowhere */}
+              <Select size="small" fullWidth displayEmpty value={to} onChange={(e) => setTo(e.target.value)}
+                renderValue={(v) => v || "pick someone you already trade messages with"}
+                sx={{ fontSize: 13, bgcolor: "#fcfaf7", color: to ? INK : FAINT }}
+                MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
+                {chanTargets.map((t) => (
+                  <MenuItem key={t.to} value={t.to} sx={{ fontSize: 12.5, display: "block" }}>
+                    <Box sx={{ fontWeight: 600 }}>{t.name || t.to}</Box>
+                    {t.hint && <Box sx={{ fontSize: 10.5, color: FAINT }}>{t.hint}</Box>}
+                  </MenuItem>
+                ))}
+                {!chanTargets.length && <MenuItem disabled sx={{ fontSize: 12 }}>nothing known on this channel yet</MenuItem>}
+              </Select>
+            </Box>
+          </>
+        )}
+
+        {kind === "agent" && (
+          <Box>
+            <Label>Agent</Label>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap" }}>
+              <AgentPicker agents={agents} models={models} agent={agent} model={model}
+                onAgent={setAgent} onModel={setModel} size={30} />
+              {/* no repository picker here on purpose: guess_repo ranks the checkouts against
+                  what you just typed (SOUL.md's repo map), and a session that opens in the wrong
+                  tree refuses to start rather than guessing. Name the system in the ask. */}
+              <Typography variant="caption" sx={{ color: FAINT, flex: 1, minWidth: 180 }}>
+                It picks the checkout from what you write — name the system if there is any doubt.
+              </Typography>
+            </Box>
+          </Box>
+        )}
+
+        <Box>
+          <Label>{kind === "send" ? "What's this about" : kind === "agent" ? "What should it do" : "What do you want to remember"}</Label>
+          <TextField fullWidth multiline minRows={kind === "note" ? 2 : 3} value={about} autoFocus
+            onChange={(e) => setAbout(e.target.value)}
+            placeholder={kind === "send" ? "the census numbers he asked for, plus why Ashgrove moved"
+              : kind === "agent" ? "work out why the nightly export drops the last facility"
+              : "chase the Ashgrove AP replacement"}
+            sx={{ "& .MuiInputBase-root": { fontSize: 13, bgcolor: "#fcfaf7" } }} />
+          {kind === "send" && (
+            <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 0.75 }}>
+              Shorthand is fine — this is what you are telling the drafter, not what they read.
+            </Typography>
+          )}
+        </Box>
+
+        {kind === "send" && (
+          <Box>
+            <Label>And then</Label>
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Fork on={mode === "draft"} onClick={() => setMode("draft")} title="Draft it and show me"
+                hint="written in your voice from the thread. It lands on the Timeline as ✉️ reply ready." />
+              <Fork on={mode === "task"} onClick={() => setMode("task")} title="Find out first"
+                hint="an agent researches it, then drafts the message from what it actually found." />
+            </Box>
+          </Box>
+        )}
+
+        {kind === "note" && (
+          <Box>
+            <Label>Come back to it</Label>
+            {/* the note's row is stamped with WHEN IT IS FOR, so the Timeline's own clock is the
+                reminder: it sits in that day, out of the way until then (ownwork.note) */}
+            <TextField type="datetime-local" size="small" value={when} onChange={(e) => setWhen(e.target.value)}
+              sx={{ "& .MuiInputBase-root": { fontSize: 13, bgcolor: "#fcfaf7" } }} />
+            <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 0.75 }}>
+              Leave it empty for now. A date puts the row in that day and it stays quiet until then.
+            </Typography>
+          </Box>
+        )}
+
+        {err && <Alert severity="error" sx={{ py: 0.25, fontSize: 12.5 }}>{err}</Alert>}
+        {ok && <Alert severity="success" sx={{ py: 0.25, fontSize: 12.5 }}>{ok}</Alert>}
+      </DialogContent>
+
+      <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", px: 3, py: 1.75,
+        borderTop: `1px solid ${BORDER}`, bgcolor: PANEL2 }}>
+        <Button size="small" onClick={close} sx={{ color: DIM }}>Cancel</Button>
+        <Button size="small" variant="contained" disableElevation disabled={!canGo || busy} onClick={submit}
+          startIcon={busy ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : null}
+          sx={{ background: GRADIENT }}>{busy ? "Working…" : verb}</Button>
+      </Box>
+    </Dialog>
+  );
+}

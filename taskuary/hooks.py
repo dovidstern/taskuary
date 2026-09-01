@@ -80,4 +80,13 @@ def receive(payload: dict) -> dict:
         free = [x for x in mine if not getattr(x, 'ext_id', '')] or mine
         t = max(free, key=lambda x: x.last); t.ext_id = sid
     for n in witness.claude_notes(payload): t.witness.note(n)
-    return {'bound': True, 'sid': t.sid}
+    # ...and the one hook that is not just an observation: Stop means the agent has finished
+    # TALKING, which is the closest thing a pty ever gives us to "the run is over". Whether it
+    # actually is over is selfclose's judgement, on its own thread - a hook has three seconds
+    # and must never hold the agent (see selfclose.on_stop for the gates).
+    closing, st = False, getattr(t, 'store', None)
+    if str(payload.get('hook_event_name') or '') == 'Stop' and st:
+        from . import selfclose
+        closing = selfclose.mode(st) == 'auto'
+        if closing: selfclose.spawn_on_stop(st, t, str(payload.get('last_assistant_message') or ''))
+    return {'bound': True, 'sid': t.sid, 'closing': closing}

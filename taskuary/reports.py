@@ -498,6 +498,7 @@ REGISTRY = {'sqlite': run_sqlite, 'mssql': run_mssql, 'database': run_database,
             'sharepoint_list': _lazy('sharepoint', 'run_sharepoint_list'), 'sharepoint_file': _lazy('sharepoint', 'run_sharepoint_file'),
             # the knowledge base: documents indexed in this store (knowledge.py) - searched, and refreshed on a schedule
             'kb_search': _lazy('knowledge', 'run_kb_search'), 'kb_reindex': _lazy('knowledge', 'run_kb_reindex'),
+            'handbook_search': _lazy('handbook', 'run_handbook_search'), 'handbook_write': _lazy('handbook', 'run_handbook_write'),
             **{n: _planned(n) for n in PLANNED}}
 
 # Which connector CARD owns each executor type: the s3/cloudwatch types run on the aws
@@ -505,7 +506,8 @@ REGISTRY = {'sqlite': run_sqlite, 'mssql': run_mssql, 'database': run_database,
 CARD_OF = {'s3_object': 'aws', 'cloudwatch_logs': 'aws', 'azure_blob': 'azure', 'azure_logs': 'azure', 'calendar': 'outlook',
            'entra_users': 'azure', 'entra_groups': 'azure', 'entra_signins': 'azure', 'entra_licenses': 'azure',
            'intacct_fields': 'intacct', 'sharepoint_list': 'sharepoint', 'sharepoint_file': 'sharepoint',
-           'kb_search': 'knowledge', 'kb_reindex': 'knowledge'}
+           'kb_search': 'knowledge', 'kb_reindex': 'knowledge',
+           'handbook_search': 'handbook', 'handbook_write': 'handbook'}
 
 def card_of(t): return CARD_OF.get(t, t)
 
@@ -800,6 +802,30 @@ def is_due(cfg: dict, last_polled, startup: bool = False) -> bool:
     return (now - last).total_seconds() >= 24 * 3600
 
 
+def findings_target(store, msg: dict) -> dict:
+    """Where a report-born task's FINDINGS go when the agent is done, or {} for the default.
+
+    The default is the Timeline and nowhere else, deliberately: a report is not a person, it is
+    not waiting to hear anything, and mailing our own internal wrap-up back to whatever produced
+    the numbers is the exact failure TQ-0252 was (an internal note posted to a robot's inbox).
+    So when a report's task closes, the report lands on the task and stops there - unless the
+    owner has said otherwise on that report's card, which is what deliver_findings is: a channel
+    and an address they chose, for the one case where somebody genuinely does want telling."""
+    if (msg or {}).get('Channel') != 'report': return {}
+    cid = str(msg.get('ConversationId') or '')
+    sid = cid.split(':', 1)[1] if cid.startswith('report:') else ''
+    src = next((s for s in store.list_sources(active_only=False) if str(s.get('SourceId')) == sid), None)
+    if not src: return {}
+    try: cfg = json.loads(src.get('ConfigJson') or '{}')
+    except ValueError: return {}
+    d = cfg.get('deliver_findings') or {}
+    if not (isinstance(d, dict) and d.get('to')): return {}
+    from .outbound import can_reply
+    ch = d.get('channel') or 'email'
+    if not can_reply(store, ch): return {}
+    return {'channel': ch, 'to': d['to'], 'subject': f"{cfg.get('title') or src.get('Address')} - what we found"}
+
+
 LAST_RUN = 'report_last_run:'      # setting per source: what its last run did (the Reports tab shows it)
 
 
@@ -865,11 +891,18 @@ def _run_report_source(store, src: dict, cfg: dict, llm=None) -> dict:
         # the report is a MESSAGE like any other: triage reads it under TRIAGE.md, and a task is what
         # TRIAGE.md says - so an agent's research report can hand its findings to the coding agent.
         # A failed run is never work; it files with its error like before.
+        #
+        # watch_for is what makes that judgement possible. Without it the classifier is reading a
+        # table of numbers with no idea which numbers would be bad, so every run came out fyi and
+        # "a report can start work" was a switch that did nothing. It is the owner's own sentence
+        # about why this report exists and what would count as off (triage.classify_intent's
+        # `watch`), and it is the ONLY thing the report gets to say about its own verdict.
         from .ingest import ingest_message
         out = ingest_message(store, msg={'external_id': f'report:{src["SourceId"]}:{stamp}', 'channel': 'report',
                                          'subject': subject, 'body': strip_directive(body), 'from_name': title,
                                          'conversation_id': f'report:{src["SourceId"]}', 'sent_at': stamp,
-                                         'source_link': cfg.get('link'), 'source_name': title}, llm=llm)
+                                         'source_link': cfg.get('link'), 'source_name': title,
+                                         'watch_for': str(cfg.get('watch_for') or '').strip() or None}, llm=llm)
         mid = out.get('message_id')
         if not mid:
             mid = store.add_message({'TaskId': None, 'ExternalId': f'report:{src["SourceId"]}:{stamp}:feed', 'ConversationId': f'report:{src["SourceId"]}',

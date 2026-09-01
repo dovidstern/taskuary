@@ -537,9 +537,13 @@ class TerminalTests(unittest.TestCase):
         # this test's prompt, and assert it fits, or the failure mode is invisible.
         saved = {n: server.store.get_doc(n) for n in ('coder', 'soul')}
         for n in saved: server.store.save_doc(n, '', 'test')
-        # ...and the wall, which is real prompt content and grows with whatever other tests left
-        # on it: this test measures the seed, so it owns every input to it
+        # ...and the wall, the owner's standing notes, the semantic layer, and the CONTEXT FILE
+        # line below. Every one of them is real prompt content that grows with whatever other
+        # tests left in the shared store, and this test measures the SEED - so it owns every
+        # input to it.
         server.store._exec('DELETE FROM boardnote')
+        server.store._exec('DELETE FROM memory')
+        server.store._exec('DELETE FROM metric')
         self.addCleanup(lambda: [server.store.save_doc(n, v or '', 'test') for n, v in saved.items()])
         tid = c.post('/api/tasks', json={'Title': 'payroll adjustments post to the wrong month',
                                          'Kind': 'coding'}).json()['taskId']
@@ -547,7 +551,14 @@ class TerminalTests(unittest.TestCase):
                                   'FromName': 'Dana Reyes', 'FromEmail': 'dreyes@northwind.example',
                                   'Subject': 'Payroll File Imports', 'SentAt': '2026-08-19 15:03',
                                   'BodyText': 'files with adjustments import in the wrong month'})
-        self.assertLess(len(terminal.seed_text(server.store, tid)), 1000)   # must fit a canonical tty line
+        # the context file is the last variable input, and the one that bit: it is written only
+        # when there IS a sender history or a past task to write about, so this measured 921
+        # characters alone and 1111 in a full run, where forty other tests have filled the store
+        # and its temp-dir path joins the prompt. Its LENGTH is a property of the machine's temp
+        # directory, not of the prompt, so it is not what this budget is about.
+        with mock.patch('taskuary.context.write', return_value=None):
+            seed = terminal.seed_text(server.store, tid)
+        self.assertLess(len(seed), 1000, seed)          # must fit a canonical tty line
         ses = c.post('/api/terminals', json={'agent': 'faketui', 'task_id': tid, 'seed': True,
                                              'cwd': os.getcwd()}).json()
         t = terminal.get(ses['sid'])

@@ -798,6 +798,32 @@ function ReportWizard({ sourceId, sources, types, connectors, reload, onBack, on
             <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 0.5 }}>
               Pick one. Everything blank = once a day, whenever the app is open.
             </Typography>
+            {/* WHAT WOULD BE WRONG. Without it the classifier reads a table of numbers with no idea
+                which numbers would be bad, so every run came out informational and the switch above
+                did nothing - see triage.classify_intent(watch=). */}
+            {!!cfg.triage && (
+              <Box sx={{ mt: 1.25 }}>
+                <TextField fullWidth multiline minRows={2} size="small" value={cfg.watch_for || ""}
+                  onChange={(e) => setCfg({ ...cfg, watch_for: e.target.value })}
+                  label="Why you run this, and what would be off"
+                  placeholder="flag a vendor we have not paid before, or a bill over $10k from a location we do not normally pay"
+                  sx={{ "& .MuiInputBase-root": { fontSize: 13 } }} />
+                <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 0.5 }}>
+                  Triage judges each run against this. Something matching becomes a task and an agent
+                  looks into it; nothing matching stays informational. What it finds comes back to the
+                  Timeline — it is never sent to anyone unless you name a destination below.
+                </Typography>
+                <Box sx={{ display: "flex", gap: 1, mt: 1.25, flexWrap: "wrap", alignItems: "center" }}>
+                  <TextField size="small" value={(cfg.deliver_findings || {}).to || ""}
+                    onChange={(e) => setCfg({ ...cfg, deliver_findings: { ...(cfg.deliver_findings || { channel: "email" }), to: e.target.value } })}
+                    label="Send the findings to (optional)" placeholder="nobody — findings stay on the Timeline"
+                    sx={{ minWidth: 280, "& .MuiInputBase-root": { fontSize: 13 } }} />
+                  <Typography variant="caption" sx={{ color: FAINT, flex: 1, minWidth: 200 }}>
+                    Still drafted for your approval first — nothing about a report makes a send automatic.
+                  </Typography>
+                </Box>
+              </Box>
+            )}
             {!cfg.title && (
               <Typography variant="caption" sx={{ mt: 0.5, display: "block", color: "#55697a", fontWeight: 600 }}>
                 No title yet — <Box component="span" sx={{ textDecoration: "underline", cursor: "pointer" }}

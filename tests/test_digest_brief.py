@@ -77,17 +77,26 @@ class BriefVoiceTests(unittest.TestCase):
         self.assertIn('how I speak up', seen['system'])
 
 
+def _slot_ahead() -> str:
+    """A daily_at that has NOT come round yet today, so is_due's answer is about once_per_day
+    and nothing else. Hard-coding '08:00' made these two tests pass only before breakfast: after
+    08:00 the daily clock made the report due on its own and 'already ran today' looked broken."""
+    when = datetime.now() + timedelta(hours=1)
+    return '23:59' if when.day != datetime.now().day else when.strftime('%H:%M')
+
+
 class OnceADayTests(unittest.TestCase):
     """A brief that lands again on every app launch is the noise that made it unreadable."""
     CFG = {'type': 'digest', 'daily_at': '08:00', 'on_startup': True, 'once_per_day': True}
 
     def test_the_first_launch_of_the_day_files_the_brief_and_the_next_nine_do_not(self):
-        self.assertTrue(reports.is_due(self.CFG, None, startup=True))                    # never run
-        self.assertTrue(reports.is_due(self.CFG, _ago(days=1, hours=2), startup=True))   # yesterday's
-        self.assertFalse(reports.is_due(self.CFG, _ago(hours=1), startup=True))          # already today
+        cfg = {**self.CFG, 'daily_at': _slot_ahead()}
+        self.assertTrue(reports.is_due(cfg, None, startup=True))                    # never run
+        self.assertTrue(reports.is_due(cfg, _ago(days=1, hours=2), startup=True))   # yesterday's
+        self.assertFalse(reports.is_due(cfg, _ago(hours=1), startup=True))          # already today
 
     def test_without_the_flag_every_launch_still_fires(self):
-        cfg = {k: v for k, v in self.CFG.items() if k != 'once_per_day'}
+        cfg = {k: v for k, v in self.CFG.items() if k != 'once_per_day'} | {'daily_at': _slot_ahead()}
         self.assertTrue(reports.is_due(cfg, _ago(hours=1), startup=True))                # the Assistant's cadence
 
     def test_the_daily_clock_still_fires_while_the_app_stays_open(self):

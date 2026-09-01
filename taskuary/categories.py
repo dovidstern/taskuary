@@ -8,8 +8,9 @@ means the same thing in the feed, the digest and the task page:
   review    - a reply is drafted for you to send  info   - a PERSON told you something; nothing to do
   automated - a system told you something          promo  - marketing / newsletter; safe to skim past
   filed     - kept, no verdict beyond "not work"   ignored - a policy or you said no
-  report / feed / yours / triaging                - not verdicts: a scheduled report, a feed-only
-                                                    connection, your own reply, or still deciding
+  report / feed / yours / mine / triaging         - not verdicts: a scheduled report, a feed-only
+                                                    connection, your own reply, a note you left
+                                                    yourself, or still deciding
 
 The info / automated / promo split is the point (owner, 2026-08-27): "info from a team member
 is more important than an FYI from a vendor's marketing team". Both are 'fyi' to the
@@ -55,6 +56,10 @@ def category_of(r: dict, team_domains=()) -> str:
     st, reason = r.get('MsgStatus') or r.get('Status') or '', (r.get('RouteReason') or '').lower()
     if r.get('Channel') == 'report': return 'report'
     if r.get('Channel') == 'assistant': return 'assistant'         # the assistant's own post (assistant.py)
+    # a row nothing sent you: a note you left yourself, or a task you started from the Board
+    # (ownwork.py). It is the one kind of row that is yours rather than something that happened
+    # to you, and it must never wear a verdict - nothing judged it, because nothing arrived.
+    if r.get('Channel') == 'own': return 'mine' if (r.get('TaskKind') or '') == 'note' else 'todo'
     if r.get('Direction') == 'out' or 'your reply' in reason or 'your sent reply' in reason: return 'yours'
     if st == 'feed': return 'feed'
     if st == 'triaging': return 'triaging'

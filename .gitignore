@@ -33,3 +33,8 @@ website/_sheet.png
 
 # the triage dataset built from YOUR mail (taskuary --evalset share): review it, then `git add -f` on purpose
 tests/data/triage_cases.jsonl
+
+# one-off screenshot driver, rewritten per capture
+website/shot_tmp.mjs
+# the published design canvas is a 2.5MB generated bundle - build.mjs and the artboards are the source
+docs/design/**/*-and-stage.html

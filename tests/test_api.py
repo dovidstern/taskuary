@@ -419,6 +419,7 @@ class ApiTests(unittest.TestCase):
                 self.assertEqual((server.cfg['server']['host'], server.cfg['server']['token']),
                                  ('0.0.0.0', 'from-env'))
             disk = tomllib.loads(path.read_text(encoding='utf-8'))
+            self.assertTrue(disk['server'].pop('agent_token', None))     # minted on load, belongs on disk
             self.assertEqual(disk['server'], stored)
             self.assertEqual(disk['agents']['overlay-api']['cmd'], 'echo')
         finally:

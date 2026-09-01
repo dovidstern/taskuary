@@ -13,6 +13,11 @@ from .triage import classify_intent, heuristic_intent
 from .store import task_ref
 from . import senders
 
+# A task the stranger gate held back (senders.known). It is a TAG rather than a column because
+# it is exactly as durable as it needs to be - the feed row reads it to say "held · new sender",
+# the release drops it, and nothing else in the schema had to move.
+HOLD_TAG = 'hold:new-sender'
+
 
 # What the agent is TOLD about work from each kind of source. An email needs nothing -
 # the mail is the prompt - but a pull request is a judgement call before it is a coding
@@ -260,7 +265,10 @@ def ingest_message(store, msg: dict, actor: str = 'router', llm=None, file_only:
                 intent = classify_intent(msg, llm=_guarded, soul=store.doc('soul'), thread=thread,
                                          learned=injectable(store.doc('learned') or ''),
                                          notes=notes, notes_left=notes_left, images=msg.get('images'),
-                                         system=store.doc('triage'), mine=me)
+                                         system=store.doc('triage'), mine=me,
+                                         # a scheduled report carries its own brief - what the owner
+                                         # set it up to catch (reports.py: the card's watch_for)
+                                         watch=msg.get('watch_for'))
                 if fail:
                     # the AI errored - filing beats the old default-to-task heuristic. The error is
                     # also kept as a setting so the Timeline's caption can say the brain is failing:
@@ -341,6 +349,13 @@ def ingest_message(store, msg: dict, actor: str = 'router', llm=None, file_only:
             if ok: _spawn(_auto_code, store, tid)
             else:
                 held = who
+                # A stranger's first message is its own state, not just an absent session. An
+                # inbound message is a PROMPT, and this one is a prompt from an address that has
+                # never written before - so the timeline says so in as many words and offers one
+                # button, instead of a task that merely looks like nobody got round to it. The
+                # tag rides on the task because that is what the feed row and the release both
+                # read (senders.known decided it; HOLD_TAG only records the decision).
+                if who.startswith('first message from'): store.tag_task(tid, HOLD_TAG)
                 store.add_comment(tid, 'router', 'agent', f'Coding agent not auto-started: {who}. '
                                                           'Send it to the coding agent yourself if an agent can do it.')
                 store.audit('task', tid, 'auto_code_held', actor, 'agent', {'from': msg.get('from_email'), 'why': who})

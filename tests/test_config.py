@@ -57,7 +57,12 @@ class TomlTests(unittest.TestCase):
                 self.assertEqual(runtime['server']['host'], '0.0.0.0')
                 self.assertEqual(runtime['server']['token'], 'stored-secret')
             raw = path.read_text(encoding='utf-8')
-            self.assertEqual(tomllib.loads(raw)['server'], stored)
+            # the agent token is minted on load and BELONGS on disk (guard.ensure_tokens): it has
+            # to survive a restart, or every launch hands the live sessions a token the next one
+            # does not recognise. Everything else must still match what was stored.
+            got = tomllib.loads(raw)['server']
+            self.assertTrue(got.pop('agent_token', None))
+            self.assertEqual(got, stored)
             self.assertNotIn('0.0.0.0', raw)
             self.assertNotIn('None', raw)
             self.assertEqual(tomllib.loads(raw)['agents']['overlay']['cmd'], 'echo')
@@ -69,6 +74,7 @@ class TomlTests(unittest.TestCase):
                 config.save(runtime)
                 self.assertEqual(runtime['server']['token'], 'from-env')  # still the overlay
             disk = tomllib.loads(path.read_text(encoding='utf-8'))
+            self.assertTrue(disk['server'].pop('agent_token', None))     # minted on load, belongs on disk
             self.assertEqual(disk['server'], stored)
             self.assertEqual(disk['agents']['overlay2']['cmd'], 'true')
         finally:

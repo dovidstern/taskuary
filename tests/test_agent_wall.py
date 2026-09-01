@@ -93,8 +93,16 @@ class TheSeedTests(unittest.TestCase):
         env = terminal.session_env('codex', 7, CWD)
         self.assertEqual((env['TASKUARY_AGENT'], env['TASKUARY_TASK'], env['TASKUARY_CWD']), ('codex', '7', CWD))
 
-    def test_a_shell_with_no_task_carries_nothing_it_cannot_answer_for(self):
-        self.assertEqual(terminal.session_env('', None, ''), {})
+    def test_a_shell_with_no_task_carries_nothing_but_its_own_authority(self):
+        """No agent, no task, no checkout - so none of those are announced. The agent token IS
+        there, and deliberately: everything Taskuary spawns is a process, and a process gets
+        less authority than the person at the browser does (guard.py). A plain shell inside the
+        app is not the owner clicking a button, and the send routes tell the two apart by
+        exactly this header."""
+        from taskuary import config, guard
+        env = terminal.session_env('', None, '')
+        self.assertEqual(set(env), {guard.AGENT_ENV})
+        self.assertEqual(env[guard.AGENT_ENV], config.load()['server']['agent_token'])
 
     def test_the_wall_rides_into_the_next_agents_prompt(self):
         s = MemoryStore()

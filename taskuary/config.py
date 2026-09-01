@@ -24,6 +24,9 @@ def _read() -> dict:
     f = home() / 'config.toml'
     return tomllib.loads(f.read_text(encoding='utf-8')) if f.exists() else {}
 
+def _write(d: dict):
+    (home() / 'config.toml').write_text(dumps_toml(d) + '\n', encoding='utf-8')
+
 def _env_server() -> dict:
     """Non-empty TASKUARY_* overlays. Empty is unset — an injected '' must not disable a stored token."""
     out = {}
@@ -38,6 +41,11 @@ def load() -> dict:
     cfg.setdefault('server', {})
     cfg['server'].setdefault('host', '127.0.0.1')
     cfg['server'].setdefault('port', 7787)
+    # every install gets an AGENT token, whether or not the owner set an owner token: without one
+    # there is no way to tell a session's request from a person's, and guard.DENIED has nothing
+    # to act on. It is written back to config.toml so it survives a restart.
+    from . import guard
+    guard.ensure_tokens(_read, _write, cfg['server'])
     # --dangerously-skip-permissions matters: without it a headless claude waits forever
     # for permission approvals nobody can click. stream-json (+ required --verbose) makes
     # claude emit events AS IT WORKS so the Board can stream the run live.

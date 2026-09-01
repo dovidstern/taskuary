@@ -39,6 +39,11 @@ ACTIONS = {
     'metric': 'read', 'metric_check': 'read',
     'local_file': 'read',    # a path on this machine, opened read-only - like the sqlite above it
     'kb_search': 'read',     # the knowledge base is Taskuary's own index; searching it moves nothing (kb_reindex writes it: default)
+    # the handbook is Taskuary's own store and the whole point is that agents fill it, so reading
+    # it is free. WRITING it is a write - not because it can reach anything (it cannot leave the
+    # machine) but because an entry is a claim the next agent is handed as fact, and "who may put
+    # a fact in front of every future agent" is exactly the question this ladder exists to ask.
+    'handbook_search': 'read', 'handbook_write': 'write',
     'aws': 'read', 's3_object': 'read', 'cloudwatch_logs': 'read',
     'azure': 'read', 'azure_blob': 'read', 'azure_logs': 'read',
     'entra_users': 'read', 'entra_groups': 'read', 'entra_signins': 'read', 'entra_licenses': 'read',

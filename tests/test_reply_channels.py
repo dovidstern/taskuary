@@ -81,8 +81,10 @@ class WrapEndpointTests(unittest.TestCase):
         from taskuary import server, terminal
         c = TestClient(server.app)
         tid, _ = task_with(server.store, channel)
+        # the wrap-up itself lives in coder.wrap now, not in the route - the route is one line
+        # over it, so that a stop hook and `taskuary --done` can end a task the same way
         with mock.patch.object(terminal, 'transcript_for', return_value=('did the work', 'claude', None)), \
-             mock.patch.object(server, 'report_from_transcript', return_value={'summary': 'fixed', 'determination': '', 'actions': ''}), \
+             mock.patch.object(coder, 'report_from_transcript', return_value={'summary': 'fixed', 'determination': '', 'actions': ''}), \
              mock.patch('taskuary.responder.write_draft', return_value='hi'):
             return c.post(f'/api/tasks/{tid}/wrap', json={'close': True}).json()
 

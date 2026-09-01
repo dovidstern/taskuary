@@ -1,0 +1,76 @@
+{
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "The page"
+    },
+    {
+      "id": "page-2",
+      "name": "Parts"
+    }
+  ],
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "page": "page-1",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Timeline"
+    },
+    {
+      "file": "Tabs.dc.html",
+      "page": "page-1",
+      "x": 1560,
+      "y": 0,
+      "w": 1500,
+      "h": 1080,
+      "title": "The four tabs"
+    },
+    {
+      "file": "Rail.dc.html",
+      "page": "page-2",
+      "x": 0,
+      "y": 0,
+      "w": 1080,
+      "h": 660
+    },
+    {
+      "file": "New.dc.html",
+      "page": "page-2",
+      "x": 1200,
+      "y": 0,
+      "w": 700,
+      "h": 880
+    },
+    {
+      "file": "Lifecycle.dc.html",
+      "page": "page-2",
+      "x": 0,
+      "y": 1010,
+      "w": 1240,
+      "h": 460
+    }
+  ],
+  "annotations": [
+    {
+      "id": "changes",
+      "x": 0,
+      "y": -230,
+      "w": 460,
+      "text": "Second pass.\n· Tabs on the stage — Message / Triage / Agent / Reply, each carrying only its own buttons.\n· Rail rows are one line until hovered or clicked.\n· No sync button; the nav tabs are centred on the window.\n· State is an emoji, its word, and the card's left edge — no coloured pills.\n· Buttons are the app's real MuiButton: 8px radius, 12.5px, weight 600."
+    },
+    {
+      "id": "new-kinds",
+      "x": 1560,
+      "y": -230,
+      "w": 420,
+      "text": "＋ New now starts four things, not one: send something, give an agent a job, leave yourself a 💡 note, or ask for a report. All four appear on the rail at the minute you pressed it."
+    }
+  ],
+  "launch": {
+    "view": "canvas",
+    "page": "page-1"
+  }
+}

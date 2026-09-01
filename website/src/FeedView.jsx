@@ -15,24 +15,28 @@ import AssignmentIndIcon from "@mui/icons-material/AssignmentInd";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
 import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import api from "./api";
-import { bottomDissolveVisible, timelineOpacity } from "./timelineFade.js";
+import { timelineOpacity } from "./timelineFade.js";
 import { availablePickerChannels, channelsForCategory } from "./feedFilters.js";
 import { timelineDayLabel } from "./timelineDay.js";
 import { splitTimelineMeetings } from "./timelineMeetings.js";
 import EventIcon from "@mui/icons-material/Event";
 import { pollWhileVisible } from "./visible.js";
 import { feedHeaders, feedOk, takeFeed } from "./feedLoad.js";
-import { ALERT, ALERT_INK, ASSISTANT, ROLES, PILL_COLORS, BG, PANEL, PANEL2, BORDER, DIM, FAINT, INK, ACCENT, ACCENT2, card, frame, frameInner, hoverable, mono, fadeIn } from "./theme.jsx";
+import { ALERT, ALERT_BD, ALERT_INK, ASSISTANT, ROLES, PILL_COLORS, BG, PANEL, PANEL2, BORDER, DIM, FAINT, INK, ACCENT, ACCENT2, GRADIENT, card, mono, fadeIn } from "./theme.jsx";
 import SyncIcon from "@mui/icons-material/Sync";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
 import { Handoff } from "./Handoff.jsx";
 import { Reshape } from "./Reshape.jsx";
 import { Attachments } from "./Attachments.jsx";
-import { AgentPicker, ChannelIcon, RefChip, ActionChip, ChoiceRow, ChoiceList, CoderReport, DiffBlock, Empty, FilterPills, ProofCard, SendToAgent, NotMine, fmtTime12, fmtDateTime, localDay, tsMs, cleanText, splitQuoted, IDLE_WAITING, TellAgentButton, LiveConsole, useAgents, useVoiceReady } from "./ui.jsx";
+import { AgentPicker, ChannelIcon, RefChip, ChoiceRow, CoderReport, DiffBlock, Empty, FilterPills, ProofCard, SendToAgent, NotMine, fmtTime12, fmtDateTime, localDay, tsMs, cleanText, splitQuoted, IDLE_WAITING, TellAgentButton, LiveConsole, useAgents, useVoiceReady } from "./ui.jsx";
 import MicIcon from "@mui/icons-material/Mic";
 import MicOffIcon from "@mui/icons-material/MicOff";
 import { Md, looksMd } from "./md.jsx";
 import { subjectOf, sourceOf } from "./feedText.js";
+import { HOLD_TAG, hasTag, stateOf, subline } from "./timelineState.js";
+import StateMark, { edgeOf } from "./StateMark.jsx";
+import NewSheet from "./NewSheet.jsx";
+import AddIcon from "@mui/icons-material/Add";
 import { isVoicePlaceholder, voiceNoteBody } from "./voiceNote.js";
 
 // Each filter carries a muted hue for its selected state: attention amber for needs-me,
@@ -206,31 +210,47 @@ const rowOpacity = (sentAt, mode, filtered) =>
 const MeetingRow = ({ e, onPick, picked, fade }) => {
   const hover = useRef(null);
   useEffect(() => () => clearTimeout(hover.current), []);
-  const u = untilText(e.start, e.end), isPicked = picked && picked.start === e.start && picked.subject === e.subject;
+  const u = untilText(e.start, e.end), open = picked && picked.start === e.start && picked.subject === e.subject;
+  // A meeting is a Timeline row like any other, and it did not look like one: no left margin off
+  // the rail, so it sat 8px closer than every message; a heavier tint; and everything it knows -
+  // who, where, tentative, the countdown - crammed onto the collapsed line. Same geometry as a
+  // message row now, subject only until it is the row you are on.
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: `${GUTTER}px 14px minmax(0,1fr)`, alignItems: "stretch", mb: "4px" }}>
-      <Typography sx={{ ...mono, fontSize: 10.5, color: "#8a7a5c", textAlign: "right", pt: "8px", pr: "11px", whiteSpace: "nowrap" }}>
+    <Box sx={{ display: "grid", gridTemplateColumns: `${GUTTER}px 14px minmax(0,1fr)`, alignItems: "stretch", mb: "3px" }}>
+      <Typography sx={{ ...mono, fontSize: 10, color: FAINT, textAlign: "right",
+        pt: "6px", pl: "8px", pr: "12px", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
         {e.all_day ? "all day" : fmtTime12(e.start)}
       </Typography>
       <Box sx={{ position: "relative" }}>
-        <Box sx={{ position: "absolute", left: "6px", top: "-6px", bottom: "-6px", width: "1px", bgcolor: BORDER }} />
-        <Box sx={{ position: "absolute", left: "2.5px", top: "11px", width: 8, height: 8, borderRadius: "50%", bgcolor: u.hot ? "#8a3646" : "#8a7a5c", boxShadow: `0 0 0 3.5px ${BG}` }} />
+        <Box sx={{ position: "absolute", left: "6px", top: "-5px", bottom: "-5px", width: "1px", bgcolor: BORDER }} />
+        <Box sx={{ position: "absolute", left: "2.5px", top: "9px", width: 8, height: 8, borderRadius: "50%",
+          bgcolor: u.hot ? ALERT : ROLES.info.solid, boxShadow: `0 0 0 3px ${PANEL}` }} />
       </Box>
       <Box onClick={() => { clearTimeout(hover.current); onPick?.({ ...e, pinned: true }); }}
-        onMouseEnter={() => { clearTimeout(hover.current); hover.current = setTimeout(() => onPick?.({ ...e, pinned: false }), 260); }}
+        onMouseEnter={() => { clearTimeout(hover.current); hover.current = setTimeout(() => onPick?.({ ...e, pinned: false }), 140); }}
         onMouseLeave={() => clearTimeout(hover.current)}
-        sx={{ bgcolor: isPicked ? "#eee7d6" : "#f5f0e4", border: `1px solid ${isPicked ? "#c9b98f" : "#e3d9c2"}`,
-          borderRadius: "8px", px: "11px", py: "6px", minWidth: 0, display: "flex", gap: 0.85, alignItems: "center",
-          opacity: fade ? 0.62 : 1,
-          cursor: "pointer", transition: "background .15s, border-color .15s, opacity .15s", "&:hover": { bgcolor: "#eee7d6", borderColor: "#d8cba5", opacity: 1 } }}>
-        <EventIcon sx={{ fontSize: 16, color: "#8a7a5c", flexShrink: 0 }} />
-        <Typography variant="body2" noWrap sx={{ fontWeight: 600, color: INK, fontSize: 12.5, minWidth: 0 }}>{e.subject}</Typography>
-        {!!(e.who || []).length && <Typography variant="caption" noWrap sx={{ color: FAINT, maxWidth: 260 }}>· with {e.who.slice(0, 3).map((w) => w.split(" ")[0]).join(", ")}{e.who.length > 3 ? ` +${e.who.length - 3}` : ""}</Typography>}
-        {e.where && !(e.who || []).length && <Typography variant="caption" noWrap sx={{ color: FAINT, maxWidth: 200 }}>· {e.where}</Typography>}
-        {e.status === "tentative" && <Typography variant="caption" sx={{ color: FAINT }}>· tentative</Typography>}
-        <Box sx={{ flex: 1 }} />
-        <Typography variant="caption" sx={{ ...mono, fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap",
-          color: u.hot ? "#fffdfb" : "#6b5f45", bgcolor: u.hot ? "#8a3646" : "#eee7d6", px: 0.8, py: 0.15, borderRadius: 99 }}>{u.text}</Typography>
+        sx={{ bgcolor: PANEL, border: `1px solid ${BORDER}`, borderLeft: `2px solid ${u.hot ? ALERT : ROLES.info.solid}`,
+          borderRadius: "8px", px: "10px", pt: "3px", pb: "4px", ml: "8px", minWidth: 0, overflow: "hidden",
+          opacity: fade ? 0.66 : 1, cursor: "pointer",
+          transition: "box-shadow .18s, border-color .18s, opacity .15s",
+          ...(open ? { borderColor: ACCENT, boxShadow: `inset 0 0 0 1px ${ACCENT}, 0 1px 3px rgba(30,50,38,.08)`, opacity: 1 } : {}),
+          "&:hover": { borderColor: "#d8cfbe", boxShadow: "0 2px 8px rgba(47,107,79,.10)", opacity: 1 } }}>
+        <Box sx={{ display: "flex", gap: 0.85, alignItems: "center", minWidth: 0, minHeight: 22 }}>
+          <EventIcon sx={{ fontSize: 16, color: ROLES.info.solid, flexShrink: 0 }} />
+          <Typography variant="body2" noWrap sx={{ fontWeight: 600, color: INK, fontSize: 12, flex: 1, minWidth: 0 }}>{e.subject}</Typography>
+          {/* the countdown is the one thing that is only true right now, so it stays on the
+              collapsed line - but quietly, unless the meeting is imminent */}
+          <Typography variant="caption" sx={{ ...mono, fontSize: 9.5, fontWeight: u.hot ? 700 : 400, whiteSpace: "nowrap",
+            color: u.hot ? ALERT : FAINT, flexShrink: 0 }}>{u.text}</Typography>
+        </Box>
+        <Box sx={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows .2s ease" }}>
+          <Box sx={{ overflow: "hidden" }}>
+            <Typography noWrap sx={{ fontSize: 10.5, lineHeight: 1.5, pt: "2px", pl: "24px", color: FAINT }}>
+              {[(e.who || []).length ? `with ${e.who.slice(0, 4).map((w) => w.split(" ")[0]).join(", ")}${e.who.length > 4 ? ` +${e.who.length - 4}` : ""}` : "",
+                e.where || "", e.status === "tentative" ? "tentative" : ""].filter(Boolean).join(" · ") || "no attendees listed"}
+            </Typography>
+          </Box>
+        </Box>
       </Box>
     </Box>
   );
@@ -441,7 +461,13 @@ export default function FeedView({ onOpenTask, onChanged }) {
   // rows dissolve into the top going under, and into nothing at the bottom of the screen. dockH is
   // measured so the sticky date sits exactly below the frozen dock whatever its wrapped height.
   const dockRef = useRef(null);
-  // the dock pins BELOW the app's top bar, never over it - the tabs stay put; height measured by id
+  // the rail's own scroller. The Timeline used to BE the page: it scrolled the window, its
+  // filters were a sticky dock floating over the whole width, and the review panel was a sticky
+  // column beside it. That made the list the subject of the screen when the TASK is the subject
+  // - so the list is a container now, with its own header and its own scrollbar, and everything
+  // below reads scroll off this element instead of off the window.
+  const railRef = useRef(null);
+  // the rail pins BELOW the app's top bar and fills the rest of the window; height measured by id
   const [navH, setNavH] = useState(49);
   useEffect(() => {
     const el = document.getElementById("tqTopNav");
@@ -450,27 +476,17 @@ export default function FeedView({ onOpenTask, onChanged }) {
     ro.observe(el); setNavH(el.offsetHeight);
     return () => ro.disconnect();
   }, []);
-  // ...and the dock's own height: the panel sticks just under it, so a scrolled panel never
-  // slides up behind the frozen filters (a fixed 62px did exactly that)
-  const [dockH, setDockH] = useState(150);
-  useEffect(() => {
-    const el = dockRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return undefined;
-    const ro = new ResizeObserver(() => setDockH(el.offsetHeight));
-    ro.observe(el); setDockH(el.offsetHeight);
-    return () => ro.disconnect();
-  }, []);
-  // ONE date line, part of the frozen dock: everything from the date up stays exactly the same
+  // ONE date line, in the rail's header: everything from the date up stays exactly the same
   // regardless of scroll. The rows slide into the date's underside and only the LABEL updates -
-  // a scroll spy reads which day group currently crosses the dock's bottom edge.
+  // a scroll spy reads which day group currently crosses the header's bottom edge.
   const dayRefs = useRef({});                        // day (YYYY-MM-DD) -> group element
   const [curDay, setCurDay] = useState("");
   const spy = useCallback(() => {
-    const dock = dockRef.current; if (!dock) return;
-    // the dissolve band only exists once something can actually slide under the date - at rest
+    const rail = railRef.current, dock = dockRef.current; if (!rail) return;
+    // the dissolve band only exists once something can actually slide under the header - at rest
     // it was washing out the first row before any scrolling happened
-    dock.dataset.sc = window.scrollY > 8 ? "1" : "0";
-    const edge = dock.getBoundingClientRect().bottom + 1;
+    if (dock) dock.dataset.sc = rail.scrollTop > 8 ? "1" : "0";
+    const edge = rail.getBoundingClientRect().top + 1;
     // the current day is the one whose group top sits furthest BELOW all others yet above the edge -
     // i.e. of the groups already scrolled past the date line, the lowest (most recently entered) one
     let cur = "", curTop = -Infinity;
@@ -482,12 +498,15 @@ export default function FeedView({ onOpenTask, onChanged }) {
     setCurDay((was) => cur || was);
   }, []);
   useEffect(() => {
+    const rail = railRef.current; if (!rail) return undefined;
     let raf = 0;
     const onScroll = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; spy(); }); };
-    window.addEventListener("scroll", onScroll, { passive: true });
+    rail.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll, { passive: true });
-    return () => { window.removeEventListener("scroll", onScroll); window.removeEventListener("resize", onScroll); if (raf) cancelAnimationFrame(raf); };
+    onScroll();
+    return () => { rail.removeEventListener("scroll", onScroll); window.removeEventListener("resize", onScroll); if (raf) cancelAnimationFrame(raf); };
   }, [spy]);
+  const [newOpen, setNewOpen] = useState(false);     // the ＋ New sheet (NewSheet.jsx)
   const [rows, setRows] = useState(null);
   const [view, setView] = useState("");              // "" everything | "pending" needs me
   const [cat, setCat] = useState("");                // broad content family; exact choices live in the source picker
@@ -587,38 +606,36 @@ export default function FeedView({ onOpenTask, onChanged }) {
   // so nothing is ever hidden from someone actually reading the list
   const listRef = useRef(null);
   const [bottomFade, setBottomFade] = useState(false);
+  // the dissolve at the foot of the RAIL, not of the window: the list has its own scrollbar now,
+  // so "there is nothing further down" is a fact about this container and nothing else
   useEffect(() => {
+    const rail = railRef.current; if (!rail) return undefined;
     let raf = 0;
-    const measure = () => {
-      raf = 0;
-      const el = listRef.current;
-      setBottomFade(!!el && bottomDissolveVisible(el.getBoundingClientRect().bottom, window.innerHeight));
-    };
-    const queue = () => {
-      if (!raf) raf = requestAnimationFrame(measure);
-    };
+    const measure = () => { raf = 0; setBottomFade(rail.scrollHeight - rail.scrollTop - rail.clientHeight > 24); };
+    const queue = () => { if (!raf) raf = requestAnimationFrame(measure); };
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(queue);
-    if (listRef.current) resize?.observe(listRef.current);
-    window.addEventListener("scroll", queue, { passive: true });
+    resize?.observe(rail);
+    rail.addEventListener("scroll", queue, { passive: true });
     window.addEventListener("resize", queue, { passive: true });
     queue();
     return () => {
       resize?.disconnect();
-      window.removeEventListener("scroll", queue);
+      rail.removeEventListener("scroll", queue);
       window.removeEventListener("resize", queue);
       if (raf) cancelAnimationFrame(raf);
     };
   }, []);
   useEffect(() => {
+    const rail = railRef.current; if (!rail) return undefined;
     let tm = 0;
     const wake = () => {
       const el = listRef.current; if (!el) return;
       el.dataset.live = "1"; clearTimeout(tm);
       tm = setTimeout(() => { if (listRef.current) listRef.current.dataset.live = "0"; }, 2500);
     };
-    window.addEventListener("scroll", wake, { passive: true });
-    window.addEventListener("wheel", wake, { passive: true });
-    return () => { clearTimeout(tm); window.removeEventListener("scroll", wake); window.removeEventListener("wheel", wake); };
+    rail.addEventListener("scroll", wake, { passive: true });
+    rail.addEventListener("wheel", wake, { passive: true });
+    return () => { clearTimeout(tm); rail.removeEventListener("scroll", wake); rail.removeEventListener("wheel", wake); };
   }, []);
   const [tick, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick((t) => t + 1), 1000); return () => clearInterval(id); }, []);
@@ -716,7 +733,9 @@ export default function FeedView({ onOpenTask, onChanged }) {
     return pollWhileVisible(() => load(rowsLen.current), 30000);
   }, [load]);
   useEffect(() => {
-    const obs = new IntersectionObserver(([e]) => e.isIntersecting && loadMore());
+    // root: the RAIL. A viewport-rooted observer never fires for a sentinel inside a scroll
+    // container that is already fully on screen - the list would simply stop at 100 rows.
+    const obs = new IntersectionObserver(([e]) => e.isIntersecting && loadMore(), { root: railRef.current });
     if (endRef.current) obs.observe(endRef.current);
     return () => obs.disconnect();
   }, [loadMore]);
@@ -728,9 +747,10 @@ export default function FeedView({ onOpenTask, onChanged }) {
   // scrolling, not hovering, so nothing opens until the mouse itself moves again.
   const lastScroll = useRef(0);
   useEffect(() => {
+    const rail = railRef.current; if (!rail) return undefined;
     const h = () => { lastScroll.current = Date.now(); clearTimeout(hoverTimer.current); };
-    window.addEventListener("scroll", h, { passive: true });
-    return () => window.removeEventListener("scroll", h);
+    rail.addEventListener("scroll", h, { passive: true });
+    return () => rail.removeEventListener("scroll", h);
   }, []);
   const [sel, setSel] = useState(null);
   const [sendErr, setSendErr] = useState("");     // approved, but the channel refused it
@@ -757,9 +777,11 @@ export default function FeedView({ onOpenTask, onChanged }) {
   // pinned = you CLICKED it: it stays until you click something else or the page ground. A hover
   // selection is transient - it closes when the cursor leaves the list and the panel.
   const pinned = useRef(false);
+  const [pinnedOn, setPinnedOn] = useState(false);
+  const setPinned = (v) => { pinned.current = v; setPinnedOn(v); };
   const drill = async (row, quiet = false) => {
     setCalSel(null);   // a message row takes the panel back from an opened meeting
-    want.current = row.MessageId; pinned.current = !quiet;
+    want.current = row.MessageId; setPinned(!quiet);
     const p = fetchDetail(row);
     if (!quiet) { setSel(row); setDetail(null); setEditText(null); setSendErr(""); setPanelLock(false); }
     const d = await p;
@@ -814,7 +836,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
     const h = (e) => {
       if (e.target.closest?.("[data-tq-keep], .MuiPopover-root, .MuiModal-root, #tqTopNav")) return;
       if (panelLock || (editText ?? "").trim()) return;
-      clearTimeout(hoverTimer.current); pinned.current = false; setSel(null); setCalSel(null);
+      clearTimeout(hoverTimer.current); setPinned(false); setSel(null); setCalSel(null);
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
@@ -880,88 +902,86 @@ export default function FeedView({ onOpenTask, onChanged }) {
   ];
 
   return (
-    // rowGap is tighter than columnGap on purpose: the stats caption already pads the
-    // header's bottom edge, and a full 16px under it left the timeline floating loose
-    <Box sx={{ display: "grid", columnGap: 2, rowGap: 0.75, alignItems: "start",
-      // Both tracks are now FRACTIONS of the page, not fixed pixels centred in it. Capping the
-      // timeline at 820px and centring the pair left a wide empty gutter down either side on
-      // any real monitor, and squeezed the panel that has to hold a whole message plus the
-      // draft. The timeline sits hard left, the panel takes a third, and the page is used.
-      // 44% to the panel: a timeline row is one line of text and gains nothing past a readable
-      // measure, while the panel holds a whole message, the draft and the action list - so the
-      // width belongs there. The rows were running to 1100px of mostly empty middle.
-      // Both tracks stand whether or not a panel is in one. Collapsing the second when nothing
-      // is selected does use the empty width - and re-flows the whole list every time the
-      // cursor enters or leaves it, because the panel opens on hover. A steady column that is
-      // sometimes half empty beats a list that resizes under the mouse.
-      width: "100%",
-      gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(520px, 44%)" } }}>
-      {/* floating dock: one detached pill with Sync now DEAD-CENTER between the two filter
-          groups, and the stats as a quiet caption line beneath. The old two-row toolbar
-          card boxed the controls into the timeline column; the dock frees them to belong
-          to the whole page. */}
-      {/* the frozen top: filters, sync and stats stay put while the timeline scrolls under them.
-          A fade at the dock's lower edge is what makes rows dissolve INTO the top rather than
-          vanish at a hard line. bgcolor so rows never show through the gap between pill and edge. */}
-      {/* the drop above the filter pill is part of the frozen block: the page's own top padding is
-          swallowed (negative margin) and re-issued as the dock's padding, so the gap under the nav
-          is identical at the top of the page and mid-scroll */}
-      <Box ref={dockRef} data-tq-keep sx={{ gridColumn: "1 / -1", display: "flex", flexDirection: "column", alignItems: "center", gap: 0.75,
-        position: "sticky", top: `${navH}px`, zIndex: 20, bgcolor: BG,
-        mt: { xs: -1.5, md: -2.25 }, pt: { xs: 2, md: 2.75 },
-        // the dissolve band right under the date: rows melt away as they rise into its underside -
-        // but only once you scroll (data-sc, set by the spy); at rest the first row is untouched
-        "&::after": { content: '""', position: "absolute", left: 0, right: 0, bottom: -44, height: 44,
-          background: `linear-gradient(${BG} 25%, transparent)`, pointerEvents: "none",
-          opacity: 0, transition: "opacity .25s" },
-        "&[data-sc='1']::after": { opacity: 1 } }}>
-        <Box sx={{ display: "flex", alignItems: "center", flexDirection: { xs: "column", md: "row" },
-          gap: { xs: 0.75, md: 1.25 }, justifyContent: "center", width: { xs: "100%", md: "auto" },
-          maxWidth: "calc(100vw - 24px)", boxSizing: "border-box",
-          bgcolor: PANEL, border: `1px solid ${BORDER}`, borderRadius: { xs: 3, md: 99 }, px: 1.5, py: 0.6,
-          boxShadow: "0 8px 28px rgba(30,50,38,.10)" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, justifyContent: "center" }}>
-            <FilterPills options={VIEW_FILTERS} value={view} onChange={setView} />
-            <Box sx={{ width: "1px", height: 20, bgcolor: BORDER, flexShrink: 0 }} />
-            {/* the label stays SHORT while it works: the "catching up on…" story lives in the
-                caption line below, which exists for exactly that */}
-            <Button size="small" variant="contained" disableElevation disabled={syncing || bgSync} onClick={() => syncNow(false)}
-              title={syncing || bgSync ? syncWhat : undefined}
-              startIcon={syncing || bgSync ? <CircularProgress size={11} sx={{ color: "#fff" }} /> : <SyncIcon sx={{ fontSize: 14 }} />}
-              sx={{ py: 0.4, fontSize: 11.5, whiteSpace: "nowrap", borderRadius: 99,
-                background: "linear-gradient(90deg, #55697a, #7d9a7c)" }}>{syncing || bgSync ? "Syncing…" : "Sync now"}</Button>
+    // THE RAIL AND THE STAGE. The Timeline used to be the page - the window scrolled it, its
+    // filters floated over the whole width, and the task sat in a sticky column beside it. But
+    // the list is not the subject of this screen: the task is. So the list becomes a rail with
+    // its own header and its own scrollbar, and the rest of the window belongs to whatever is
+    // open. Both columns are full height and neither one scrolls the page.
+    <Box sx={{ display: "grid", columnGap: 1.75, alignItems: "stretch", width: "100%",
+      height: `calc(100vh - ${navH}px - 22px)`, minHeight: 420,
+      // 500px of rail: enough that a real subject line is readable before you open anything,
+      // which is the whole job of a one-line row. Everything else goes to the stage, which holds
+      // a whole message, the agent's work and the draft.
+      gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 500px) minmax(0, 1fr)" },
+      mt: { xs: -1.5, md: -2.25 }, pt: { xs: 1.5, md: 2 } }}>
+
+      {/* ── the rail ────────────────────────────────────────────────────────────── */}
+      <Box data-tq-keep onMouseEnter={disarmClose} onMouseLeave={armClose}
+        sx={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden",
+          bgcolor: PANEL, border: `1px solid ${BORDER}`, borderRadius: 2 }}>
+
+        {/* the header. Frozen by construction now rather than by position:sticky - it is a
+            flex sibling of the scroller, so nothing can slide over it and nothing has to be
+            measured to keep it out of the way. */}
+        <Box ref={dockRef} sx={{ flexShrink: 0, borderBottom: `1px solid ${BORDER}`,
+          px: 1.5, py: 1.25, display: "flex", flexDirection: "column", gap: 1,
+          // the dissolve band under the header: rows melt as they rise into its underside, but
+          // only once you scroll (data-sc, set by the spy) - at rest the first row is untouched
+          position: "relative",
+          "&::after": { content: '""', position: "absolute", left: 0, right: 0, bottom: -30, height: 30,
+            background: `linear-gradient(${PANEL} 20%, transparent)`, pointerEvents: "none",
+            opacity: 0, transition: "opacity .25s", zIndex: 3 },
+          "&[data-sc='1']::after": { opacity: 1 } }}>
+
+          {/* ONE date line: everything above it stays exactly the same however far the rail
+              scrolls, and only the LABEL changes as a new day crosses the header's edge. */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Typography sx={{ ...mono, color: INK, fontWeight: 700, fontSize: 11.5, letterSpacing: 0.3,
+              flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {fmtDay(curDay || dayEntries[0]?.[0] || "")}
+            </Typography>
+            <Button size="small" variant="outlined" disabled={syncing || bgSync} onClick={() => syncNow(false)}
+              title={syncing || bgSync ? syncWhat : "read the mailboxes, chats and repos now"}
+              startIcon={syncing || bgSync ? <CircularProgress size={11} sx={{ color: ACCENT }} /> : <SyncIcon sx={{ fontSize: 14 }} />}
+              sx={{ py: 0.25, px: 1.25, fontSize: 11.5, whiteSpace: "nowrap", borderColor: BORDER, color: DIM,
+                "&:hover": { borderColor: "#d8cfbe", bgcolor: PANEL2 } }}>
+              {syncing || bgSync ? "Syncing…" : "Sync now"}
+            </Button>
+            {/* the only button on this screen that STARTS something: a message, an agent, or a
+                note to yourself (NewSheet.jsx). Everything else here reacts to what arrived. */}
+            <Button size="small" variant="contained" disableElevation onClick={() => setNewOpen(true)}
+              startIcon={<AddIcon sx={{ fontSize: 15 }} />}
+              sx={{ py: 0.25, px: 1.25, fontSize: 11.5, background: GRADIENT }}>New</Button>
           </Box>
-          <Box sx={{ display: { xs: "none", md: "block" }, width: "1px", height: 20, bgcolor: BORDER, flexShrink: 0 }} />
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: { xs: "100%", md: "auto" }, minWidth: 0 }}>
-            <Box sx={{ display: { xs: "none", md: "block" } }}>
-              <FilterPills options={CATEGORIES} value={cat} onChange={setCat} />
-            </Box>
+
+          {/* filters: one segmented control for STATE, one quiet picker for WHERE FROM. Two
+              rows of loose pills of two different kinds read as a settings panel, not a filter. */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+            <FilterPills options={VIEW_FILTERS} value={view} onChange={setView} />
+            <Box sx={{ width: "1px", height: 18, bgcolor: BORDER, flexShrink: 0 }} />
             <Select size="small" value={cat} displayEmpty onChange={(e) => setCat(e.target.value)}
               inputProps={{ "aria-label": "Timeline category" }}
-              renderValue={(v) => `type · ${CATEGORIES.find((o) => o.key === v)?.label || "everything"}`}
-              sx={{ display: { xs: "flex", md: "none" }, flex: 1, minWidth: 0, height: 28,
-                fontSize: 11.5, fontWeight: 600, borderRadius: 99, bgcolor: "#fff",
-                "& .MuiSelect-select": { py: 0.3, px: 1.25 },
+              renderValue={(v) => CATEGORIES.find((o) => o.key === v)?.label || "everything"}
+              sx={{ height: 26, fontSize: 11.5, fontWeight: 600, borderRadius: 2, bgcolor: cat ? PANEL2 : "#fff",
+                color: cat ? INK : DIM, flexShrink: 0,
+                "& .MuiSelect-select": { py: 0.25, px: 1.15 },
                 "& .MuiOutlinedInput-notchedOutline": { borderColor: BORDER } }}>
               {CATEGORIES.map((o) => <MenuItem key={o.key} value={o.key} sx={{ fontSize: 12 }}>{o.label}</MenuItem>)}
             </Select>
-          {/* ALWAYS drawn: the dock must not change shape as you click across categories. A
-              category with no sources under it just offers "all sources" and nothing to narrow. */}
-          {(
             <Select size="small" value={pickerChannels.length ? pick : ""} displayEmpty onChange={(e) => setPick(e.target.value)}
               onClose={() => setSrcQ("")}
               inputProps={{ "aria-label": "Timeline source" }}
-              MenuProps={{ PaperProps: { sx: { maxHeight: 440, maxWidth: 460 } } }}
+              MenuProps={{ PaperProps: { sx: { maxHeight: 440, maxWidth: 420 } } }}
               renderValue={(v) => (!v ? "all sources"
                 : v.startsWith("channel:") ? `all ${CHANNEL_LABELS[v.slice(8)] || v.slice(8)}`.toLowerCase()
                   : String(v.split(":").slice(2).join(":")).split("@")[0])}
-              sx={{ fontSize: 11.5, fontWeight: 600, borderRadius: 99, bgcolor: pick ? "#e3e6e1" : "#fff", height: { xs: 28, md: 26 },
-                color: pick ? "#7c7367" : DIM, flex: { xs: 1, md: "initial" }, minWidth: 0, maxWidth: { xs: "none", md: 210 },
-                "& .MuiSelect-select": { py: 0.3, px: 1.25 },
+              sx={{ height: 26, fontSize: 11.5, fontWeight: 600, borderRadius: 2, bgcolor: pick ? PANEL2 : "#fff",
+                color: pick ? INK : DIM, flex: 1, minWidth: 0,
+                "& .MuiSelect-select": { py: 0.25, px: 1.15 },
                 "& .MuiOutlinedInput-notchedOutline": { borderColor: pick ? "#d2d6cf" : BORDER } }}>
               {/* 96 discovered buckets turned this into a page-long wall. It is a bounded,
-                  searchable list now: type to narrow, and each channel shows a few with a
-                  count for the rest rather than every object it has ever seen. */}
+                  searchable list: type to narrow, and each channel shows a few with a count
+                  for the rest rather than every object it has ever seen. */}
               <Box sx={{ px: 1, pt: 0.5, pb: 0.75, position: "sticky", top: 0, bgcolor: PANEL, zIndex: 2 }}
                 onKeyDown={(e) => e.stopPropagation()}>
                 <TextField autoFocus fullWidth placeholder="search sources…" value={srcQ}
@@ -973,8 +993,6 @@ export default function FeedView({ onOpenTask, onChanged }) {
                 const q = srcQ.trim().toLowerCase();
                 const all = (srcByChannel[ch] || []).filter((n) => !q || String(n).toLowerCase().includes(q));
                 const label = CHANNEL_LABELS[ch] || ch;
-                // a channel whose name matches keeps its "all of them" row even when no
-                // individual source does; one that matches nothing at all drops out
                 if (q && !all.length && !label.toLowerCase().includes(q)) return [];
                 const shown = q ? all.slice(0, 12) : all.slice(0, 6);
                 return [
@@ -986,8 +1004,7 @@ export default function FeedView({ onOpenTask, onChanged }) {
                     all {label.toLowerCase()}
                   </MenuItem>,
                   ...shown.map((n) => (
-                    <MenuItem key={`${ch}:${n}`} value={`src:${ch}:${n}`}
-                      sx={{ fontSize: 11.5, pl: 2.5, maxWidth: 420 }}>
+                    <MenuItem key={`${ch}:${n}`} value={`src:${ch}:${n}`} sx={{ fontSize: 11.5, pl: 2.5, maxWidth: 400 }}>
                       <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n}</Box>
                     </MenuItem>
                   )),
@@ -998,227 +1015,212 @@ export default function FeedView({ onOpenTask, onChanged }) {
                 ];
               })}
             </Select>
-          )}
           </Box>
+
+          {/* the day in numbers, as a caption - still clickable where a tile was, and the sync
+              story rides the same line so the header never grows a row for it */}
+          {rows && (
+            <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.5, flexWrap: "wrap", justifyContent: "center" }}>
+              {stats.map((s) => (
+                <Box key={s.label} onClick={() => s.f && setView(s.f)}
+                  sx={{ display: "flex", alignItems: "baseline", gap: 0.4, cursor: s.f ? "pointer" : "default",
+                    ...(s.f ? { "&:hover .thubStatLbl": { color: ACCENT } } : {}) }}>
+                  <Typography sx={{ fontWeight: 700, fontSize: 11.5,
+                    color: s.hot && s.n ? ALERT : s.n ? ACCENT : INK }}>{s.n}</Typography>
+                  <Typography className="thubStatLbl" variant="caption" sx={{ color: FAINT, fontSize: 10.5, transition: "color .15s" }}>{s.label}</Typography>
+                </Box>
+              ))}
+              <Typography variant="caption" noWrap sx={{ color: syncing || bgSync ? ACCENT : FAINT, fontSize: 10.5, width: "100%", textAlign: "center" }}>
+                {syncing || bgSync ? (syncWhat || "syncing…")
+                  : !every ? "background sync off"
+                  : `synced ${lastSync ? lastSync.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—"}`
+                    + (nextIn != null ? ` · next ${Math.floor(nextIn / 60)}:${String(nextIn % 60).padStart(2, "0")}` : "")}
+              </Typography>
+            </Box>
+          )}
+          {/* a brain that errors on every call used to look like slow triage: rows parked on
+              "triaging…" and nothing saying why. The last error stays until it answers again. */}
+          {triageErr && !syncing && !bgSync && (
+            <Typography variant="caption" noWrap title={triageErr} sx={{ color: ALERT_INK, fontWeight: 700, fontSize: 10.5 }}>
+              triage brain failing — {triageErr}
+            </Typography>
+          )}
+          {err && (
+            <Alert severity="error" variant="outlined" onClose={() => setErr("")}
+              action={<Button size="small" color="error" onClick={() => { setErr(""); setRows(null); load(rowsLen.current); }}
+                sx={{ fontSize: 11 }}>Retry</Button>}
+              sx={{ py: 0, borderRadius: 2, bgcolor: PANEL, alignItems: "center",
+                "& .MuiAlert-message": { fontSize: 11.5, py: 0.5 }, "& .MuiAlert-action": { pt: 0, alignItems: "center" } }}>
+              {err}
+            </Alert>
+          )}
         </Box>
-        {/* the stats, demoted from tiles to a caption line - still clickable where a tile
-            was ("needs me" filters), and the sync story rides the same line */}
-        {rows && (
-          <Box sx={{ display: "flex", alignItems: "baseline", gap: 2, flexWrap: "wrap", justifyContent: "center" }}>
-            {/* one face for the whole line: the mono digits next to Inter labels read as two
-                different UIs stitched together - the numbers are just bolder Inter now */}
-            {stats.map((s) => (
-              <Box key={s.label} onClick={() => s.f && setView(s.f)}
-                sx={{ display: "flex", alignItems: "baseline", gap: 0.6, cursor: s.f ? "pointer" : "default",
-                  ...(s.f ? { "&:hover .thubStatLbl": { color: "#55697a" } } : {}) }}>
-                <Typography sx={{ fontWeight: 800, fontSize: 12.5,
-                  color: s.hot && s.n ? ALERT : s.n ? "#55697a" : INK }}>{s.n}</Typography>
-                <Typography className="thubStatLbl" variant="caption" sx={{ color: FAINT, transition: "color .15s" }}>{s.label}</Typography>
+
+        {/* ── the scroller ── */}
+        <Box ref={railRef} sx={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden",
+          position: "relative", px: 1, pb: 3 }}>
+          <FunnelBar onOpenTask={onOpenTask} />
+          <Box ref={listRef} sx={{ position: "relative", opacity: syncing ? 0.55 : 1, transition: "opacity .25s",
+            "&[data-live='1'] .tqRow, & .tqRow:hover": { opacity: "1 !important" } }}>
+            {syncing && (
+              <Box sx={{ position: "absolute", inset: 0, zIndex: 4, display: "flex",
+                alignItems: "flex-start", justifyContent: "center", pointerEvents: "none" }}>
+                <CircularProgress size={22} sx={{ mt: 8 }} />
+              </Box>
+            )}
+            {!rows ? (err ? null : <CircularProgress size={20} sx={{ m: 4 }} />) : !sorted.length && !calEvents.length ? (
+              <Empty>{view || cat || pick
+                ? "Nothing here matches this filter — try “everything”, or widen the Timeline lookback in Settings."
+                : "Nothing in the feed yet — connect a source in Connectors (a mailbox, a chat, a repo, a board…) and hit Sync now."}</Empty>
+            ) : dayEntries.map(([day, items], di) => (
+              // the group's top edge is what the date spy watches - no header row of its own
+              <Box key={day} sx={{ mt: di ? 1.25 : 0.5 }} ref={(el) => { if (el) dayRefs.current[day] = el; else delete dayRefs.current[day]; }}>
+                {di === 0 && !cat && !pick && <ComingUp events={upcoming} picked={calSel} onPick={(e) => { setSel(null); setCalSel(e); }} />}
+                <Box>
+                  {items.map((r, i) => {
+                    // ONE state per row, from one table (timelineState.js). It renders as a small
+                    // mark, its word in quiet type, and the card's LEFT EDGE in the state's colour -
+                    // a coloured pill on every row makes the whole column loud, which is the same
+                    // as making none of it loud.
+                    const st = stateOf(r);
+                    const open = sel?.MessageId === r.MessageId;
+                    // hovering PREVIEWS (a soft edge, the stage follows the cursor); clicking
+                    // PINS (a ring in the brand colour, the stage holds). Both used to draw the
+                    // same border, so there was no way to know which one you were in.
+                    const held = open && pinnedOn;
+                    return (
+                      <React.Fragment key={r.MessageId}>
+                        {!cat && !pick && meetingsAt(day, items, i).map((e, j) => (
+                          <MeetingRow key={`m-${e.start}-${j}`} e={e} fade picked={calSel} onPick={(ev) => { setSel(null); setCalSel(ev); }} />
+                        ))}
+                        <Box className="tqRow" sx={{ display: "grid", gridTemplateColumns: `${GUTTER}px 14px minmax(0,1fr)`,
+                          alignItems: "stretch", mb: "3px", opacity: rowOpacity(r.SentAt, fade, !!(view || cat || pick)), transition: "opacity .9s ease",
+                          ...(seen.current.has(r.MessageId) ? {} : { ...fadeIn, animationDelay: `${Math.min(i * 35, 320)}ms`, animationFillMode: "backwards" }) }}>
+                          {/* the clock sits in its own gutter with air on BOTH sides - 8px off the
+                              container edge, 12px off the rail - so it never reads as crushed
+                              against the frame the way a flush-left column does */}
+                          <Typography sx={{ ...mono, fontSize: 10, color: FAINT, textAlign: "right",
+                            pt: "6px", pl: "8px", pr: "12px", whiteSpace: "nowrap", letterSpacing: "-.2px",
+                            fontVariantNumeric: "tabular-nums" }}>
+                            {fmtTime12(r.SentAt)}
+                          </Typography>
+                          {/* rail + dot: the dot repeats the state's colour at scanning size */}
+                          <Box sx={{ position: "relative" }}>
+                            <Box sx={{ position: "absolute", left: "6px", top: "-5px", bottom: "-5px", width: "1px", bgcolor: BORDER }} />
+                            <Box sx={{ position: "absolute", left: "2.5px", top: "9px", width: 8, height: 8, borderRadius: "50%",
+                              bgcolor: edgeOf(st), boxShadow: `0 0 0 3px ${PANEL}` }} />
+                          </Box>
+                          {/* ONE LINE until this is the row you are on. Hover selects it after a
+                              short rest and unfolds a second line; click pins it. It used to
+                              unfold on hover alone, and a cursor sweeping the list heaved every
+                              row below it. */}
+                          <Box data-tq-keep onClick={() => drill(r)} onMouseEnter={() => hoverSelect(r)} onMouseMove={() => hoverSelect(r)} onMouseLeave={hoverCancel}
+                            sx={{ bgcolor: ["ignored", "filed"].includes(r.MsgStatus) ? "#faf8f4" : PANEL,
+                              border: `1px solid ${BORDER}`, borderLeft: `2px solid ${edgeOf(st)}`,
+                              borderRadius: "8px", px: "10px", pt: "3px", pb: "4px", ml: "8px",
+                              minWidth: 0, overflow: "hidden",
+                              transition: "box-shadow .18s, border-color .18s",
+                              ...(open ? { borderColor: held ? ACCENT : "#d8cfbe", borderLeftColor: edgeOf(st),
+                                boxShadow: held ? `inset 0 0 0 1px ${ACCENT}, 0 2px 10px rgba(47,107,79,.14)`
+                                                : "0 1px 3px rgba(30,50,38,.08)" } : {}),
+                              "&:hover": { borderColor: held ? ACCENT : "#d8cfbe", borderLeftColor: edgeOf(st),
+                                boxShadow: held ? `inset 0 0 0 1px ${ACCENT}, 0 2px 10px rgba(47,107,79,.14)`
+                                                : "0 2px 8px rgba(47,107,79,.10)", cursor: "pointer" } }}>
+                            <Box sx={{ display: "flex", gap: 0.85, alignItems: "center", minWidth: 0, minHeight: 22 }}>
+                              {/* where it came from stays a LOGO, not a glyph - the channel is an
+                                  identity and the app already draws it everywhere else */}
+                              <Box sx={{ display: "flex", flexShrink: 0 }}>
+                                <ChannelIcon channel={r.Channel} sx={{ fontSize: 16 }} />
+                              </Box>
+                              <Typography variant="body2" noWrap sx={{ fontWeight: 600, color: ["ignored", "filed"].includes(r.MsgStatus) ? DIM : INK,
+                                fontSize: 12, letterSpacing: "-.1px", maxWidth: 118, minWidth: 0, flexShrink: 0 }}>
+                                {r.FromName || r.FromEmail || "unknown"}
+                              </Typography>
+                              <Typography variant="body2" noWrap sx={{ color: DIM, fontSize: 11.5, flex: 1, minWidth: 0 }}>
+                                {subjectOf(r) || ""}
+                              </Typography>
+                              {r.Attachments > 0 && (
+                                <AttachFileIcon titleAccess={`${r.Attachments} attached`} sx={{ fontSize: 13, color: FAINT, flexShrink: 0 }} />
+                              )}
+                              {r.Direction === "out" && (
+                                <Typography variant="caption" title="Taskuary sent this"
+                                  sx={{ ...mono, fontSize: 9.5, color: ACCENT, flexShrink: 0 }}>out</Typography>
+                              )}
+                              <StateMark row={r} state={st} />
+                            </Box>
+                            {/* the second line, only on the row you are on: who has it and what
+                                it is waiting for, every clause from a field the server sent */}
+                            <Box sx={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows .2s ease" }}>
+                              <Box sx={{ overflow: "hidden" }}>
+                                <Typography noWrap sx={{ fontSize: 10.5, lineHeight: 1.5, pt: "2px", pl: "24px",
+                                  color: FAINT }}>{subline(r, ref)}</Typography>
+                                {r.Preview && (
+                                  <Typography noWrap sx={{ fontSize: 10.5, lineHeight: 1.5, pl: "24px", color: DIM }}>
+                                    “{r.Preview}”
+                                  </Typography>
+                                )}
+                              </Box>
+                            </Box>
+                          </Box>
+                        </Box>
+                      </React.Fragment>
+                    );
+                  })}
+                  {/* meetings that started before the oldest message of the day shown so far */}
+                  {!cat && !pick && meetingsAt(day, items, items.length).map((e, j) => (
+                    <MeetingRow key={`m-${e.start}-${j}`} e={e} fade picked={calSel} onPick={(ev) => { setSel(null); setCalSel(ev); }} />
+                  ))}
+                </Box>
               </Box>
             ))}
-            {/* a brain that errors on every call used to look like slow triage: rows parked on
-                "triaging…" and nothing saying why. The last error stays here until it answers again. */}
-            {triageErr && !syncing && !bgSync && (
-              <Typography variant="caption" noWrap title={triageErr} sx={{ color: ALERT_INK, fontWeight: 700, maxWidth: 420 }}>
-                · triage brain failing — {triageErr}
-              </Typography>
-            )}
-            <Typography variant="caption" noWrap sx={{ color: syncing || bgSync ? "#55697a" : FAINT }}>
-              {syncing || bgSync ? `· ${syncWhat || "syncing…"}`
-                : !every ? "· background sync is off (Settings)"
-                : `· last sync ${lastSync ? lastSync.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—"}`
-                  // the subtle proof the clock is alive: a countdown, not a promise
-                  + (nextIn != null ? ` · next in ${Math.floor(nextIn / 60)}:${String(nextIn % 60).padStart(2, "0")}` : ` · every ${every} min`)}
-            </Typography>
+            {/* infinite-scroll sentinel: crossing it loads the next page */}
+            <Box ref={endRef} sx={{ height: 8 }} />
+            {!!sorted.length && !noMore && <CircularProgress size={16} sx={{ display: "block", mx: "auto", my: 1 }} />}
           </Box>
-        )}
-        {/* the failure belongs to the dock, not the timeline column: a full-width slab
-            left of a centered header read as a stray banner. Shrink-to-fit pill, same
-            radius/shadow as the dock above it, and it OFFERS the retry instead of
-            leaving a dead spinner spinning underneath. */}
-        {err && (
-          <Alert severity="error" variant="outlined" onClose={() => setErr("")}
-            action={<Button size="small" color="error" onClick={() => { setErr(""); setRows(null); load(rowsLen.current); }}
-              sx={{ fontSize: 11.5, borderRadius: 99 }}>Retry</Button>}
-            sx={{ py: 0.1, borderRadius: 99, bgcolor: PANEL, alignItems: "center", boxShadow: "0 8px 28px rgba(30,50,38,.10)",
-              "& .MuiAlert-message": { fontSize: 12.5, py: 0.75 }, "& .MuiAlert-action": { pt: 0, alignItems: "center" } }}>
-            {err}
-          </Alert>
-        )}
-        {/* THE date line - one, frozen with everything above it, its space intact; only the words
-            change as the timeline scrolls into its underside. Centred over the TIMELINE column
-            (the inner grid mirrors the page's tracks), not over the whole page. */}
-        {!!Object.keys(days).length && (
-          <Box sx={{ width: "100%", display: "grid", columnGap: 2,
-            gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(520px, 44%)" } }}>
-            <Typography variant="caption" sx={{ ...mono, color: INK, fontWeight: 800, fontSize: 11.5,
-              letterSpacing: 0.5, pt: 0.75, pb: 0.25, textAlign: "center" }}>
-              {fmtDay(curDay || dayEntries[0]?.[0] || "")}
-            </Typography>
-          </Box>
-        )}
-      </Box>
-      <FunnelBar onOpenTask={onOpenTask} />
-      {/* timeline column: grid's minmax(0,...) hard-caps both tracks, so the panel can
-          never spill past the viewport and the list keeps its layout */}
-      <Box sx={{ minWidth: 0, position: "relative" }} onMouseEnter={disarmClose} onMouseLeave={armClose}>
-        {/* syncing = the TIMELINE is loading, so the timeline says so: rows dim and a
-            spinner sits on the list itself - the old 3px bar over just the left column
-            read as a broken artifact, not a state */}
-        <Box ref={listRef} sx={{ position: "relative", opacity: syncing ? 0.55 : 1, transition: "opacity .25s",
-          "&[data-live='1'] .tqRow, & .tqRow:hover": { opacity: "1 !important" } }}>
-          {syncing && (
-            <Box sx={{ position: "absolute", inset: 0, zIndex: 4, display: "flex",
-              alignItems: "flex-start", justifyContent: "center", pointerEvents: "none" }}>
-              <CircularProgress size={26} sx={{ mt: 14 }} />
+          {/* the bottom dissolve: the last rows fade into the foot of the rail, so "there is
+              nothing further down" is something you see rather than scroll to find out */}
+          {bottomFade && (
+            <Box aria-hidden sx={{ position: "sticky", bottom: 0, height: 0, zIndex: 6, pointerEvents: "none" }}>
+              <Box sx={{ height: 90, transform: "translateY(-90px)",
+                background: `linear-gradient(transparent, ${PANEL} 85%)` }} />
             </Box>
           )}
-          {!rows ? (err ? null : <CircularProgress size={22} sx={{ m: 4 }} />) : !sorted.length && !calEvents.length ? (
-            // the empty line has to know WHY it is empty: "activate a mailbox" under the
-            // code filter told someone with three mailboxes to add a fourth
-            <Empty>{view || cat || pick
-              ? "Nothing here matches this filter — try “everything”, or widen the Timeline lookback in Settings."
-              : "Nothing in the feed yet — connect a source in Connectors (a mailbox, a chat, a repo, a board…) and hit Sync now."}</Empty>
-          ) : dayEntries.map(([day, items], di) => (
-            // the group's top edge is what the date spy watches - no header row of its own
-            <Box key={day} sx={{ mt: di ? 1.5 : 0 }} ref={(el) => { if (el) dayRefs.current[day] = el; else delete dayRefs.current[day]; }}>
-              {di === 0 && !cat && !pick && <ComingUp events={upcoming} picked={calSel} onPick={(e) => { setSel(null); setCalSel(e); }} />}
-              <Box>
-                {items.map((r, i) => (
-                  <React.Fragment key={r.MessageId}>
-                    {!cat && !pick && meetingsAt(day, items, i).map((e, j) => (
-                      <MeetingRow key={`m-${e.start}-${j}`} e={e} fade picked={calSel} onPick={(ev) => { setSel(null); setCalSel(ev); }} />
-                    ))}
-                    <Box className="tqRow" sx={{ display: "grid", gridTemplateColumns: `${GUTTER}px 14px minmax(0,1fr)`,
-                      alignItems: "stretch", mb: "4px", opacity: rowOpacity(r.SentAt, fade, !!(view || cat || pick)), transition: "opacity .9s ease",
-                      // the entrance animation must not PIN opacity afterwards (fill-mode both did, and no row
-                      // ever faded): backwards keeps only the start frame, then the age opacity takes over
-                      ...(seen.current.has(r.MessageId) ? {} : { ...fadeIn, animationDelay: `${Math.min(i * 45, 400)}ms`, animationFillMode: "backwards" }) }}>
-                      {/* time sits OUTSIDE the card, in its own gutter - wide enough that
-                          "12:40 PM" can never wrap onto a second line */}
-                      <Typography sx={{ ...mono, fontSize: 10.5, color: "#6e685f", textAlign: "right",
-                        pt: "8px", pr: "11px", whiteSpace: "nowrap", letterSpacing: "-.2px" }}>
-                        {fmtTime12(r.SentAt)}
-                      </Typography>
-                      {/* rail + dot: the dot carries STATE, not channel - the icon already says
-                          where it came from, and three encodings of one fact read as noise */}
-                      <Box sx={{ position: "relative" }}>
-                        <Box sx={{ position: "absolute", left: "6px", top: "-6px", bottom: "-6px", width: "1px", bgcolor: BORDER }} />
-                        <Box sx={{ position: "absolute", left: "2.5px", top: "11px", width: 8, height: 8, borderRadius: "50%",
-                          bgcolor: dotOf(r), boxShadow: `0 0 0 3.5px ${BG}` }} />
-                      </Box>
-                      {/* one DEFINED object per message: who and what on top, what the hub did
-                          underneath. Hover adds the message gist; click opens the panel. */}
-                      <Box data-tq-keep onClick={() => drill(r)} onMouseEnter={() => hoverSelect(r)} onMouseMove={() => hoverSelect(r)} onMouseLeave={hoverCancel}
-                        // the assistant's row is a row like any other: a green card among cream ones
-                        // read as an alert every time it posted (the owner, 2026-08-30). Its dot and
-                        // its 'assistant' tag say who is speaking, the same way every other row does.
-                        sx={{ bgcolor: ["ignored", "filed"].includes(r.MsgStatus) ? "#faf8f4" : PANEL,
-                          border: `1px solid ${BORDER}`, borderRadius: "8px", px: "11px", pt: "5px", pb: "6px",
-                          minWidth: 0, overflow: "hidden",
-                          transition: "box-shadow .18s, border-color .18s",
-                          ...(sel?.MessageId === r.MessageId
-                            ? { borderColor: "#d8cfbe", boxShadow: "inset 2px 0 0 #55697a, 0 1px 3px rgba(30,50,38,.07)",
-                                "& .thubDetail": { gridTemplateRows: "1fr" }, "& .thubDetailText": { opacity: 1 } } : {}),
-                          "&:hover": { borderColor: "#d8cfbe", boxShadow: "0 2px 8px rgba(47,107,79,.10)", cursor: "pointer" },
-                          "&:hover .thubGo": { opacity: 1, transform: "translateX(0)" } }}>
-                        <Box sx={{ display: "flex", gap: 0.85, alignItems: "baseline", minWidth: 0 }}>
-                          <Box sx={{ alignSelf: "center", display: "flex", flexShrink: 0 }}>
-                            <ChannelIcon channel={r.Channel} sx={{ fontSize: 17 }} />
-                          </Box>
-                          <Typography variant="body2" noWrap sx={{ fontWeight: 600, color: ["ignored", "filed"].includes(r.MsgStatus) ? DIM : INK,
-                            fontSize: 12.5, letterSpacing: "-.1px", maxWidth: { sm: 200 }, minWidth: 0, flexShrink: { xs: 1, sm: 0 } }}>
-                            {r.FromName || r.FromEmail || "unknown"}
-                          </Typography>
-                          {sourceOf(r) && <Typography variant="caption" noWrap sx={{ color: FAINT, maxWidth: 140, flexShrink: 0 }}>· {sourceOf(r)}</Typography>}
-                          <Typography variant="body2" noWrap sx={{ color: DIM, fontSize: 12.5, flex: 1, minWidth: 0,
-                            display: { xs: "none", sm: "block" } }}>{subjectOf(r) || ""}</Typography>
-                          <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexShrink: 0 }}>
-                            {r.Attachments > 0 && (
-                              <Typography variant="caption" title={`${r.Attachments} attached`}
-                                sx={{ color: FAINT, display: "flex", alignItems: "center", fontSize: 10.5 }}>
-                                <AttachFileIcon sx={{ fontSize: 13 }} />{r.Attachments > 1 ? r.Attachments : ""}
-                              </Typography>
-                            )}
-                            <RefChip taskId={r.TaskId} onClick={(e) => { e.stopPropagation(); onOpenTask(r.TaskId); }} />
-                            {/* which way the work went. Without it "sent to Dana" and "received
-                                from Dana" are the same row, and the funnel only ever looked one way. */}
-                            {r.Direction === "out" && (
-                              <Chip size="small" label="out" title="Taskuary sent this"
-                                sx={{ height: 19, fontSize: 10.5, fontWeight: 700, bgcolor: "#eae4d8", color: "#55697a" }} />
-                            )}
-                            <ActionChip action={actionOf(r)} category={r.Category} working={r.Working} reviewStatus={r.ReviewStatus} taskStatus={r.TaskStatus} needsYou={needsYou(r)} />
-                            <ChevronRightIcon className="thubGo" sx={{ fontSize: 16, color: "#55697a",
-                              opacity: sel?.MessageId === r.MessageId ? 1 : 0,
-                              transform: sel?.MessageId === r.MessageId ? "translateX(0)" : "translateX(-6px)",
-                              transition: "opacity .18s, transform .18s" }} />
-                          </Box>
-                        </Box>
-                        {/* ONE line per message while you scan; the SELECTED row unfolds its blurb and
-                            gist. It used to unfold on hover too, and a cursor sweeping down the list
-                            heaved every row below it - so the fold follows the selection, not the mouse
-                            (a hover still selects, after its short rest). */}
-                        <Box className="thubDetail" sx={{ display: "grid", gridTemplateRows: "0fr", transition: "grid-template-rows .22s ease" }}>
-                          <Box sx={{ overflow: "hidden" }}>
-                            <Typography className="thubDetailText" noWrap
-                              sx={{ fontSize: 11, lineHeight: 1.35, pt: "3px", opacity: 0, transition: "opacity .22s ease .05s",
-                                color: needsYou(r) ? ALERT_INK : "#867f74" }}>{blurb(r)}</Typography>
-                            {r.Preview && (
-                              <Typography className="thubDetailText" variant="caption" noWrap
-                                sx={{ display: "block", color: INK, pt: "3px", opacity: 0, transition: "opacity .22s ease .05s" }}>
-                                “{r.Preview}”
-                              </Typography>
-                            )}
-                          </Box>
-                        </Box>
-                      </Box>
-                    </Box>
-                  </React.Fragment>
-                ))}
-                {/* meetings that started before the oldest message of the day shown so far */}
-                {!cat && !pick && meetingsAt(day, items, items.length).map((e, j) => (
-                  <MeetingRow key={`m-${e.start}-${j}`} e={e} fade picked={calSel} onPick={(ev) => { setSel(null); setCalSel(ev); }} />
-                ))}
-              </Box>
-            </Box>
-          ))}
-          {/* infinite-scroll sentinel: crossing it loads the next page */}
-          <Box ref={endRef} sx={{ height: 8 }} />
-          {!!sorted.length && !noMore && <CircularProgress size={16} sx={{ display: "block", mx: "auto", my: 1 }} />}
         </Box>
-        {/* the bottom dissolve: pinned to the foot of the screen while the column is in view, so the
-            last rows fade into the page - "there is nothing towards the bottom" - column-width only,
-            never over the review panel. height:0 so it adds no space; the gradient hangs above it. */}
-        {bottomFade && (
-          // tall enough that the LAST FEW rows dissolve, each more than the one above it -
-          // "there is nothing towards the bottom", not one half-faded row at a hard line
-          <Box aria-hidden sx={{ position: "sticky", bottom: 0, height: 0, zIndex: 6, pointerEvents: "none" }}>
-            <Box sx={{ height: 190, transform: "translateY(-190px)",
-              background: `linear-gradient(transparent, ${BG} 88%)` }} />
-          </Box>
-        )}
       </Box>
 
-      {/* ── review panel: pinned to the top of whatever is currently visible. The column
-          MUST stretch the full grid height - sticky needs that track to slide in (a
-          content-height column leaves sticky stranded at the page top). ── */}
-      {(sel || calSel) && (
-        // its top edge IS the first card's top edge: both columns start on the same grid row,
-        // and the date line lives in the dock above, so there is nothing left to push past.
-        // (The 34px that used to be here compensated a day header the column no longer has.)
-        <Box data-tq-keep sx={{ minWidth: 0, display: { xs: "none", md: "block" }, alignSelf: "stretch" }}
-          onMouseEnter={disarmClose} onMouseLeave={armClose}>
-          <Box sx={{ position: "sticky", top: `${navH + dockH + 6}px` }}>
-            {calSel && !sel ? <EventPanel e={calSel} onClose={() => setCalSel(null)} onOpenTask={onOpenTask} /> : (
-              <ReviewCanvas sel={sel} detail={detail} editText={editText} setEditText={setEditText}
-                decide={decide} onOpenTask={onOpenTask} onClose={() => setSel(null)}
-                onSkipped={() => { setSel(null); load(); onChanged?.(); }} onRefresh={() => load()}
-                onMessageChanged={messageBodyChanged}
-                sendErr={sendErr} clearSendErr={() => setSendErr("")} onLock={setPanelLock} />
-            )}
-          </Box>
-        </Box>
-      )}
+      {/* ── the stage: the task, which is what this screen is actually for ────────── */}
+      <Box data-tq-keep onMouseEnter={disarmClose} onMouseLeave={armClose}
+        sx={{ minWidth: 0, minHeight: 0, display: { xs: "none", md: "block" } }}>
+        {calSel && !sel ? <EventPanel e={calSel} onClose={() => setCalSel(null)} onOpenTask={onOpenTask} />
+          : sel ? (
+            <ReviewCanvas sel={sel} detail={detail} editText={editText} setEditText={setEditText}
+              decide={decide} onOpenTask={onOpenTask} onClose={() => setSel(null)}
+              onSkipped={() => { setSel(null); load(); onChanged?.(); }} onRefresh={() => load()}
+              onMessageChanged={messageBodyChanged}
+              sendErr={sendErr} clearSendErr={() => setSendErr("")} onLock={setPanelLock} />
+          ) : (
+            // an empty stage is not a broken one. It says what the rail is for and what the
+            // one button on it does, which is the only thing a new install has to be told.
+            <Box sx={{ height: "100%", border: `1px dashed ${BORDER}`, borderRadius: 2,
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              gap: 1, px: 4, textAlign: "center" }}>
+              <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: DIM }}>
+                Pick anything on the left
+              </Typography>
+              <Typography variant="caption" sx={{ color: FAINT, maxWidth: 380, lineHeight: 1.6 }}>
+                Hovering a row opens it here; clicking pins it. You get the message that arrived,
+                why triage sent it where it did, what the agent is doing about it, and the reply
+                waiting to go — each on its own tab.
+              </Typography>
+              <Button size="small" variant="outlined" startIcon={<AddIcon sx={{ fontSize: 15 }} />}
+                onClick={() => setNewOpen(true)}
+                sx={{ mt: 1, fontSize: 12, borderColor: BORDER, color: DIM }}>Start something instead</Button>
+            </Box>
+          )}
+      </Box>
+
+      <NewSheet open={newOpen} onClose={() => setNewOpen(false)} onOpenTask={onOpenTask}
+        onDone={() => { load(); onChanged?.(); }} />
     </Box>
   );
 }
@@ -1251,6 +1253,34 @@ const historyOf = (sel, detail) => {
   }
   return out;
 };
+
+// ONE button shape for the whole tray. It was four: a MUI contained, a MUI outlined, a
+// ChoiceRow (a full-width tinted strip with an icon and a hint), and a bare Button - so the
+// same row of controls had four heights, three corner radii and two type sizes, and nothing
+// about the look told you which of them was the important one. These do: primary is the thing
+// you came here to do, plain is the rest, quiet is the harmless exit, and teach is the one that
+// changes what happens NEXT TIME - which is the distinction the tray never made.
+const TRAY_BTN = {
+  base: { textTransform: "none", fontWeight: 600, fontSize: 12, borderRadius: 2, minHeight: 32,
+    px: 1.5, whiteSpace: "nowrap", boxShadow: "none" },
+  primary: { color: "#fffdfb", background: GRADIENT, "&:hover": { filter: "brightness(1.06)", boxShadow: "none" } },
+  plain: { color: DIM, bgcolor: PANEL, border: `1px solid ${BORDER}`, "&:hover": { borderColor: "#d8cfbe", bgcolor: PANEL } },
+  quiet: { color: FAINT, bgcolor: "transparent", border: `1px dashed ${BORDER}`, fontWeight: 500,
+    "&:hover": { borderColor: "#d8cfbe", bgcolor: PANEL } },
+  teach: { color: ALERT_INK, bgcolor: "transparent", border: `1px solid ${ALERT_BD}`,
+    "&:hover": { bgcolor: "#fcf4f5", borderColor: ALERT } },
+};
+const TrayBtn = ({ tone = "plain", icon, children, teaches, ...rest }) => (
+  <Button size="small" disableElevation startIcon={icon} {...rest}
+    sx={{ ...TRAY_BTN.base, ...TRAY_BTN[tone], ...(rest.sx || {}) }}>
+    {children}
+    {/* the dot says "this one is remembered". A verdict that changes how the next message is
+        judged should never look like a verdict that files one row, and until now they looked
+        identical - see LearnScope, which is where the remembering is actually chosen. */}
+    {teaches && <Box component="span" aria-hidden title="remembered — this changes how the next message like it is handled"
+      sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: "currentColor", opacity: 0.65, ml: 0.85 }} />}
+  </Button>
+);
 
 const PanelLabel = ({ children }) => (
   <Typography variant="overline" sx={{ color: ACCENT2, letterSpacing: 1.8, fontSize: 10, fontWeight: 700,
@@ -1325,237 +1355,326 @@ const ReviewCanvas = ({ sel, detail, editText, setEditText, decide, onOpenTask, 
   // made the panel argue with the reason printed at the top of the very same panel.
   const codeless = /triage:\s*(reply_only|fyi)/.test(String(sel.RouteReason || "")) && !sel.TaskId;
   const history = historyOf(sel, detail);
+  const st = stateOf(sel);
+  const held = hasTag(sel, HOLD_TAG);
+  const replyOpen = pending || !!opened;
+
+  // FOUR TABS, and the tray under them carries only what belongs to the one you are on. The
+  // panel used to be a single scroll holding all four - the message, the verdict, the agent's
+  // work, the draft - with one tray of eleven rows under the lot. On a busy task the reply you
+  // came to send was two screens down, and "what are my options" had a hunt in it.
+  const TABS = [
+    { key: "msg",   label: "Message" },
+    { key: "why",   label: "Triage" },
+    { key: "agent", label: "Agent", mark: onIt ? (onIt.waiting ? "👋" : "🤖") : null },
+    { key: "reply", label: "Reply", mark: replyOpen ? "✉️" : null },
+  ];
+  // where you land: whatever is actually asking for you. A drafted reply beats a live agent
+  // beats the message, because that is the order in which they need a decision from you.
+  const [tab, setTab] = useState(replyOpen ? "reply" : onIt ? "agent" : "msg");
+  useEffect(() => { setTab(replyOpen ? "reply" : onIt ? "agent" : "msg"); }, [sel.MessageId]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [mined, setMined] = useState(null);          // "Mine to do" made a task, and its ref
+  const [releasing, setReleasing] = useState(false);
+  const release = async () => {
+    setReleasing(true);
+    try { const { data } = await api.post(`/api/tasks/${sel.TaskId}/release`, {}); onRefresh?.(); if (data?.session) onOpenTask?.(sel.TaskId); }
+    catch { /* the row keeps its hold; the reason is on the task */ }
+    setReleasing(false);
+  };
+
   return (
-    <Box key={sel.MessageId} sx={{ ...frame, textAlign: "left", ...fadeIn, animationDuration: ".16s",
-      // grows out of the clicked blurb: slides rightward from the row and scales up
-      "@keyframes thubGrow": { from: { opacity: 0, transform: "translateX(-32px) scale(.965)" },
+    <Box key={sel.MessageId} sx={{ height: "100%", minHeight: 0, textAlign: "left",
+      // grows out of the row you clicked: slides rightward and scales up
+      "@keyframes thubGrow": { from: { opacity: 0, transform: "translateX(-24px) scale(.975)" },
         to: { opacity: 1, transform: "none" } },
-      animation: "thubGrow .3s cubic-bezier(.2,.8,.3,1) both", transformOrigin: "left center" }}>
-      <Box sx={{ ...frameInner, display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 108px)" }}>
+      animation: "thubGrow .26s cubic-bezier(.2,.8,.3,1) both", transformOrigin: "left center" }}>
+      <Box sx={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column",
+        bgcolor: PANEL, border: `1px solid ${BORDER}`, borderRadius: 2, overflow: "hidden" }}>
+
         {/* header */}
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2, py: 1.25, borderBottom: `1px solid ${BORDER}`, bgcolor: PANEL2 }}>
-          <ChevronRightIcon sx={{ fontSize: 17, color: "#55697a" }} />
-          <ChannelIcon channel={sel.Channel} />
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 2, pt: 1.5, pb: 1.25, flexShrink: 0 }}>
+          <ChannelIcon channel={sel.Channel} sx={{ fontSize: 19 }} />
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="subtitle2" sx={{ color: INK, fontWeight: 700, fontSize: 13.5, lineHeight: 1.25, textAlign: "left" }} noWrap>
+            <Typography sx={{ color: INK, fontWeight: 700, fontSize: 15, lineHeight: 1.3, letterSpacing: "-.25px" }} noWrap>
               {sel.Subject || `${sel.FromName || sel.FromEmail} in ${sel.SourceName || "chat"}`}
             </Typography>
-            <Typography variant="caption" sx={{ color: FAINT, display: "block", textAlign: "left" }} noWrap>
+            <Typography variant="caption" sx={{ color: FAINT, display: "block" }} noWrap>
               {sel.FromName || sel.FromEmail}{sel.SourceName ? ` · ${sel.SourceName}` : ""} · {fmtDateTime(sel.SentAt)}
             </Typography>
           </Box>
           <RefChip taskId={sel.TaskId} onClick={() => onOpenTask(sel.TaskId)} />
-          <ActionChip action={actionOf(sel)} category={sel.Category} working={sel.Working} reviewStatus={sel.ReviewStatus} taskStatus={sel.TaskStatus} needsYou={needsYou(sel)} />
+          <StateMark row={sel} state={st} size="md" />
           <IconButton size="small" onClick={onClose}><CloseIcon sx={{ fontSize: 16 }} /></IconButton>
         </Box>
 
-        <Box sx={{ px: 2, py: 1.5, overflowY: "auto", textAlign: "left", flex: 1, minHeight: 150 }}>
+        {/* a stranger's first message is the one state that needs answering before anything else
+            can happen, so it sits above the tabs rather than inside one of them */}
+        {held && sel.TaskId && (
+          <Box sx={{ mx: 2, mb: 1.5, px: 1.5, py: 1.25, borderRadius: 2,
+            border: `1px solid ${ROLES.muted.bd}`, borderLeft: `2px solid ${ROLES.muted.solid}`, bgcolor: "#fcfaf7" }}>
+            <Typography sx={{ fontSize: 12.5, color: INK, lineHeight: 1.6, mb: 1 }}>
+              <b>Nothing was started.</b> This is the first message from {sel.FromEmail || "this address"},
+              and an unvetted message is not allowed to open a session on this machine by itself.
+            </Typography>
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              <Button size="small" variant="contained" disableElevation disabled={releasing} onClick={release}
+                startIcon={releasing ? <CircularProgress size={11} sx={{ color: "#fff" }} /> : <SmartToyIcon sx={{ fontSize: 15 }} />}
+                sx={{ fontSize: 12, background: GRADIENT }}>Release to the agent</Button>
+              <Typography variant="caption" sx={{ color: FAINT, alignSelf: "center" }}>
+                they are never held again after this
+              </Typography>
+            </Box>
+          </Box>
+        )}
+
+        {/* the tabs */}
+        <Box sx={{ display: "flex", gap: 0.25, px: 2, borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
+          {TABS.map((t) => (
+            <Box key={t.key} onClick={() => setTab(t.key)} role="tab" aria-selected={tab === t.key}
+              sx={{ display: "flex", alignItems: "center", gap: 0.7, px: 1.5, py: 1, cursor: "pointer",
+                fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", mb: "-1px",
+                color: tab === t.key ? INK : FAINT,
+                borderBottom: `2px solid ${tab === t.key ? ACCENT : "transparent"}`,
+                transition: "color .15s", "&:hover": { color: INK } }}>
+              {t.label}
+              {t.mark && <Box component="span" aria-hidden sx={{ fontSize: 12, lineHeight: 1 }}>{t.mark}</Box>}
+            </Box>
+          ))}
+        </Box>
+
+        <Box sx={{ px: 2, py: 1.75, overflowY: "auto", flex: 1, minHeight: 0 }}>
           {loading ? <CircularProgress size={20} sx={{ m: 2 }} /> : (
             <>
-              {/* the router's verdict, verbatim - triage is inspectable, not a vibe: the route
-                  reason carries "triage: <verdict> - <why>" straight from the classifier */}
-              {sel.RouteReason && (
-                <Typography variant="caption" sx={{ display: "block", color: FAINT, mb: 1.25,
-                  bgcolor: PANEL2, border: `1px solid ${BORDER}`, borderRadius: 1, px: 1, py: 0.5 }}>
-                  <Box component="b" sx={{ color: DIM }}>Why it's here:</Box> {sel.RouteReason}
-                </Typography>
-              )}
-              {/* the assistant's own post: what it noticed, each line with its buttons (assistant.py) */}
-              {sel.Channel === "assistant" && <AssistantPost sel={sel} onOpenTask={onOpenTask} onChanged={() => onRefresh?.()} />}
-              {sel.Channel === "report" && /morning digest/i.test(`${sel.SourceName || ""} ${sel.Subject || ""}`) && <TodayStrip />}
-              {sel.Channel !== "assistant" && (
+              {/* ── what arrived ── */}
+              {tab === "msg" && (
                 <>
-                  <PanelLabel>{(detail?.messages || []).length > 1 ? `Emails in this chain (${detail.messages.length})` : "Message"}</PanelLabel>
-                  <MessageBlock key={sel.MessageId} messages={detail?.messages} focusId={sel.MessageId} fallback={sel.Preview} />
-                </>
-              )}
-
-              {rep && (
-                <>
-                  <PanelLabel>What the coder did</PanelLabel>
-                  <Box sx={{ bgcolor: "#e3e6e1", border: "1px solid #d2d6cf", borderRadius: 1.5, px: 1.25, py: 0.5 }}>
-                    <CoderReport body={rep.Body} />
-                  </Box>
-                </>
-              )}
-              {/* the report above is the agent's CLAIM; this is the evidence - files git
-                  says moved, the tests the session ran, CI on the PR, and what is missing */}
-              {sel.TaskId && (rep || diffRun) && (
-                <>
-                  <PanelLabel>Proof of work</PanelLabel>
-                  <ProofCard taskId={sel.TaskId} onOpenTask={onOpenTask} />
-                </>
-              )}
-
-              {diffRun && (
-                <>
-                  <PanelLabel>Code changes</PanelLabel>
-                  <DiffBlock text={diffRun.DiffText} />
-                </>
-              )}
-
-              {history.length > 0 && (
-                <>
-                  <PanelLabel>History</PanelLabel>
-                  <Box sx={{ bgcolor: PANEL2, border: `1px solid ${BORDER}`, borderRadius: 1.5, px: 1.25, py: 0.25 }}>
-                    {history.map((h, i) => (
-                      <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.6,
-                        borderTop: i ? `1px solid ${BORDER}` : "none" }}>
-                        <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: h.c, flexShrink: 0 }} />
-                        <Typography variant="caption" sx={{ color: INK, fontWeight: 600, flexShrink: 0 }}>{h.label}</Typography>
-                        {h.sub ? <Typography variant="caption" sx={{ color: DIM, flex: 1, minWidth: 0 }} noWrap>{h.sub}</Typography> : <Box sx={{ flex: 1 }} />}
-                        {h.n > 1 && <Chip size="small" label={`×${h.n}`} sx={{ height: 16, fontSize: 9.5, bgcolor: "#eae4d8", color: "#55697a" }} />}
-                        {h.at && <Typography variant="caption" sx={{ ...mono, color: FAINT, fontSize: 9.5, flexShrink: 0 }}>{fmtDateTime(h.at)}</Typography>}
+                  {sel.Channel === "assistant" && <AssistantPost sel={sel} onOpenTask={onOpenTask} onChanged={() => onRefresh?.()} />}
+                  {sel.Channel === "report" && /morning digest/i.test(`${sel.SourceName || ""} ${sel.Subject || ""}`) && <TodayStrip />}
+                  {sel.Channel !== "assistant" && (
+                    <>
+                      <PanelLabel>{(detail?.messages || []).length > 1 ? `The thread (${detail.messages.length} messages)` : "What arrived"}</PanelLabel>
+                      <MessageBlock key={sel.MessageId} messages={detail?.messages} focusId={sel.MessageId} fallback={sel.Preview} />
+                    </>
+                  )}
+                  {history.length > 0 && (
+                    <>
+                      <PanelLabel>What happened to it</PanelLabel>
+                      <Box sx={{ bgcolor: "#fcfaf7", border: `1px solid ${BORDER}`, borderRadius: 1.5, px: 1.25, py: 0.25 }}>
+                        {history.map((h, i) => (
+                          <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.6,
+                            borderTop: i ? `1px solid ${BORDER}` : "none" }}>
+                            <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: h.c, flexShrink: 0 }} />
+                            <Typography variant="caption" sx={{ color: INK, fontWeight: 600, flexShrink: 0 }}>{h.label}</Typography>
+                            {h.sub ? <Typography variant="caption" sx={{ color: DIM, flex: 1, minWidth: 0 }} noWrap>{h.sub}</Typography> : <Box sx={{ flex: 1 }} />}
+                            {h.n > 1 && <Chip size="small" label={`×${h.n}`} sx={{ height: 16, fontSize: 9.5, bgcolor: PANEL2, color: ACCENT }} />}
+                            {h.at && <Typography variant="caption" sx={{ ...mono, color: FAINT, fontSize: 9.5, flexShrink: 0 }}>{fmtDateTime(h.at)}</Typography>}
+                          </Box>
+                        ))}
                       </Box>
-                    ))}
-                  </Box>
+                    </>
+                  )}
                 </>
               )}
 
-              {pending && (
+              {/* ── why it went where it went ── */}
+              {tab === "why" && <TriagePane sel={sel} detail={detail} onRefresh={onRefresh} />}
+
+              {/* ── what the agent did about it ── */}
+              {tab === "agent" && (
                 <>
-                  <PanelLabel>Draft reply — review, edit, approve</PanelLabel>
-                  <ReviewActions reviewId={sel.ReviewId} draft={pendingDraft(detail || { runs: [] }, sel)}
-                    editText={editText} setEditText={setEditText} decide={decide}
-                    sendErr={sendErr} clearSendErr={clearSendErr} canSend={sel.CanSend} />
+                  {onIt && (
+                    <>
+                      <PanelLabel>{onIt.waiting ? `${onIt.agent} stopped and is waiting on you` : `${onIt.agent} is on it now`}</PanelLabel>
+                      <LiveConsole run={liveRow} agent={onIt.agent} onOpen={() => onOpenTask(sel.TaskId)} />
+                    </>
+                  )}
+                  {rep && (
+                    <>
+                      <PanelLabel>What it did</PanelLabel>
+                      <Box sx={{ bgcolor: "#fcfaf7", border: `1px solid ${BORDER}`, borderRadius: 1.5, px: 1.25, py: 0.5 }}>
+                        <CoderReport body={rep.Body} />
+                      </Box>
+                    </>
+                  )}
+                  {/* the report above is the agent's CLAIM; this is the evidence - files git says
+                      moved, the tests the session ran, CI on the PR, and what is MISSING, said
+                      plainly, because a thin card must never read as a clean one */}
+                  {sel.TaskId && (rep || diffRun) && (
+                    <>
+                      <PanelLabel>Proof of work</PanelLabel>
+                      <ProofCard taskId={sel.TaskId} onOpenTask={onOpenTask} />
+                    </>
+                  )}
+                  {diffRun && (
+                    <>
+                      <PanelLabel>Code changes</PanelLabel>
+                      <DiffBlock text={diffRun.DiffText} />
+                    </>
+                  )}
+                  {!onIt && !rep && !diffRun && (
+                    <Typography variant="caption" sx={{ color: FAINT, display: "block", lineHeight: 1.7 }}>
+                      {held ? "Nothing is working this — it is held until you release it."
+                        : codeless ? "No agent was sent at this: triage read it as something a sentence settles, not work."
+                        : sel.TaskId ? "No agent has started on this yet. Send it to one from the tray below."
+                        : "Nothing was started — this is here to be read."}
+                    </Typography>
+                  )}
                 </>
-              )}
-              {/* no reply on the table (the coder ran, or triage filed it) - put one there. The
-                  box was simply UNREACHABLE from here before: nothing pending meant no way to
-                  answer at all. */}
-              {!pending && opened && (
-                <>
-                  <PanelLabel>Draft reply — review, edit, approve</PanelLabel>
-                  <ReviewActions reviewId={opened.reviewId} draft={opened.draft}
-                    editText={editText} setEditText={setEditText} decide={decide}
-                    sendErr={sendErr} clearSendErr={clearSendErr} canSend={sel.CanSend} />
-                </>
-              )}
-              {!pending && !opened && !["report", "assistant"].includes(sel.Channel) && (
-                <ChoiceRow tint="#eae4d8" busy={opening} onClick={openReply}
-                  icon={<ForwardToInboxIcon sx={{ fontSize: 14, color: "#55697a" }} />}
-                  label="Reply to this"
-                  hint="the AI drafts it from the thread (and the coder's report, if one ran) — approving sends" />
               )}
 
+              {/* ── the answer that goes back ── */}
+              {tab === "reply" && (
+                <>
+                  {pending && (
+                    <>
+                      <PanelLabel>The agent wrote this — nothing has been sent</PanelLabel>
+                      <ReviewActions reviewId={sel.ReviewId} draft={pendingDraft(detail || { runs: [] }, sel)}
+                        editText={editText} setEditText={setEditText} decide={decide}
+                        sendErr={sendErr} clearSendErr={clearSendErr} canSend={sel.CanSend} />
+                    </>
+                  )}
+                  {!pending && opened && (
+                    <>
+                      <PanelLabel>Draft reply — review, edit, approve</PanelLabel>
+                      <ReviewActions reviewId={opened.reviewId} draft={opened.draft}
+                        editText={editText} setEditText={setEditText} decide={decide}
+                        sendErr={sendErr} clearSendErr={clearSendErr} canSend={sel.CanSend} />
+                    </>
+                  )}
+                  {!replyOpen && (["report", "assistant"].includes(sel.Channel) ? (
+                    <Typography variant="caption" sx={{ color: FAINT, display: "block", lineHeight: 1.7 }}>
+                      Nobody sent this, so there is nobody to answer. Findings from work off a report
+                      land on the Timeline — unless that report's card names somewhere to send them.
+                    </Typography>
+                  ) : (
+                    <ChoiceRow tint={PANEL2} busy={opening} onClick={() => { openReply(); }}
+                      icon={<ForwardToInboxIcon sx={{ fontSize: 14, color: ACCENT }} />}
+                      label="Write a reply" first
+                      hint="the AI drafts it from the thread (and the coder's report, if one ran) — approving sends it" />
+                  ))}
+                </>
+              )}
             </>
           )}
         </Box>
 
-        {/* Assistant posts carry actions on each individual idea. Applying message-level verdicts
-            such as "Not our task" to the assistant's whole digest is ambiguous and teaches the
-            wrong sender/topic lesson, so the generic message action tray does not belong there. */}
+        {/* THE TRAY. Only what belongs to the tab above it. Assistant posts carry actions on each
+            individual idea, so the generic message tray does not belong there at all - applying
+            "Not our task" to a whole digest teaches the wrong sender and topic lesson. */}
         {!loading && sel.Channel !== "assistant" && (
-          <Box sx={{ flexShrink: 0, borderTop: `1px solid ${BORDER}`, bgcolor: PANEL2, px: 2, pt: 0.25, pb: 1.25 }}>
-          {/* These were four buttons in two rows, four sizes, two right-aligned - so "what are
-              my options" needed a hunt, and a long message pushed the fourth off-screen. */}
-            {/* FOUR OUTCOMES, always these four, always this order: work it, answer it, keep
-                it, drop it. Everything else this panel can do is a variation on one of them and
-                lives behind "more ways" - eleven rows meant the question "what are my options"
-                had a scroll in it, and the two that matter most were somewhere in the middle. */}
-            <PanelLabel>What should happen with this?</PanelLabel>
-            <ChoiceList>
-              {onIt ? (
-                <Box sx={{ width: "100%", p: 1, bgcolor: PANEL2, borderBottom: `1px solid ${BORDER}`, display: "flex", flexDirection: "column", gap: 1 }}>
-                  {/* the black console: the agent's own last lines, live - the same peephole the Board
-                      cards wear, so "working this now" is something you watch, not read */}
-                  <LiveConsole run={liveRow} agent={onIt.agent} onOpen={() => onOpenTask(sel.TaskId)} />
-                </Box>
-              ) : !codeless ? (
-                <SendToAgent row first messageId={sel.MessageId} subject={sel.Subject} onOpenTask={onOpenTask} />
-              ) : null}
-              {/* the agent asked, the person answered on the thread - one click puts the
-                  answer in front of the agent (Settings → answer_to_agent; auto skips the click) */}
-              {onIt && sel.MessageId && (
-                <ChoiceRow tint="#e3e6e1" busy={handed} onClick={handToAgent}
-                  icon={<ForwardToInboxIcon sx={{ fontSize: 14, color: "#6f8a6e" }} />}
-                  label={handed ? "Answer typed into the session" : `Type this into ${onIt.agent}'s session`}
-                  hint={handed ? "the agent has it — watch it continue on the task" : "their message is typed into the live session, as if you relayed it"} />
+          <Box sx={{ flexShrink: 0, borderTop: `1px solid ${BORDER}`, bgcolor: "#fcfaf7", px: 2, py: 1.25 }}>
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+              {tab === "msg" && (
+                <>
+                  {!onIt && !codeless && !held && (
+                    <SendToAgent messageId={sel.MessageId} subject={sel.Subject} onOpenTask={onOpenTask} />
+                  )}
+                  <TrayBtn tone={onIt || codeless || held ? "primary" : "plain"} onClick={() => setTab("reply")}
+                    icon={<ForwardToInboxIcon sx={{ fontSize: 15 }} />}>Reply to this</TrayBtn>
+                  {sel.TaskId
+                    ? <TrayBtn onClick={() => onOpenTask(sel.TaskId)} icon={<OpenInFullIcon sx={{ fontSize: 15 }} />}>
+                        Open {ref(sel.TaskId)}</TrayBtn>
+                    : <TrayBtn disabled={!!mined} icon={<AssignmentIndIcon sx={{ fontSize: 15 }} />}
+                        title="a task with your name on it - no agent is dispatched"
+                        onClick={async () => {
+                          try { const { data } = await api.post(`/api/messages/${sel.MessageId}/mine`, {});
+                            setMined(data.ref); onRefresh?.(); } catch { /* the row keeps its state */ }
+                        }}>{mined || "Mine to do"}</TrayBtn>}
+                  <Box sx={{ flex: 1, minWidth: 8 }} />
+                  {/* THE TWO EXITS, and the difference between them is the whole point. Dismiss
+                      hides this row and teaches nothing. "Nothing to do here" is a VERDICT: it
+                      files the conversation and then asks, once, how far it should apply — which
+                      is LearnScope, right below. The dot is what says so BEFORE you click, which
+                      is where it was missing: the two buttons looked identical and one of them
+                      quietly changed how the next message from that person is judged. */}
+                  <TrayBtn tone="quiet" disabled={!!filed}
+                    onClick={async () => { await api.post(`/api/messages/${sel.MessageId}/file`); setFiled(true); onRefresh?.(); }}>
+                    {filed ? "Filed" : "Dismiss just this one"}</TrayBtn>
+                  <TrayBtn tone="teach" teaches disabled={!!filed}
+                    onClick={async () => { await api.post(`/api/messages/${sel.MessageId}/file`); setFiled(true); onRefresh?.(); }}>
+                    Nothing to do here</TrayBtn>
+                </>
               )}
-              {sel.TaskId ? (
-                <ChoiceRow tint="#eae4d8" onClick={() => onOpenTask(sel.TaskId)}
-                  icon={<OpenInFullIcon sx={{ fontSize: 14, color: "#55697a" }} />}
-                  label={`Open task ${ref(sel.TaskId)}`} hint="the whole story: session, report, history" />
-              ) : (
-                <MineToDo messageId={sel.MessageId} onMade={() => onRefresh?.()} />
+              {tab === "why" && (
+                <>
+                  {sel.TaskId && (
+                    <TrayBtn teaches onClick={async () => { await api.post(`/api/tasks/${sel.TaskId}/not-coding`); onRefresh?.(); }}
+                      title="keeps the task on your list, takes the agent off it, and remembers that for mail like this">
+                      It is mine, not an agent&rsquo;s</TrayBtn>
+                  )}
+                  {codeless && !onIt && <SendToAgent messageId={sel.MessageId} subject={sel.Subject} onOpenTask={onOpenTask} />}
+                  {sel.TaskId && (
+                    <TrayBtn onClick={() => setReshape(true)} icon={<CallSplitIcon sx={{ fontSize: 15 }} />}>
+                      Two jobs, or a duplicate</TrayBtn>
+                  )}
+                  <Box sx={{ flex: 1, minWidth: 8 }} />
+                  <NotMine messageId={sel.MessageId} onDone={onSkipped} onLock={onLock} />
+                  {sel.Channel === "email" && sel.FromEmail && (
+                    <TrayBtn tone="teach" teaches disabled={skipped !== null} onClick={skipSender}
+                      icon={<VolumeOffIcon sx={{ fontSize: 15 }} />}
+                      title={`hide ${sel.FromEmail} and their past mail — undo in Settings`}>
+                      {skipped !== null ? `Skipped${skipped ? ` · ${skipped} hidden` : ""}` : "Skip this sender"}</TrayBtn>
+                  )}
+                </>
               )}
-              {/* THE HARMLESS EXIT: it files this and the rest of the conversation and teaches
-                  nothing. Teaching is the line underneath, asked once, afterwards - it used to be
-                  a separate button ("Not our task") whose one wrong click told the funnel to stop
-                  listening to a colleague. */}
-              <ChoiceRow tint="#e9e3d8" busy={!!filed} onClick={async () => {
-                  await api.post(`/api/messages/${sel.MessageId}/file`);
-                  setFiled(true); onRefresh?.();
-                }}
-                icon={<CloseIcon sx={{ fontSize: 14, color: "#5e685f" }} />}
-                label={filed ? "Filed — nothing to do here" : sel.TaskId ? "Not a task — just conversation" : "Nothing to do here"}
-                hint={filed ? "this and the rest of the conversation are off your list"
-                  : sel.TaskId ? `delete ${ref(sel.TaskId)} and file the rest of this conversation`
-                               : "file it and the rest of this conversation"} />
-              {filed && <LearnScope row={sel} onDone={() => onSkipped?.()} />}
-              {/* one line instead of seven rows: the rest are real, and none of them is what the
-                  question above is asking */}
-              <Box component="button" onClick={() => setMore((m) => !m)}
-                sx={{ width: "100%", textAlign: "left", px: 1.25, py: 0.6, cursor: "pointer", border: "none",
-                  borderTop: `1px solid ${BORDER}`, bgcolor: "transparent", color: DIM, fontSize: 11.5,
-                  "&:hover": { color: INK } }}>
-                {more ? "▾ fewer ways" : "▸ more ways to handle this"}
+              {tab === "agent" && (
+                <>
+                  {sel.TaskId && (
+                    <TrayBtn tone="primary" onClick={() => onOpenTask(sel.TaskId)} icon={<OpenInFullIcon sx={{ fontSize: 15 }} />}>
+                      {onIt ? "Open the session" : `Open ${ref(sel.TaskId)}`}</TrayBtn>
+                  )}
+                  {/* the agent asked, the person answered on the thread — one click puts the
+                      answer in front of the agent (Settings → answer_to_agent; auto skips it) */}
+                  {onIt && sel.MessageId && (
+                    <TrayBtn disabled={handed} onClick={handToAgent} icon={<ForwardToInboxIcon sx={{ fontSize: 15 }} />}
+                      title="their message is typed into the live session, as if you relayed it">
+                      {handed ? "Typed into the session" : `Tell ${onIt.agent} this`}</TrayBtn>
+                  )}
+                  {sel.TaskId && <TellAgentButton taskId={sel.TaskId} />}
+                  {!onIt && !codeless && !held && (
+                    <SendToAgent messageId={sel.MessageId} subject={sel.Subject} onOpenTask={onOpenTask} />
+                  )}
+                </>
+              )}
+              {tab === "reply" && (
+                <>
+                  {/* the Send button lives INSIDE ReviewActions with the text it sends — a Send
+                      button away from the box it sends is how you send an unread draft */}
+                  <Typography variant="caption" sx={{ color: FAINT, lineHeight: 1.6 }}>
+                    Nothing leaves until you press Send. The agent wrote it; you own it.
+                  </Typography>
+                  <Box sx={{ flex: 1, minWidth: 8 }} />
+                  {sel.TaskId && (
+                    <TrayBtn tone="quiet" onClick={() => setMore((m) => !m)}>
+                      {more ? "Fewer ways" : "Hand it to a person"}</TrayBtn>
+                  )}
+                </>
+              )}
+            </Box>
+
+            {/* THE SECOND QUESTION, asked once, after a verdict that corrects triage: how far
+                does it apply — just this one, this person, this kind of work? It only appears
+                after "Nothing to do here", which is what the dot on that button warns about. */}
+            {tab === "msg" && filed && <LearnScope row={sel} onDone={() => onSkipped?.()} />}
+
+            {/* the extras that belong to a reply but are not the reply: hand it to a person, or
+                let the assistant re-say it. Folded, because the answer above is the point. */}
+            {tab === "reply" && more && sel.TaskId && (
+              <Box sx={{ mt: 1.25, pt: 1.25, borderTop: `1px solid ${BORDER}` }}>
+                <PanelLabel>Hand this to a person instead</PanelLabel>
+                <Handoff taskId={sel.TaskId} onSent={() => onRefresh?.()} />
               </Box>
-              {more && sel.TaskId && (
-                <ChoiceRow tint="#eae4d8" onClick={() => setHandoff((h) => !h)}
-                  icon={<ForwardToInboxIcon sx={{ fontSize: 14, color: "#55697a" }} />}
-                  label="Hand it to a person" hint="not ours to do — the AI writes the forward, you send it" />
-              )}
-              {/* under the row that OPENED it. It used to render after the whole list, past the
-                  drawer, so clicking a button near the top scrolled a tray in at the bottom with
-                  nothing connecting the two - and every other tray here expands in place. */}
-              {more && handoff && sel.TaskId && (
-                <Box sx={{ width: "100%", bgcolor: PANEL2, borderTop: `1px solid ${BORDER}`, px: 1.25, py: 1 }}>
-                  <PanelLabel>Hand this to a person</PanelLabel>
-                  <Handoff taskId={sel.TaskId} onSent={() => onRefresh?.()} />
-                </Box>
-              )}
-              {/* the default is the agent - everything that is work goes to it - so the exception is
-                  the button: real work, not for the coder. The task stays on your list and the
-                  verdict is remembered for the next message like it. */}
-              {more && sel.TaskId && (
-                <ChoiceRow tint="#eee7d6" onClick={async () => { await api.post(`/api/tasks/${sel.TaskId}/not-coding`); onRefresh?.(); }}
-                  icon={<CloseIcon sx={{ fontSize: 14, color: "#8a7a5c" }} />}
-                  label="Not a coding task" hint={`keep ${ref(sel.TaskId)} on your list, take the agent off it — and remember that for mail like this`} />
-              )}
-              {more && <VoiceNoteRow sel={sel}
-                body={voiceNoteBody(sel, (detail?.messages || []).find((m) => m.MessageId === sel.MessageId))}
-                onRefresh={onRefresh} onMessageChanged={onMessageChanged} />}
-              {more && <SplitTask row={sel} onSplit={() => onRefresh?.()} />}
-              {more && <NotMine row messageId={sel.MessageId} onDone={onSkipped} onLock={onLock} />}
-              {more && sel.TaskId && (
-                <ChoiceRow tint="#e3e6e1" onClick={() => setReshape(true)}
-                  icon={<CallSplitIcon sx={{ fontSize: 14, color: "#6f8a6e" }} />}
-                  label="Two jobs in here, or a duplicate?"
-                  hint={`break ${ref(sel.TaskId)} in two, or fold it into the task it repeats`} />
-              )}
-              {/* a chat about someone's job is not a coding job. Triage already said so, and
-                  leading with "send it to a coding agent" argued with its own verdict - the
-                  offer stays available, it just stops being the first thing you reach for */}
-              {more && codeless && !onIt && (
-                <SendToAgent row messageId={sel.MessageId} subject={sel.Subject} onOpenTask={onOpenTask} />
-              )}
-              {more && sel.Channel === "email" && sel.FromEmail && (skipped !== null ? (
-                <ChoiceRow tint="#dfeade" busy
-                  icon={<VolumeOffIcon sx={{ fontSize: 14, color: "#47654a" }} />}
-                  label="Sender skipped"
-                  hint={skipped ? `${skipped} past message${skipped === 1 ? "" : "s"} hidden too` : "they will not appear again"} />
-              ) : (
-                <ChoiceRow tint="#e9e3d8" onClick={skipSender}
-                  icon={<VolumeOffIcon sx={{ fontSize: 14, color: "#867f74" }} />}
-                  label="Skip this sender" hint={`hide ${sel.FromEmail} and their past mail — undo in Settings`} />
-              ))}
-            </ChoiceList>
+            )}
+            {tab === "msg" && <VoiceNoteRow sel={sel}
+              body={voiceNoteBody(sel, (detail?.messages || []).find((m) => m.MessageId === sel.MessageId))}
+              onRefresh={onRefresh} onMessageChanged={onMessageChanged} />}
+            {tab === "why" && <SplitTask row={sel} onSplit={() => onRefresh?.()} />}
 
             <Drawer anchor="right" open={!!reshape && !!sel.TaskId} onClose={() => setReshape(false)}
               PaperProps={{ sx: { width: { xs: "100%", sm: 480 }, p: 2, bgcolor: PANEL2 } }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
-                <CallSplitIcon sx={{ fontSize: 18, color: "#6f8a6e" }} />
+                <CallSplitIcon sx={{ fontSize: 18, color: ACCENT2 }} />
                 <Typography sx={{ color: INK, fontWeight: 700, fontSize: 14.5, flex: 1 }}>Is this one job?</Typography>
                 <IconButton size="small" onClick={() => setReshape(false)}><CloseIcon sx={{ fontSize: 17 }} /></IconButton>
               </Box>
@@ -1567,11 +1686,73 @@ const ReviewCanvas = ({ sel, detail, editText, setEditText, decide, onOpenTask, 
                   onDone={(r) => { onRefresh?.(); if (r?.merged) onOpenTask?.(r.merged); }} />
               )}
             </Drawer>
-
           </Box>
         )}
       </Box>
     </Box>
+  );
+};
+
+// ── Triage, as a decision you can see and argue with ──────────────────────────────────────
+// The verdict used to be one grey caption at the top of the panel ("Why it's here: triage:
+// coding - …"), which said what happened without ever showing that there were four answers it
+// could have given. Four roads, the one it took lit, and its own sentence underneath: that is
+// the difference between a system you can correct and a system you have to trust.
+const ROADS = [
+  { key: "fyi", label: "fyi", hint: "nothing to do" },
+  { key: "reply", label: "reply", hint: "a sentence settles it" },
+  { key: "coding", label: "coding", hint: "an agent on a keyboard" },
+  { key: "general", label: "general", hint: "only you can do it" },
+];
+// which road the route line says it took. `kind` decides coding vs general and rides on the
+// task, so the two are read from different places on purpose.
+const roadOf = (sel) => {
+  const r = String(sel.RouteReason || "");
+  if (/triage:\s*fyi/.test(r)) return "fyi";
+  if (/triage:\s*reply_only/.test(r) || sel.TaskKind === "reply") return "reply";
+  if (sel.TaskKind === "coding") return "coding";
+  if (sel.TaskKind === "note") return null;                 // you wrote it; nothing judged it
+  return sel.TaskId ? "general" : null;
+};
+
+const TriagePane = ({ sel, detail, onRefresh }) => {
+  const road = roadOf(sel);
+  // the sentence the classifier wrote, without the routing bookkeeping after it
+  const why = String(sel.RouteReason || "").replace(/^triage:\s*\w+\s*-\s*/, "").split(" · ")[0];
+  const rest = String(sel.RouteReason || "").split(" · ").slice(1);
+  const watch = (detail?.task || {}).Kind === "note";
+  if (!sel.RouteReason && !road) return (
+    <Typography variant="caption" sx={{ color: FAINT, lineHeight: 1.7 }}>
+      Nothing judged this. {watch ? "You wrote it." : "It is here to be read."}
+    </Typography>
+  );
+  return (
+    <>
+      <PanelLabel>Which road it took</PanelLabel>
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 0.75, mb: 1.5 }}>
+        {ROADS.map((r) => (
+          <Box key={r.key} sx={{ border: `1px solid ${road === r.key ? ACCENT : BORDER}`, borderRadius: 1.5,
+            px: 1, py: 0.85, bgcolor: road === r.key ? PANEL : "#fcfaf7",
+            boxShadow: road === r.key ? `inset 0 0 0 1px ${ACCENT}` : "none" }}>
+            <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: road === r.key ? INK : FAINT }}>{r.label}</Typography>
+            <Typography sx={{ fontSize: 10, color: FAINT, lineHeight: 1.4, mt: 0.25 }}>{r.hint}</Typography>
+          </Box>
+        ))}
+      </Box>
+      <PanelLabel>And why</PanelLabel>
+      <Box sx={{ border: `1px solid ${BORDER}`, borderRadius: 1.5, px: 1.5, py: 1.25, bgcolor: "#fcfaf7" }}>
+        <Typography sx={{ fontSize: 13, color: INK, lineHeight: 1.65 }}>{why || sel.RouteReason}</Typography>
+        {!!rest.length && (
+          <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 0.85, lineHeight: 1.6 }}>
+            {rest.join(" · ")}
+          </Typography>
+        )}
+      </Box>
+      <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 1.25, lineHeight: 1.6 }}>
+        Correcting this teaches it: the verdict you give lands in TRIAGE.md and applies to the next
+        message like this one, not as a rule about this sender.
+      </Typography>
+    </>
   );
 };
 
@@ -1777,9 +1958,67 @@ const briefOf = (b) => { if (!b) return null; if (typeof b === "object") return 
 // State comes from the server (a line acted on from another tab shows as done here too); the
 // buttons are the ones the line's action allows.
 const IDEA_KIND = { followup: "follow up", prep: "prep", cold: "gone quiet", ahead: "coming up", idea: "idea" };
+
+// THE POST HAS SECTIONS. It used to be a flat list of lines, which is fine at two lines and
+// unreadable at six - the owner (2026-09-01): "it should summarize into sections... what the
+// info emails said, then open tasks and what they are working on, then things you forgot to
+// follow up, then some stats". The lines themselves are unchanged: each still carries its own
+// buttons and its own state, they are just sorted into what KIND of thing they are.
+// Mirrors assistant.SECTIONS - the server decides which section a line is in.
+const SECTIONS = [
+  { key: "people",  mark: "📥", label: "What people said" },
+  { key: "loose",   mark: "🧵", label: "Loose ends" },
+  { key: "systems", mark: "🛠️", label: "From the systems" },
+  { key: "ideas",   mark: "💡", label: "Worth a thought" },
+];
+const SectionHead = ({ mark, label, n }) => (
+  <Box sx={{ display: "flex", alignItems: "center", gap: 0.85, mt: 1.75, mb: 0.85 }}>
+    <Box component="span" aria-hidden sx={{ fontSize: 14, lineHeight: 1 }}>{mark}</Box>
+    <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: INK, letterSpacing: "-.1px" }}>{label}</Typography>
+    <Box sx={{ flex: 1, height: "1px", bgcolor: BORDER }} />
+    {n != null && <Typography variant="caption" sx={{ ...mono, color: FAINT, fontSize: 10 }}>{n}</Typography>}
+  </Box>
+);
+
+// what is being worked, straight off the tasks - the assistant never writes this, because a
+// model asked to restate the open list is a model that eventually invents a task (assistant.in_flight)
+const InFlight = ({ rows, onOpenTask }) => !rows?.length ? null : (
+  <>
+    <SectionHead mark="🚀" label="In flight" n={rows.length} />
+    <Box sx={{ border: `1px solid ${BORDER}`, borderRadius: 1.5, overflow: "hidden" }}>
+      {rows.map((r, i) => (
+        <Box key={r.tid} onClick={() => onOpenTask?.(r.tid)}
+          sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.25, py: 0.75, cursor: "pointer",
+            borderTop: i ? `1px solid ${BORDER}` : "none", bgcolor: r.hot ? PANEL : "#fcfaf7",
+            "&:hover": { bgcolor: PANEL2 } }}>
+          <Box sx={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+            bgcolor: r.agent ? ROLES.working.solid : r.state.startsWith("a reply") ? ALERT : ROLES.muted.solid }} />
+          <Typography variant="caption" sx={{ ...mono, color: ACCENT, fontWeight: 600, flexShrink: 0 }}>{r.ref}</Typography>
+          <Typography variant="caption" sx={{ color: INK, flex: 1, minWidth: 0 }} noWrap>{r.title}</Typography>
+          <Typography variant="caption" sx={{ color: r.hot ? DIM : FAINT, flexShrink: 0, fontSize: 10.5 }}>{r.state}</Typography>
+        </Box>
+      ))}
+    </Box>
+  </>
+);
+
+// the day in four numbers, counted rather than asked for
+const DayStats = ({ rows }) => !rows?.length ? null : (
+  <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", px: 1.5, py: 1.25, mb: 0.5,
+    border: `1px solid ${BORDER}`, borderRadius: 1.5, bgcolor: "#fcfaf7" }}>
+    {rows.map((s) => (
+      <Box key={s.label} sx={{ display: "flex", alignItems: "baseline", gap: 0.6 }}>
+        <Typography sx={{ fontSize: 17, fontWeight: 700, lineHeight: 1,
+          color: s.hot && s.n ? ALERT : s.n ? INK : FAINT }}>{s.n}</Typography>
+        <Typography variant="caption" sx={{ color: FAINT }}>{s.label}</Typography>
+      </Box>
+    ))}
+  </Box>
+);
 const AssistantPost = ({ sel, onOpenTask, onChanged }) => {
   const [ideas, setIdeas] = useState(() => briefOf(sel.Brief)?.ideas || []);
-  const rv = briefOf(sel.Brief)?.reviewed;
+  const brief = briefOf(sel.Brief) || {};
+  const rv = brief.reviewed;
   const [showSkipped, setShowSkipped] = useState(false);
   const [busy, setBusy] = useState(null);
   const [notes, setNotes] = useState({});
@@ -1811,14 +2050,8 @@ const AssistantPost = ({ sel, onOpenTask, onChanged }) => {
     "&:hover": { background: "linear-gradient(90deg, #465866, #698368)" } };
   const quiet = { color: DIM, borderColor: BORDER, bgcolor: PANEL,
     "&:hover": { borderColor: ASSISTANT.solid, bgcolor: "#f7f8f4" } };
-  return (
-    <Box sx={{ mb: 1.25 }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.6 }}>
-        <SmartToyIcon sx={{ fontSize: 14, color: ASSISTANT.solid }} />
-        <Typography variant="caption" sx={{ color: ASSISTANT.ink, fontWeight: 700, letterSpacing: 0.3 }}>WHAT I NOTICED</Typography>
-        {err && <Typography variant="caption" sx={{ color: ALERT_INK }}>· {err}</Typography>}
-      </Box>
-      {ideas.map((i) => {
+  // ONE renderer for a line, called from inside whichever section it belongs to.
+  const line = (i) => {
         const a = i.action || {}, open = i.status === "open", ev = a.event;
         return (
           <Box key={i.id} sx={{ px: 1.25, py: 0.85, mb: 0.6, borderRadius: 1.5, border: `1px solid ${ASSISTANT.bd}`, bgcolor: open ? ASSISTANT.tint : "#f4f3ef", opacity: open ? 1 : 0.72 }}>
@@ -1877,9 +2110,42 @@ const AssistantPost = ({ sel, onOpenTask, onChanged }) => {
             )}
           </Box>
         );
+  };
+
+  // the sections, in the order the day reads. An empty one is not drawn - a header over nothing
+  // is worse than no header, because it says the assistant looked and found something.
+  const bySection = (k) => ideas.filter((i) => (i.section || "ideas") === k);
+  return (
+    <Box sx={{ mb: 1.25 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1 }}>
+        <SmartToyIcon sx={{ fontSize: 15, color: ASSISTANT.solid }} />
+        <Typography sx={{ color: ASSISTANT.ink, fontWeight: 700, fontSize: 13 }}>Your assistant</Typography>
+        <Typography variant="caption" sx={{ color: FAINT, flex: 1 }}>{fmtDateTime(sel.SentAt)}</Typography>
+        {err && <Typography variant="caption" sx={{ color: ALERT_INK }}>{err}</Typography>}
+      </Box>
+      <DayStats rows={brief.stats} />
+      {SECTIONS.map((sec) => {
+        const rows = bySection(sec.key);
+        if (!rows.length) return null;
+        // In flight is FACT, not the model's work, so it sits between the sections that are -
+        // after what people said, before what is still hanging.
+        return (
+          <React.Fragment key={sec.key}>
+            {sec.key === "loose" && <InFlight rows={brief.flight} onOpenTask={onOpenTask} />}
+            <SectionHead mark={sec.mark} label={sec.label} n={rows.length} />
+            {rows.map(line)}
+          </React.Fragment>
+        );
       })}
+      {/* ...and when nothing is hanging, In flight still belongs on the post */}
+      {!bySection("loose").length && <InFlight rows={brief.flight} onOpenTask={onOpenTask} />}
+      {!ideas.length && (
+        <Typography variant="caption" sx={{ color: FAINT, display: "block", mt: 1, lineHeight: 1.7 }}>
+          Nothing worth saying this time — which is most checks. What it read is below.
+        </Typography>
+      )}
       {rv && (
-        <Box sx={{ mt: 0.75, px: 1.25, py: 0.7, borderRadius: 1.5, border: `1px dashed ${BORDER}`, bgcolor: "#faf8f4" }}>
+        <Box sx={{ mt: 1.5, px: 1.25, py: 0.7, borderRadius: 1.5, border: `1px dashed ${BORDER}`, bgcolor: "#faf8f4" }}>
           <Typography variant="caption" sx={{ display: "block", color: DIM, lineHeight: 1.45 }}>
             <Box component="span" sx={{ fontWeight: 700, color: "#6b5f45" }}>what it reviewed · </Box>
             {Object.entries(rv.candidates || {}).map(([k, v]) => `${v} ${IDEA_KIND[k] || k}`).join(", ") || "no candidates"}

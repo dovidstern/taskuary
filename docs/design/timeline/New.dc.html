@@ -1,0 +1,105 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+  :root{
+  --bg:#f6f4f1; --panel:#fffdfb; --panel2:#e9e3d8; --bd:#e1dcd5; --bd2:#d8cfbe;
+  --ink:#262521; --dim:#4d4a43; --faint:#6e685f;
+  --accent:#55697a; --accent2:#6f8a6e;
+  --alert:#8a3646; --alert-ink:#7a2f3c; --alert-tint:#f3e6e8; --alert-bd:#e0c6cb;
+  --work:#55697a; --info:#8a7a5c; --done:#47654a; --mute:#a09787;
+  --sans:'IBM Plex Sans','Segoe UI',system-ui,sans-serif;
+  --mono:'IBM Plex Mono','Cascadia Code',Consolas,monospace;}
+  
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:12.5px;line-height:1.5}
+  .lbl{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.11em;
+    text-transform:uppercase;color:var(--accent2);margin:0 0 8px}
+  
+  .btn{border:1px solid var(--bd2);background:var(--panel);border-radius:8px;
+    padding:6px 13px;font-family:var(--sans);font-size:12.5px;font-weight:600;color:var(--dim);
+    display:inline-flex;align-items:center;gap:7px;line-height:1.5;white-space:nowrap}
+  .btn.p{background:var(--accent);border-color:var(--accent);color:#fffdfb}
+  .btn.q{border-color:var(--bd);color:var(--faint);font-weight:400}
+  .btn.dg{color:var(--alert-ink);border-color:var(--alert-bd);background:transparent}
+  .btn.sm{padding:4px 10px;font-size:11.5px}
+  a{color:var(--accent)} a:hover{color:var(--ink)}
+  
+  .wrap{width:700px;padding:26px 28px;background:var(--bg)}
+  h2{font-size:18px;font-weight:700;letter-spacing:-.3px;margin:0 0 4px}
+  .sub{color:var(--dim);font-size:13px;margin:0 0 20px;max-width:62ch;line-height:1.6}
+  .sheet{background:var(--panel);border:1px solid var(--bd);border-radius:16px;overflow:hidden;
+    box-shadow:0 24px 60px rgba(30,50,38,.18)}
+  .sheet header{padding:15px 18px 4px}
+  .sheet header b{font-size:15px;font-weight:700}
+  .kinds{display:flex;gap:2px;padding:10px 18px 0;border-bottom:1px solid var(--bd)}
+  .kinds div{padding:8px 13px 9px;font-size:12.5px;font-weight:600;color:var(--faint);
+    border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:7px}
+  .kinds div.on{color:var(--ink);border-bottom-color:var(--accent)}
+  .body{padding:16px 18px;display:flex;flex-direction:column;gap:15px}
+  .field label{display:block;font-family:var(--mono);font-size:9.5px;font-weight:600;
+    letter-spacing:.11em;text-transform:uppercase;color:var(--accent2);margin-bottom:7px}
+  .chans{display:flex;gap:7px}
+  .chan{border:1px solid var(--bd);border-radius:8px;padding:6px 12px;font-size:12.5px;
+    font-weight:600;color:var(--faint);display:flex;align-items:center;gap:7px;background:var(--panel)}
+  .chan.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);color:var(--ink)}
+  .inp{border:1px solid var(--bd);border-radius:8px;padding:9px 12px;font-size:13px;
+    background:#fcfaf7;color:var(--ink);line-height:1.6}
+  .inp.ph{color:var(--faint)}
+  .forks{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .fork{border:1px solid var(--bd);border-radius:8px;padding:11px 13px;background:#fcfaf7}
+  .fork.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--panel)}
+  .fork b{display:block;font-size:12.5px;margin-bottom:4px}
+  .fork small{display:block;font-size:11px;color:var(--faint);line-height:1.5}
+  .sheet footer{padding:12px 18px;border-top:1px solid var(--bd);background:#fcfaf7;
+    display:flex;gap:8px;justify-content:flex-end}
+  .foot{margin-top:18px;font-size:12.5px;color:var(--dim);line-height:1.65;max-width:64ch}
+  .foot b{color:var(--ink);font-weight:600}
+  </style>
+</helmet>
+<div class="wrap">
+  <h2>＋ New</h2>
+  <p class="sub">One button on the rail, four things it can start — and all four land on the
+    timeline at the minute you pressed it.</p>
+  <div class="sheet">
+    <header><b>What are we starting?</b></header>
+    <div class="kinds">
+      <div class="on"><span>✉️</span>Send something</div>
+      <div><span>🤖</span>Give an agent a job</div>
+      <div><span>💡</span>Note to self</div>
+      <div><span>📊</span>Ask for a report</div>
+    </div>
+    <div class="body">
+      <div class="field"><label>Channel</label>
+        <div class="chans"><div class="chan on"><span>✉️</span>Email</div>
+          <div class="chan"><span>💬</span>Teams</div><div class="chan"><span>📱</span>WhatsApp</div></div>
+      </div>
+      <div class="field"><label>To</label><div class="inp">Marcus Bell &lt;m.bell@…&gt;</div></div>
+      <div class="field"><label>What's this about</label>
+        <div class="inp">the census numbers he asked for, plus why Ashgrove moved</div></div>
+      <div class="field"><label>And then</label>
+        <div class="forks">
+          <div class="fork on"><b>Draft it and show me</b>
+            <small>The AI writes it in your voice from the thread. It lands on the timeline as ✉️ reply ready.</small></div>
+          <div class="fork"><b>Make it a task first</b>
+            <small>An agent researches it, comes back with the answer, then drafts the message — the same lifecycle as anything inbound.</small></div>
+        </div>
+      </div>
+    </div>
+    <footer><div class="btn q">Cancel</div><div class="btn p">Draft it</div></footer>
+  </div>
+  <p class="foot"><b>Note to self</b> is the one that has never existed: a reminder or an idea,
+    filed as your own 💡 row with a date to come back on. No agent, no reply, no verdict — it is
+    on the timeline because that is where you look, and it is the only kind of row that is
+    yours rather than something that happened to you.</p>
+</div>
+</x-dc>
+</body>
+</html>

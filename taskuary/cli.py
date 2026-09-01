@@ -60,6 +60,27 @@ def main():
     ap.add_argument('--kind', default='note', metavar='KIND',
                     help='working | note | blocked | ready | done - "ready" is how the next agent '
                          'learns the tree is safe to build on')
+    # ...and how a session ENDS itself. The Done button was the only way a finished task ever
+    # produced its report and its reply, so an agent that finished at 2am and a person who never
+    # opened the tab left the sender with nothing (selfclose.py).
+    # THE HANDBOOK (handbook.py). The wall is what the next hour needs; this is what next month
+    # needs - and it is the difference between a company whose know-how lives in its people and
+    # one a new agent can be plugged into.
+    ap.add_argument('--learned', metavar='TEXT',
+                    help='write one line into the company handbook: something still true next month '
+                         '(a trap, how a system actually works, who owns what). NOT what you did - that '
+                         'is the task. See --topic and --body.')
+    ap.add_argument('--topic', default='', metavar='TOPIC',
+                    help='with --learned: which shelf it goes on - a repository, a system, a part of '
+                         'the business. Defaults to the checkout you are in.')
+    ap.add_argument('--body', default='', metavar='TEXT',
+                    help='with --learned: the two or three sentences under the title - the fact, why it '
+                         'is so, and what to do about it')
+    ap.add_argument('--done', metavar='SUMMARY', nargs='?', const='',
+                    help='finish the task this session is working: close it, file the report from '
+                         'this transcript, and draft the reply the sender gets (you are not '
+                         'sending it - the owner approves it). Give one sentence on what you did '
+                         'or found. Do not run this while waiting on the owner.')
     args = ap.parse_args()
     if args.demo:
         import os, tempfile
@@ -68,7 +89,36 @@ def main():
         # a throwaway home, so a demo can never be pointed at somebody's real database by accident
         os.environ.setdefault('TASKUARY_HOME', tempfile.mkdtemp(prefix='taskuary-demo-'))
         print(f'demo mode: invented data in {os.environ["TASKUARY_HOME"]}, nothing can reach a real system')
-    if args.board or args.note:
+    # --done goes over HTTP, unlike --note. A note is a database row and any process can write
+    # one; ENDING a task needs the live session's scrollback, which exists only inside the
+    # running server - this process would find no transcript and wrap an empty one.
+    if args.done is not None:
+        import os, sys, requests
+        try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, OSError): pass
+        tid = os.environ.get('TASKUARY_TASK')
+        if not str(tid).isdigit():
+            print('not in a Taskuary session - TASKUARY_TASK is not set, so there is no task to finish')
+            return
+        srv = config.load()['server']
+        host = '127.0.0.1' if srv.get('host') in ('0.0.0.0', '::', '', None) else srv['host']
+        base = f"http://{host}:{srv.get('port') or 7787}"
+        hdr = {'X-Taskuary-Token': srv['token']} if srv.get('token') else {}
+        try:
+            r = requests.post(f'{base}/api/agent/done', timeout=120, headers=hdr,
+                              json={'task_id': int(tid), 'summary': args.done,
+                                    'agent': os.environ.get('TASKUARY_AGENT') or 'agent'})
+            out = r.json() if r.headers.get('content-type', '').startswith('application/json') else {}
+        except Exception as e:
+            print(f'could not reach Taskuary at {base}: {e}'); return
+        if out.get('closed'):
+            print('task closed. Report filed from this session.'
+                  + (' A reply to the sender is drafted and waiting on the owner.' if out.get('drafting')
+                     else ' No reply was needed.'))
+        else:
+            print(f"not closed: {out.get('why') or out.get('detail') or r.text[:200]}")
+        return
+    if args.board or args.note or args.learned:
         import os, sys
         from . import blackboard as bb
         from .store import SQLiteStore, task_ref
@@ -78,6 +128,13 @@ def main():
         cwd = os.environ.get('TASKUARY_CWD') or os.getcwd()
         who = os.environ.get('TASKUARY_AGENT') or 'agent'
         tid = os.environ.get('TASKUARY_TASK')
+        if args.learned:
+            from . import handbook
+            try: p = handbook.post(store, args.learned, args.body, args.topic, args.kind if args.kind in handbook.KINDS else 'howto',
+                                   who, int(tid) if str(tid).isdigit() else None, cwd)
+            except ValueError as e: print(f'not filed: {e}'); return
+            print(f"filed in the handbook under {p['Topic']}: {p['Title']}")
+            return
         if args.note:
             try: n = bb.post(store, args.note, args.kind, who, cwd, int(tid) if str(tid).isdigit() else None)
             except ValueError as e: print(f'not posted: {e}'); return

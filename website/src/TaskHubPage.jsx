@@ -1,7 +1,7 @@
 // Task Hub shell - clean light enterprise workspace, compact: slim top bar, pill tabs,
 // content underneath. Five spaces: Timeline, Tasks, Review, Connectors, Settings.
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Badge, Box, Button, IconButton, MenuItem, Popover, Select, Snackbar, Tooltip, Typography } from "@mui/material";
+import { Badge, Box, Button, CircularProgress, IconButton, MenuItem, Popover, Select, Snackbar, Tooltip, Typography } from "@mui/material";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
 import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
 import { pollWhileVisible } from "./visible.js";
@@ -13,6 +13,7 @@ import { track } from "./demoTrack";
 import { theme, ALERT, BG, BORDER, DIM, FAINT, INK, PANEL, GRADIENT } from "./theme.jsx";
 import FeedView from "./FeedView.jsx";
 import BoardView from "./BoardView.jsx";
+const SocialView = React.lazy(() => import("./SocialView.jsx"));
 import TasksView from "./TasksView.jsx";
 import ReviewView from "./ReviewView.jsx";
 import ConnectorsView from "./ConnectorsView.jsx";
@@ -24,7 +25,10 @@ import { isStale, loadedAsset } from "./staleBuild.js";
 import { useHandRaise, playSound, desktopNotify } from "./handraise.js";
 import { dismissHandRaise, enqueueHandRaise, handRaiseWhat, isWatchingTask } from "./handraiseState.js";
 
-const TABS = ["Timeline", "Board", "Tasks", "Review", "Reports", "Connectors", "Docs", "Settings"];
+// Social sits beside Board on purpose: the Board is what the agents are doing this hour, Social
+// is what they have worked out that is still true next month (handbook.py). Nine tabs is the
+// most this strip holds at a readable size - the next one has to displace something.
+const TABS = ["Timeline", "Board", "Social", "Tasks", "Review", "Reports", "Connectors", "Docs", "Settings"];
 
 // The bell: what is FAILING right now - a connector whose poll errors, the triage brain down, a
 // report that failed today - each with the way to where it is fixed. The setup chip beside it says
@@ -265,7 +269,9 @@ export default function TaskHubPage() {
             <HubIcon sx={{ color: "#fff", fontSize: 17 }} />
           </Box>
           <Typography sx={{ fontWeight: 800, fontSize: 14.5, color: INK, letterSpacing: 0.2 }}>Taskuary</Typography>
-          <Typography variant="caption" noWrap sx={{ color: DIM, display: demo ? "none" : { xs: "none", lg: "block" } }}>
+          {/* the tagline waits for xl. Below that its width is what pushed the tab strip off true
+              centre, and the tabs are the thing people aim at all day - a strapline is not. */}
+          <Typography variant="caption" noWrap sx={{ color: DIM, display: demo ? "none" : { xs: "none", xl: "block" } }}>
             everything in → one funnel → agents + you
           </Typography>
           <ServerVersion />
@@ -290,14 +296,16 @@ export default function TaskHubPage() {
           </Select>
 
           {/* Centred on the WINDOW, not in the space left over. Two flex spacers would centre it
-              between the tagline and the counter, which lands well right of true centre because
-              those two blocks are nothing like the same width. Absolute is the only thing that
-              actually centres - and it can overlap, so it only applies above xl (1536px), where
-              there is provably room for the tagline on one side and the tabs in the middle.
-              Below that the old flow returns, which is what narrow windows always had. */}
+              between the brand and the counter, which lands well right of true centre because
+              those two blocks are nothing like the same width - so it is absolute, from md up.
+              It used to wait for xl (1536px) out of a fear of overlapping the tagline, which
+              meant that at every ordinary window size the tabs sat wherever the brand happened
+              to end. The tagline is the thing that yields now (it waits for xl); the tabs are
+              what people aim at all day and they stay put. pointerEvents on the wrapper so the
+              absolute strip cannot swallow clicks meant for the chrome behind it. */}
           <Box sx={{ display: { xs: "none", md: "flex" }, gap: 0.5, minWidth: 0, overflowX: "auto",
-            position: { xs: "static", xl: "absolute" },
-            left: { xl: "50%" }, transform: { xl: "translateX(-50%)" }, ml: { md: 3, xl: 0 } }}>
+            position: "absolute", left: "50%", transform: "translateX(-50%)",
+            maxWidth: { md: "58%", xl: "62%" }, pointerEvents: "auto" }}>
             {TABS.map((t) => (
               // the count rides INSIDE the pill. A MUI Badge hangs outside its child's box, and
               // this strip is overflowX:auto - so the number was being clipped by the scroller
@@ -343,6 +351,11 @@ export default function TaskHubPage() {
                 onGoReview={() => { refreshPending(); go("Review"); }}
                 onGoReports={(sid) => { window.location.hash = `report=${sid}`; go("Reports"); }} />
             </Box>
+          )}
+          {tab === "Social" && (
+            <React.Suspense fallback={<CircularProgress size={22} sx={{ m: 4 }} />}>
+              <SocialView key={`so${tick}`} />
+            </React.Suspense>
           )}
           {tab === "Review" && <ReviewView key={`r${tick}`} onOpenTask={openTask} onChanged={refreshPending} />}
           {tab === "Reports" && <ReportsView key={`rp${tick}-${reset}`} />}

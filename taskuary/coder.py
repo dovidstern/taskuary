@@ -122,7 +122,18 @@ def finish(store, task_id: int, rep: dict, run_id: int = None, actor: str = 'cod
     # off, finished work just closes: the report lands on the task, no dead-end draft.
     if mid:
         from .outbound import can_reply
-        if not can_reply(store, (store.get_message(mid) or {}).get('Channel')): mid = None
+        m = store.get_message(mid) or {}
+        if not can_reply(store, m.get('Channel')):
+            # a report cannot be replied to (nobody sent it), but its card may name somewhere its
+            # FINDINGS should go - the one configured exception to "work off a report lands on the
+            # timeline and nowhere else" (reports.findings_target)
+            from .reports import findings_target
+            tgt = findings_target(store, m)
+            if tgt:
+                deliver_findings(store, task_id, mid, run_id, rep, tgt)
+                store.update_task(task_id, {'Status': 'waiting'}, actor)
+                return {'drafting': True, 'message_id': mid}
+            mid = None
     # a held draft is proof somebody IS waiting on an answer, so it is never quietly dropped here
     if mid and not held and nobody_waiting(store, mid, rep):
         store.add_comment(task_id, actor, 'agent', 'Nothing needed doing here and the sender is not waiting on an '
@@ -131,6 +142,82 @@ def finish(store, task_id: int, rep: dict, run_id: int = None, actor: str = 'cod
     if mid: raise_reply(store, task_id, mid, run_id, rep)
     store.update_task(task_id, {'Status': 'waiting' if mid else 'done'}, actor)
     return {'drafting': bool(mid), 'message_id': mid}
+
+
+def deliver_findings(store, task_id: int, mid: int, run_id: int, rep: dict, tgt: dict) -> None:
+    """A report's task finished and its card names somewhere the findings should go. Same shape as
+    every other outgoing message: a pending review carrying its destination, which the owner reads
+    and approves. Nothing about "a report started this" makes the sending automatic."""
+    from . import outbox
+    rid = store.add_review({'TaskId': task_id, 'MessageId': mid, 'RunId': run_id, 'Kind': 'draft_reply',
+                            'Status': 'pending', 'Deliver': json.dumps(tgt),
+                            'Reason': f"the report's findings, for {tgt['to']} - approve to send"})
+    try:
+        draft = outbox.draft_message(store, tgt['channel'], tgt['to'],
+                                     f"what we found looking into the \"{tgt['subject']}\" report", resolution_text(rep))
+        store.update_review_draft(rid, draft, run_id)
+    except Exception as e:
+        logger.warning(f'findings draft failed for task {task_id}: {e}')
+
+
+def wrap(store, tid: int, close: bool = True, actor: str = 'owner', sid: str = None) -> dict:
+    """"We're done" - the whole ending, in one callable. The transcript becomes the report, the
+    session dies, proposals become reviews, and finish() drafts the reply the sender gets.
+
+    It lived inside the HTTP handler, which meant the ONLY way a task could be closed out was a
+    person clicking Done in the browser. An agent that has finished knows it has finished long
+    before anyone looks at the screen (selfclose.py), so the ending had to become something other
+    than a route. Raises ValueError for the cases a caller must be told about; the route maps
+    those to 422.
+
+    Wrapping up belongs to the TASK, not to a pty: keyed on a live session it quietly vanished
+    ten minutes after the CLI exited and was reaped, leaving a task that could never be closed."""
+    from . import aisetup, general, proposals, terminal as term
+    task = store.get_task(tid) if tid else None
+    if not task: raise ValueError('this session is not on a task')
+    # a setup session kept no transcript on purpose (secrets were typed into it) and has no report to write
+    if task.get('Kind') == aisetup.KIND: return aisetup.finish(store, tid, actor)
+    # General work already has a durable, turn-by-turn record in task comments. It does not need a
+    # coding-transcript summarizer or a synthetic CODER REPORT; close the shared session and the
+    # task, leaving that conversation intact.
+    session = general.session_for(tid)
+    if general.handles(task) and session:
+        term.close(session.sid)
+        if close and task.get('Status') not in ('done', 'dropped'):
+            store.update_task(tid, {'Status': 'done'}, actor)
+        store.add_comment(tid, actor, 'human', 'Closed the general-work session.' + (' Marked the task done.' if close else ''))
+        store.audit('terminal', tid, 'wrap', actor, detail={'sid': sid or session.sid, 'close': close, 'mode': 'assistant'})
+        last = next((m['content'][0]['text'] for m in reversed(general.history(store, tid)) if m['role'] == 'assistant'), '')
+        return {'wrap': 'done', 'taskId': tid, 'report': last, 'proposed': [], 'drafting': False}
+    text, agent, found = term.transcript_for(store, tid)
+    if not text.strip(): raise ValueError('nothing to wrap up - this task has no session transcript')
+    if found: term.close(found)              # done means done - the pty and its shells go too
+    rep = report_from_transcript(store, tid, text, agent)
+    report = resolution_text(rep)
+    store.add_comment(tid, actor, 'human', 'Closed the session - wrapped up from what was on screen.')
+    store.add_comment(tid, agent, 'agent', f'CODER REPORT\n{report}')
+    # anything the agent PROPOSED becomes a pending review here, at the one moment its whole
+    # transcript is in hand - and refusals are recorded rather than dropped (proposals.py)
+    proposed = []
+    if store.get_settings().get('proposals_enabled', '1') == '1':
+        try: proposed = proposals.collect(store, tid, text, agent)
+        except Exception as e: logger.warning(f'proposal collection failed for task {tid}: {e}')
+    # ...and the one question worth asking the transcript that is NOT about this task: did the
+    # session work out anything still true next month? Usually not, and "not" is the answer it
+    # is told to give (handbook.py). A failure here never stops a task closing.
+    from . import handbook
+    if handbook.enabled(store):
+        try: handbook.learn_from_session(store, tid, text, agent, repo=term.repo_tag(task) or '')
+        except Exception as e: logger.debug(f'handbook: nothing filed for task {tid} - {e}')
+    # 'drafting' must be what finish() ACTUALLY did, not a second guess at it: recomputing it from
+    # reply_target alone skipped the can-this-channel-even-reply rule, so a GitHub task with
+    # replies off closed with no draft while the card still promised one in Review.
+    fin = {}
+    if close and (store.get_task(tid) or {}).get('Status') not in ('done', 'dropped'):
+        fin = finish(store, tid, rep, None, agent) or {}
+    store.audit('terminal', tid, 'wrap', actor, detail={'sid': sid or found, 'close': close})
+    return {'wrap': 'done', 'taskId': tid, 'report': report, 'proposed': proposed,
+            'drafting': bool(fin.get('drafting'))}
 
 
 def raise_reply(store, task_id: int, mid: int, run_id: int, rep: dict) -> None:

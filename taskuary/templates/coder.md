@@ -48,3 +48,20 @@ dirty. What it cannot tell them is "the migration is half applied, don't run the
 - Never open new GitHub issues or tracker items for the task you are working - Taskuary is
   the tracker, and duplicating every task into an issue is noise. Only when the ask itself
   says to open one.
+
+## Finishing — you close the task, not John
+When the work is done, you say so. Nobody is watching the screen waiting to press a button, and
+until somebody does, no report is written and the person who asked hears nothing.
+
+- **Say it when it is over.** `taskuary --done "cleared the stuck refund and re-ran the settle
+  job"` — one sentence, in your own words. That closes the task, writes the report from this
+  session's transcript, and drafts the reply the sender gets. John approves that reply before it
+  leaves; you are not sending anything.
+- **"Nothing to do here" is also an ending.** You looked, the problem is not real, the mail was a
+  notice — run `--done` and say that. An agent that looks and finds nothing has finished.
+- **Never while you are waiting on John.** A question, a choice between two approaches, a
+  permission you need: ask HERE, in the session, and stay open. Closing on a question throws away
+  the session and mails somebody half an answer.
+- If you forget, the CLI's stop hook reads the end of the session and closes it for you when it
+  plainly reads as finished. That is a safety net, not the plan — it costs an extra AI call and it
+  is more cautious than you are, so say it yourself.

@@ -1,0 +1,47 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { HOLD_TAG, STATES, stateOf, subline } from "../src/timelineState.js";
+
+test("a question from the agent outranks everything the message once was", () => {
+  assert.equal(stateOf({ TaskId: 7, Category: "coding", Working: "claude", AgentWaiting: true }), "waving");
+  assert.equal(stateOf({ TaskId: 7, Category: "coding", Working: "claude" }), "working");
+});
+
+test("a drafted reply is the headline even after the task closed", () => {
+  assert.equal(stateOf({ TaskId: 7, TaskStatus: "done", ReviewStatus: "pending" }), "reply");
+  assert.equal(stateOf({ TaskId: 7, TaskStatus: "done", ReviewStatus: "sent" }), "done");
+});
+
+test("a closed task never advertises a stale live session", () => {
+  assert.equal(stateOf({ TaskId: 7, TaskStatus: "done", Working: "claude" }), "done");
+});
+
+test("a stranger's first message is its own state, not an absent one", () => {
+  assert.equal(stateOf({ TaskId: 7, Category: "coding", TaskTags: "hold:new-sender" }), "held");
+  assert.equal(stateOf({ TaskId: 7, Category: "coding", TaskTags: `repo:x,${HOLD_TAG}` }), "held");
+  assert.equal(stateOf({ TaskId: 7, Category: "coding", TaskTags: "repo:x" }), "todo");
+});
+
+test("a note you left yourself is yours, and a report is not", () => {
+  assert.equal(stateOf({ TaskId: 9, TaskKind: "note", Category: "todo" }), "mine");
+  assert.equal(stateOf({ Category: "report", Channel: "report" }), "fyi");
+  assert.equal(stateOf({ Category: "info" }), "fyi");
+});
+
+test("an open task with nobody on it is not an agent waving at you", () => {
+  // NeedsYou only says nobody is moving this. It put the one loud mark on every open task.
+  assert.equal(stateOf({ TaskId: 7, Category: "coding", NeedsYou: 1 }), "todo");
+  assert.equal(stateOf({ TaskId: 7, Category: "coding", NeedsYou: 1, Working: "claude", AgentWaiting: true }), "waving");
+});
+
+test("only the two states that are genuinely on you are allowed to shout", () => {
+  const loud = Object.entries(STATES).filter(([, s]) => s.loud).map(([k]) => k);
+  assert.deepEqual(loud.sort(), ["reply", "waving"]);
+});
+
+test("the second line names who has it, never guesses", () => {
+  assert.match(subline({ TaskId: 261, Working: "claude", AgentWaiting: true }), /TQ-0261 · claude asked you something/);
+  assert.match(subline({ TaskId: 259, ReviewStatus: "pending" }), /TQ-0259 · a reply is drafted/);
+  assert.equal(subline({ Category: "info", RouteReason: "triage: fyi - a colleague copied you" }),
+               "fyi - a colleague copied you");
+});

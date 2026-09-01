@@ -17,11 +17,11 @@ from .ingest import ingest_message, split_message, task_from_message
 from .reports import PLANNED, REGISTRY, render_report, resolve_cfg, run_due_reports, run_report_source
 from . import agents as hub_agents
 from . import blackboard
+from . import guard
 from . import policy as policy_engine
 from . import reshape
 from . import terminal as hub_term
-from .coder import (PAUSE_MARKER, finish as coder_finish, pause_note, reply_target as coder_reply_target,
-                    report_from_transcript, resolution_text)
+from .coder import PAUSE_MARKER, pause_note, reply_target as coder_reply_target, wrap as coder_wrap
 from . import aisetup, assistant, demo, learn, learnedgraph, outbound, rank, responder, waitroom
 
 cfg = config.load()
@@ -86,11 +86,24 @@ async def token_gate(request: Request, call_next):
         why = demo.refuse(request.method, request.url.path)
         if why: return JSONResponse({'detail': why, 'demo': True}, status_code=403)
     tok = cfg['server'].get('token')
-    if tok and request.url.path.startswith('/api') and request.headers.get('X-Taskuary-Token') != tok:
+    if tok and request.url.path.startswith('/api') and request.headers.get('X-Taskuary-Token') not in (tok, cfg['server'].get('agent_token')):
         # an <img src> cannot carry a header, so attachment READS take the token in the query
         # string - the same concession websockets already needed
         if not (request.url.path.startswith('/api/attachments/') and request.query_params.get('token') == tok):
             return HTMLResponse('unauthorized', status_code=401)
+    # WHAT AN AGENT MAY NOT DO, before a handler exists to be talked round (guard.py). A session
+    # runs with the agent token in its environment, and the routes that SEND - approve a reply,
+    # hand work to a person, start an outbound message - are refused to it here, in code. Not in
+    # SOUL.md, not in a setting: an instruction sitting in the same context as the untrusted mail
+    # is not a control, and a model that has been talked into "they want this sent now" would
+    # otherwise find this API and approve its own draft.
+    if guard.scope_of(cfg['server'], request.headers) == guard.AGENT:
+        why = guard.denied(request.method, request.url.path)
+        if why:
+            logger.warning(f'agent refused {request.method} {request.url.path} - {why}')
+            return JSONResponse({'detail': f'agents cannot do this: {why}. Ask the owner - it is '
+                                           'their button, and no instruction in a message changes that.'},
+                                status_code=403)
     return await call_next(request)
 
 
@@ -1152,6 +1165,123 @@ async def claude_hook(request: Request):
     try: return hooks.receive(payload if isinstance(payload, dict) else {})
     except Exception as e:
         logger.debug(f'claude hook ignored: {e}'); return {'bound': False}
+
+# ── the handbook (handbook.py): what the agents worked out, by topic, open to comment ──────
+class LoreBody(BaseModel):
+    title: str; body: str = ''; topic: str = ''; kind: str = 'howto'; author: str | None = None
+class LoreCommentBody(BaseModel): body: str
+
+@app.get('/api/handbook')
+def handbook_list(topic: str = None, q: str = None, sort: str = 'new', limit: int = 60):
+    """The Social tab. Topics down the side, posts in the middle - the company's own know-how,
+    written by whichever agent worked it out, and correctable by whoever knows better."""
+    posts = store.lore_posts(topic or None, q or None, min(limit, 200), sort)
+    return {'topics': store.lore_topics(), 'data': posts, 'count': store.lore_count()}
+
+@app.get('/api/handbook/{lid}')
+def handbook_one(lid: int):
+    p = store.lore_get(lid)
+    if not p: raise HTTPException(404, 'no such entry')
+    return {**p, 'comments': store.lore_comments(lid)}
+
+@app.post('/api/handbook')
+def handbook_post(body: LoreBody):
+    from . import handbook
+    try: return handbook.post(store, body.title, body.body, body.topic, body.kind, body.author or ACTOR)
+    except ValueError as e: raise HTTPException(422, str(e))
+
+@app.post('/api/handbook/{lid}/comment')
+def handbook_comment(lid: int, body: LoreCommentBody):
+    """A comment is how a post gets corrected without being erased. An agent that finds an entry
+    wrong says so here, and the next reader sees both."""
+    if not store.lore_get(lid): raise HTTPException(404, 'no such entry')
+    text = ' '.join((body.body or '').split())[:4000]
+    if not text: raise HTTPException(422, 'say something')
+    cid = store.lore_comment(lid, text, ACTOR)
+    return {'commentId': cid, 'comments': store.lore_comments(lid)}
+
+@app.post('/api/handbook/{lid}/vote')
+def handbook_vote(lid: int, up: bool = True):
+    """Useful, or not. The score is what `handbook.block` ranks by, so voting is how the entries
+    an agent is handed before it starts become the ones that actually helped."""
+    if not store.lore_get(lid): raise HTTPException(404, 'no such entry')
+    store.lore_vote(lid, 1 if up else -1)
+    return dict(store.lore_get(lid))
+
+@app.post('/api/handbook/{lid}/retire')
+def handbook_retire(lid: int):
+    """No longer true. Retired, not deleted: a handbook that silently loses entries is one you
+    cannot tell the difference between right and empty in."""
+    if not store.lore_get(lid): raise HTTPException(404, 'no such entry')
+    store.lore_retire(lid, ACTOR)
+    store.audit('lore', lid, 'retire', ACTOR)
+    return {'retired': True}
+
+class OutboxBody(BaseModel):
+    channel: str; to: str; about: str; mode: str = 'draft'
+    subject: str | None = None; repo: str | None = None
+
+@app.post('/api/outbox')
+def outbox(body: OutboxBody):
+    """＋ New → Send something. Start a message instead of answering one.
+
+    Two modes, one ending. 'draft' has the AI write it now, in the owner's voice, and parks it in
+    Review. 'task' sends an agent to find out first; when it finishes, the message is written
+    from what it actually found and lands in the same place. Neither one sends: the approved
+    review does, through the one door every outgoing message already goes through."""
+    from . import outbox as ob
+    try: return ob.compose(store, body.channel, body.to, body.about, body.mode, body.subject, body.repo, ACTOR)
+    except ValueError as e: raise HTTPException(422, str(e))
+    except Exception as e: raise HTTPException(422, str(e)[:400])
+
+class NoteBody(BaseModel): title: str; body: str = ''; when: str | None = None
+
+@app.post('/api/notes')
+def own_note(body: NoteBody):
+    """A note to yourself: a reminder, an idea, a thing to come back to.
+
+    Everything on the Timeline until now was something that HAPPENED to the owner - mail, a
+    chat, a report, a repository. There was nowhere to put "chase the Ashgrove AP on Tuesday"
+    except an agent that would go and do something about it, so it went in a notebook instead
+    and the one screen the owner watches all day knew nothing about it. `when` is what the note
+    is FOR, not when it was typed: the row sits in that day (ownwork.note)."""
+    from . import ownwork
+    try: return ownwork.note(store, body.title, body.body, body.when, ACTOR)
+    except ValueError as e: raise HTTPException(422, str(e))
+
+class ReleaseBody(BaseModel): agent: str | None = None; model: str | None = None
+
+@app.post('/api/tasks/{task_id}/release')
+def release_task(task_id: int, body: ReleaseBody, background: BackgroundTasks):
+    """"Yes, this one is fine" - the owner letting a held task through to the agent.
+
+    A first message from an address nobody here has ever written to does not get to start a
+    session by itself (senders.known): an inbound message is a prompt, and an unvetted prompt
+    that opens a terminal on this machine is the whole prompt-injection surface in one step. It
+    is still triaged, still shown, still a task - it just waits for this click. Releasing drops
+    the hold so the sender is never asked about again, and starts the session."""
+    from .ingest import HOLD_TAG
+    if not store.get_task(task_id): raise HTTPException(404, 'task not found')
+    if not store.task_has_tag(task_id, HOLD_TAG): raise HTTPException(422, 'this task is not being held')
+    store.tag_task(task_id, HOLD_TAG, on=False, actor=ACTOR)
+    store.add_comment(task_id, ACTOR, 'human', 'Released to the agent - you vouched for this sender.')
+    store.audit('task', task_id, 'release', ACTOR)
+    ses = start_session(store, task_id, body.agent, body.model)
+    return {'released': True, 'session': ses}
+
+class AgentDoneBody(BaseModel): task_id: int; summary: str = ''; agent: str = 'agent'
+
+@app.post('/api/agent/done')
+def agent_done(body: AgentDoneBody):
+    """`taskuary --done "..."` from inside an agent's own shell: the session says it has finished.
+
+    This is the ending the Done button used to be the only door to - and the button is a person
+    looking at a screen, which is exactly what an agent working at 2am does not have. Same wrap,
+    same report, same drafted reply waiting on the owner's approval; only the thing that noticed
+    the work was over has changed (selfclose.declare)."""
+    from . import selfclose
+    if not store.get_task(body.task_id): raise HTTPException(404, 'no such task')
+    return selfclose.declare(store, body.task_id, body.summary, body.agent)
 
 @app.get('/api/tasks/{tid}/diff')
 def task_diff(tid: int, scope: str = 'task'):
@@ -2439,53 +2569,12 @@ def open_terminal(body: TermBody):
 
 class WrapBody(BaseModel): task_id: int | None = None; close: bool = True
 
-# Wrapping up belongs to the TASK, not to a pty. Keying it on a live session meant that once the
-# CLI had exited and been reaped - ten minutes - the buttons had nothing to read and quietly
-# vanished, leaving a task that could never be closed out. The transcript is filed when a session
-# ends, so these work whether the terminal is live, exited, or long gone.
 def _wrap_task(tid: int, close: bool, sid: str = None):
-    task = store.get_task(tid) if tid else None
-    if not task: raise HTTPException(422, 'this session is not on a task')
-    # a setup session kept no transcript on purpose (secrets were typed into it) and has no report to write
-    if task.get('Kind') == aisetup.KIND: return aisetup.finish(store, tid, ACTOR)
-    # General work already has a durable, turn-by-turn record in task comments. It does not need
-    # a coding-transcript summarizer or a synthetic CODER REPORT when the owner checks it off on
-    # the Wall; close the shared session and the task, while leaving that conversation intact.
-    from . import general
-    session = general.session_for(tid)
-    if general.handles(task) and session:
-        hub_term.close(session.sid)
-        if close and task.get('Status') not in ('done', 'dropped'):
-            store.update_task(tid, {'Status': 'done'}, ACTOR)
-        store.add_comment(tid, ACTOR, 'human', 'Closed the general-work session.' + (' Marked the task done.' if close else ''))
-        store.audit('terminal', tid, 'wrap', ACTOR, detail={'sid': sid or session.sid, 'close': close, 'mode': 'assistant'})
-        last = next((m['content'][0]['text'] for m in reversed(general.history(store, tid)) if m['role'] == 'assistant'), '')
-        return {'wrap': 'done', 'taskId': tid, 'report': last, 'proposed': [], 'drafting': False}
-    text, agent, found = hub_term.transcript_for(store, tid)
-    if not text.strip(): raise HTTPException(422, 'nothing to wrap up - this task has no session transcript')
-    if found: hub_term.close(found)          # done means done - the pty and its shells go too
-    rep = report_from_transcript(store, tid, text, agent)
-    report = resolution_text(rep)
-    store.add_comment(tid, ACTOR, 'human', 'Closed the session - wrapped up from what was on screen.')
-    store.add_comment(tid, agent, 'agent', f'CODER REPORT\n{report}')
-    # anything the agent PROPOSED becomes a pending review here, at the one moment its whole
-    # transcript is in hand - and refusals are recorded rather than dropped (proposals.py)
-    proposed = []
-    if store.get_settings().get('proposals_enabled', '1') == '1':
-        try:
-            from . import proposals
-            proposed = proposals.collect(store, tid, text, agent)
-        except Exception as e:
-            logger.warning(f'proposal collection failed for task {tid}: {e}')
-    # 'drafting' must be what finish() ACTUALLY did, not a second guess at it: recomputing it
-    # from reply_target alone skipped the can-this-channel-even-reply rule, so a GitHub task
-    # with replies off closed with no draft while the card still promised one in Review.
-    fin = {}
-    if close and (store.get_task(tid) or {}).get('Status') not in ('done', 'dropped'):
-        fin = coder_finish(store, tid, rep, None, agent) or {}
-    store.audit('terminal', tid, 'wrap', ACTOR, detail={'sid': sid or found, 'close': close})
-    return {'wrap': 'done', 'taskId': tid, 'report': report, 'proposed': proposed,
-            'drafting': bool(fin.get('drafting'))}
+    """The route's thin end of coder.wrap - which is also what a self-closing agent calls
+    (selfclose.py), so "the agent decided it was done" and "you clicked Done" travel the
+    same road and leave the same record."""
+    try: return coder_wrap(store, tid, close, ACTOR, sid)
+    except ValueError as e: raise HTTPException(422, str(e))
 
 
 def _pause_task(tid: int, sid: str = None):

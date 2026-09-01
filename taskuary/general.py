@@ -174,8 +174,12 @@ def _prompt(store, tid: int) -> tuple[str, str]:
         turns.append(f"{role}: {_cut(c.get('Body'), 4_000)}")
     # the chat is an agent too, so it is on the wall - the HOUSE lane, the notes with no
     # checkout behind them, which is where it and the owner leave things for everybody
-    from . import blackboard as bb
+    from . import blackboard as bb, selfclose
     wall = bb.chat_text(store)
+    # ...and how this task ENDS. Only where an ending means something: a task somebody wrote in
+    # about has an answer owed, and closing it drafts that answer. A task the owner opened to
+    # think out loud in has nobody waiting, so it stays open until they say otherwise.
+    if sources and selfclose.mode(store) != 'off': system = system + '\n\n' + selfclose.CHAT_LINE
     user = (f"TASK {detail.get('ref') or tid}\nTITLE: {task.get('Title') or ''}\n"
             f"SUMMARY: {task.get('Summary') or ''}\nSTATUS: {task.get('Status') or ''}\n\n"
             + (wall + '\n\n' if wall else '')
@@ -428,10 +432,19 @@ class GeneralSession:
                 reply = str(brain(system, user, max_tokens=MAX_REPLY_TOKENS, images=_images(paths)) or '').strip()
             self.cli_sid = getattr(brain, 'session_id', '') or self.cli_sid
             if not reply: raise RuntimeError('the model returned an empty response')
+            # the assistant's own "and that's the job done" (selfclose.CHAT_LINE). The marker is a
+            # signal to Taskuary, not prose for the owner, so it comes out of what gets filed and
+            # what gets shown - the sentence after it becomes the closing comment.
+            from . import selfclose
+            reply, closing = selfclose.chat_marker(reply)
+            reply = reply or (closing or '')
             self.store.add_comment(self.task_id, 'assistant', ASSISTANT_TYPE, reply)
             self.store.audit('task', self.task_id, 'assistant_reply', 'assistant', 'agent',
                              {'provider': self.provider, 'model': self.model, 'chars': len(reply)})
             self._emit(f'\x1b[1;32massistant>\x1b[0m {reply}\r\n\r\n')
+            # AFTER the turn is filed, and off this thread: closing runs coder.wrap, which closes
+            # this very session - doing it inline would kill the pty from inside its own answer.
+            if closing is not None: threading.Timer(0.1, self._close_out, args=(closing,)).start()
             return reply
         except Exception as e:
             self._emit(f'\x1b[1;31merror>\x1b[0m {e}\r\n\r\n')
@@ -441,6 +454,14 @@ class GeneralSession:
             self._cancel = None
             self._emit('\x1b[1;34myou>\x1b[0m ')
             self._lock.release()
+
+    def _close_out(self, summary: str):
+        """The chat said the work was done. Same ending as a coding session's: the task closes,
+        the conversation stays on the task as its record, and the reply to whoever asked is
+        drafted for the owner to approve."""
+        from . import selfclose
+        try: selfclose.declare(self.store, self.task_id, summary, 'assistant')
+        except Exception as e: logger.warning(f'assistant self-close failed on task {self.task_id}: {e}')
 
     def stop(self) -> bool:
         """Stop the answer being written now - the STOP BUTTON, and nothing else.
@@ -511,5 +532,10 @@ def start_session(store, tid: int, connector_id=None, model=None, actor='owner',
                                'session - close it (the ✕ on its pane) and ask again here')
     session = GeneralSession(store, tid, connector_id, model, pick)
     terminal.SESSIONS[session.sid] = session
+    # the chat is work too: a general task started from the Tasks tab gets its Timeline row
+    # here, stamped at the moment the session opened (ownwork.ensure is a no-op when a message
+    # already speaks for the task, which is every task that arrived from outside)
+    from . import ownwork
+    ownwork.ensure(store, tid, session.started, 'the assistant started here', actor)
     if task.get('Status') == 'open': store.update_task(tid, {'Status': 'in_progress'}, actor)
     return session

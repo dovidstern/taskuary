@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import TaskHubPage from "./TaskHubPage.jsx";
+import { startTracking } from "./demoTrack";
 
 // A render error must land on the PAGE, not take the app down: one bad row in one view was
 // white-screening everything, terminal sessions included. The boundary names the error, and
@@ -40,3 +41,5 @@ class Boundary extends React.Component {
 }
 
 createRoot(document.getElementById("root")).render(<Boundary><TaskHubPage /></Boundary>);
+
+startTracking();   // the static demo only, and only on taskuary.com

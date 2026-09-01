@@ -155,8 +155,48 @@ TRANSCRIPT = [
 ]
 
 
+# Reports are half of what Taskuary does and the demo showed one row of JSON. These are the
+# three shapes a real desk schedules - a count by place, money by counterparty, a volume over
+# time - so the visitor sees the spreadsheet AND the chart the run hands back, including the
+# line chart that only a dated series draws.
+REPORTS = [
+    ('Headcount by site, nightly', 'Headcount by site',
+     [{'site': 'Lakeview', 'headcount': 112}, {'site': 'Riverside', 'headcount': 98},
+      {'site': 'Fairhaven', 'headcount': 143}, {'site': 'Oak Ridge', 'headcount': 76},
+      {'site': 'Millbrook', 'headcount': 121}]),
+    ('AP ageing over 30 days, weekly', 'Past due by vendor',
+     [{'vendor': 'Alvarez Supply', 'past_due': 18420.55}, {'vendor': 'Northline Linen', 'past_due': 9310.0},
+      {'vendor': 'Kesler Medical', 'past_due': 7715.4}, {'vendor': 'BrightPath IT', 'past_due': 4180.0},
+      {'vendor': 'Cardinal Food Svc', 'past_due': 2260.75}]),
+    ('Helpdesk tickets by day, last 14', 'Ticket volume by day',
+     [{'day': f'2026-08-{d:02d}', 'tickets': n}
+      for d, n in zip(range(18, 32), (38, 41, 35, 52, 49, 22, 17, 44, 58, 61, 55, 47, 63, 71))]),
+]
+
+# What the assistant is FOR, in the assistant's own words: it has read the thread, it knows what
+# is on the timeline, and it says the one thing that decides the next move. The demo used to open
+# this pane empty, which showed a chat box and nothing worth chatting about.
+ASSIST = [
+    ('user', 'what is actually waiting on me this morning?'),
+    ('assistant', """Six things came in, four are handled. What is actually yours:
+
+- **TQ-0001 - month-end short by 4,180.** The coder has a fix and is waiting on your approval; it found the four inter-company transfers the export drops.
+- **TQ-0003 - AP cutover Thursday.** Ruth needs a yes or a date. A reply is drafted in Review.
+- **TQ-0005 - Sam wants the Q3 numbers.** Also drafted.
+
+The newsletter, the thank-you and the maintenance notice are filed. Nothing there needs you."""),
+    ('user', 'is Thursday safe for the AP cutover?'),
+    ('assistant', """Thursday is safe if the export lands first. The reconciliation fix is written and its tests pass, so the August close can be signed Wednesday night - that was the only thing the cutover was waiting on.
+
+One caveat worth telling Ruth: the AP importer needs pyodbc on the box before its tests mean anything (codex left that on the wall yesterday). If that is not installed by Wednesday, Thursday slips a day.
+
+Want me to say that in the draft?"""),
+]
+
+
 def seed(store) -> int:
     """Build the demo's world. Idempotent: a home that already has work in it is left alone."""
+    from . import artifacts, general
     from .testing import Factory
     if store.list_tasks(): return 0
     f = Factory(store)
@@ -194,11 +234,26 @@ def seed(store) -> int:
                     body='Are we still moving AP over on Thursday? I need to tell the team.',
                     draft='Thursday still works - the export will be reconciled by Wednesday night.')
     f.running(title='Reconcile the August GL export', agent='coder')
-    f.report_row(title='Headcount by site, nightly')
+    for title, chart_title, rows in REPORTS:
+        pic = f.report_row(title=title)
+        body = '\n'.join(json.dumps(r) for r in rows)
+        store._exec('UPDATE message SET BodyText=?, Subject=? WHERE MessageId=?',
+                    (body, f'{title} - {len(rows)} rows', pic.mid))
+        artifacts.attach_report_output(store, pic.mid, chart_title, body)
     f.messenger(channel='whatsapp', title='the badge printer is offline again')
     f.thread(title='Onboard the new AP clerk - laptop, AP group, PO approval', n=3)
     f.filed_fyi(subject='Vendor portal maintenance window, Sunday 02:00-04:00')
-    made += 6
+    # the code lane: GitHub is a source like any other - an issue is an ask, a PR is a notice
+    gh = f.task(title='northwind/importers#214 - census sync fails when a site has no manager',
+                status='open', kind='coding')
+    gid = f.message(task_id=gh, channel='github', subject='#214 census sync fails when a site has no manager',
+                    body='Traceback on Lakeview: manager_id is null and the sync aborts the whole run '
+                         'rather than skipping the row. Third night in a row.',
+                    from_name='Marcus Reed', source_name='northwind/importers',
+                    sent_at=f.ago(hours=5), status='routed', conversation_id='github:214')
+    f.route(gid, gh, 'create', 'an issue with a traceback in it: a coding agent can start on this now')
+    f.feed_only(title='northwind/importers#215 - keep inter-company rows in the GL export (open)')
+    made += 9
     # the desk's pictures carry placeholder words for a test to assert on ("please look"); a
     # demo is read by people, so the few that show get real ones
     for mid, subject in zip([m['MessageId'] for m in store.scan_messages(40)
@@ -222,6 +277,10 @@ def seed(store) -> int:
     store.add_comment(next(t['TaskId'] for t in store.list_tasks()), 'assistant', 'assistant_agent',
                       'The month-end difference is the four inter-company transfers the export drops. '
                       'I can fix the export, or file it for the close to handle - say which.')
+    chat = f.task(title='This morning, and whether Thursday holds', status='open', kind='general')
+    for role, body in ASSIST:
+        store.add_comment(chat, 'Dana' if role == 'user' else 'assistant',
+                          general.USER_TYPE if role == 'user' else general.ASSISTANT_TYPE, body)
     for kind, agent, body in (
         ('working', 'coder', 'on the month-end export - tools/gl_export.py is mine for the next hour'),
         ('note', 'codex', 'the bank feed keeps inter-company transfers; the export drops them. That is the 4,180'),
@@ -289,7 +348,9 @@ class Replay:
             time.sleep(pause)
             self._emit(f'{text}\r\n')
         self.busy = False
-        self._emit('\r\n\x1b[2mthe agent is waiting for you - this is a demo, so it waits forever\x1b[0m\r\n')
+        # the Board and the task card show a TAIL of this as text, not as a terminal - the dim
+        # escape rode along with it and printed as a literal [2m on every card
+        self._emit('\r\nthe agent is waiting for you - this is a demo, so it waits forever\r\n')
 
     def _emit(self, text):
         self.buf.append(text)

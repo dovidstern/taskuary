@@ -9,7 +9,7 @@ Both writers are hand-rolled on the standard library on purpose: xlsx is a zip o
 XML parts, and a bar chart is a few dozen rects. Neither is worth a dependency that has to be
 frozen into the one-file exe.
 """
-import json, re, zipfile
+import json, math, re, zipfile
 from datetime import datetime
 from xml.sax.saxutils import escape
 
@@ -145,6 +145,65 @@ def chart_columns(rows: list) -> tuple:
     return ((labels[0] if labels else None), (vals[0] if vals else None))
 
 
+INK, GRID, MUTED, LINE = '#1f2430', '#e7e3da', '#8a94a6', '#4f46e5'
+
+_DATE = re.compile(r'^\s*(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}(/\d{2,4})?|\d{4}-\d{2}|[A-Z][a-z]{2} \d{1,2})')
+
+def _dated(labels: list) -> bool:
+    """Is the label column a run of dates? A report over time is the one shape horizontal bars
+    get wrong - fourteen days of tickets became fourteen stacked bars, which reads as fourteen
+    unrelated things rather than one line going up."""
+    return len(labels) >= 5 and all(_DATE.match(str(l or '')) for l in labels)
+
+
+def _ticks(top: float, n: int = 4) -> list:
+    """Round gridline values at or above the data, so the axis reads 0/50/100 and never 0/47/94."""
+    if top <= 0: return [0.0, 1.0]
+    step = 10.0 ** math.floor(math.log10(top / n))
+    for mult in (1, 2, 2.5, 5, 10):
+        if step * mult * n >= top: step *= mult; break
+    return [step * i for i in range(int(math.ceil(top / step)) + 1)]
+
+
+def _line_svg(pts: list, title: str, val: str, lab: str) -> str:
+    """One measure over time: a 2px line, a light band under it, gridlines behind, and the last
+    value labelled where the eye already is. One series, so no legend - the title names it."""
+    W, H, L, R, T, B = 760, 260, 56, 74, 34, 34
+    ticks = _ticks(max(v for _l, v in pts))
+    top = ticks[-1] or 1.0
+    px = lambda i: L + (W - L - R) * (i / max(1, len(pts) - 1))
+    py = lambda v: H - B - (H - T - B) * (v / top)
+    pl = ' '.join(f'{px(i):.1f},{py(v):.1f}' for i, (_l, v) in enumerate(pts))
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" '
+           f'font-family="Segoe UI, Helvetica, Arial, sans-serif">',
+           f'<rect width="{W}" height="{H}" fill="#ffffff"/>',
+           f'<text x="{L - 40}" y="20" font-size="13" font-weight="700" fill="{INK}">{escape(title or val)}</text>',
+           f'<text x="{W - 12}" y="20" font-size="10" fill="{MUTED}" text-anchor="end">'
+           f'{escape(val)} by {escape(lab or "row")} · {len(pts)} points</text>']
+    for t in ticks:
+        y = py(t)
+        out += [f'<line x1="{L}" y1="{y:.1f}" x2="{W - R}" y2="{y:.1f}" stroke="{GRID}" stroke-width="1"/>',
+                f'<text x="{L - 8}" y="{y + 3.5:.1f}" font-size="10" fill="{MUTED}" text-anchor="end">'
+                f'{escape(f"{t:,.10g}")}</text>']
+    out.append(f'<polygon points="{L},{H - B} {pl} {W - R},{H - B}" fill="{LINE}" fill-opacity="0.08"/>')
+    out.append(f'<polyline points="{pl}" fill="none" stroke="{LINE}" stroke-width="2" '
+               f'stroke-linejoin="round" stroke-linecap="round"/>')
+    # every point is a target, but only the ends are named - a number on all fourteen is noise
+    for i, (_l, v) in enumerate(pts):
+        out.append(f'<circle cx="{px(i):.1f}" cy="{py(v):.1f}" r="{4 if i in (0, len(pts) - 1) else 2.4}" '
+                   f'fill="{LINE}" stroke="#ffffff" stroke-width="1.5"/>')
+    lv = pts[-1][1]
+    out.append(f'<text x="{W - R + 8}" y="{py(lv) + 4:.1f}" font-size="11.5" font-weight="700" fill="{INK}">'
+               f'{escape(f"{lv:,.2f}".rstrip("0").rstrip("."))}</text>')
+    every = max(1, len(pts) // 7)
+    for i, (l, _v) in enumerate(pts):
+        if i % every and i != len(pts) - 1: continue
+        out.append(f'<text x="{px(i):.1f}" y="{H - B + 16}" font-size="10" fill="{MUTED}" '
+                   f'text-anchor="middle">{escape(str(l)[-5:])}</text>')
+    out.append('</svg>')
+    return ''.join(out)
+
+
 # Taskuary's own indigo, and a chart that reads in both the panel and a screenshot of it.
 def to_svg_chart(rows: list, path, title: str = '', want_val: str = None, want_lab: str = None) -> str:
     """Horizontal bars: label, bar, value. Horizontal because report labels are names and dates,
@@ -159,6 +218,10 @@ def to_svg_chart(rows: list, path, title: str = '', want_val: str = None, want_l
     pts = [(str(r.get(lab, ''))[:42] if lab else f'#{i + 1}', _num(r.get(val)) or 0.0)
            for i, r in enumerate(rows)][:MAX_BARS]
     if not pts: return ''
+    if _dated([l for l, _v in pts]):
+        svg = _line_svg(pts, title or val, val, lab or 'row')
+        if path is not None: path.write_text(svg, encoding='utf-8')
+        return svg if path is None else f'{val} by {lab or "row"}'
     top = max(abs(v) for _l, v in pts) or 1.0
     W, LW, RH, PAD = 760, 210, 22, 18
     H = PAD * 2 + 26 + RH * len(pts)

@@ -51,6 +51,33 @@ for (const t of (out["/api/tasks"]?.data || [])) {
   const a = await fetch(`${BASE}/api/tasks/${t.TaskId}/assistant`).catch(() => null);
   if (a && a.ok) out["/api/tasks/detail"][`${t.TaskId}:assistant`] = await a.json();
 }
+// Attachments, and the FILES themselves. The static demo has no server to serve
+// /api/attachments/7 from, so every image rides in the recording as a data: URI - which is how
+// a report's chart survives the trip. Non-images keep their url and simply do not resolve; a
+// spreadsheet the visitor cannot download is a footnote, a chart that does not draw is a hole.
+out["/api/messages/attachments"] = {};
+out["/api/messages/one"] = {};
+for (const row of (out["/api/feed?days=3&limit=200"]?.data || [])) {
+  // the panel reads the whole message for any row with no task behind it - a report, a filed
+  // notice - and without this it got an empty object and drew a message with no id, which is
+  // why a report's own chart never appeared next to it
+  const one = await fetch(`${BASE}/api/messages/${row.MessageId}`).catch(() => null);
+  if (one && one.ok) out["/api/messages/one"][row.MessageId] = await one.json();
+  const r = await fetch(`${BASE}/api/messages/${row.MessageId}/attachments`).catch(() => null);
+  if (!r || !r.ok) continue;
+  const box = await r.json();
+  if (!(box.data || []).length) continue;
+  for (const a of box.data) {
+    if (!a.is_image || !a.url) continue;
+    const f = await fetch(BASE + a.url).catch(() => null);
+    if (!f || !f.ok) continue;
+    const type = f.headers.get("content-type") || a.content_type || "image/png";
+    const b64 = Buffer.from(await f.arrayBuffer()).toString("base64");
+    a.url = `data:${type.split(";")[0]};base64,${b64}`;
+  }
+  out["/api/messages/attachments"][row.MessageId] = box;
+}
+
 // what a replayed coding session had said by the time we looked
 out["/api/terminals/scrollback"] = {};
 for (const s of (out["/api/terminals"]?.data || out["/api/terminals"] || [])) {

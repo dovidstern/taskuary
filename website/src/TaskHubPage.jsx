@@ -9,6 +9,7 @@ import { ThemeProvider, CssBaseline } from "@mui/material";
 import HubIcon from "@mui/icons-material/Hub";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import api from "./api";
+import { track } from "./demoTrack";
 import { theme, ALERT, BG, BORDER, DIM, FAINT, INK, PANEL, GRADIENT } from "./theme.jsx";
 import FeedView from "./FeedView.jsx";
 import BoardView from "./BoardView.jsx";
@@ -75,18 +76,24 @@ function Bell({ onGo }) {
    so, quietly, and reloads only when asked. */
 /* A demo has to SAY so - a visitor clicking Approve on an invented refund should never wonder
    for a second whether it went anywhere. It never does: demo.py refuses at the API layer. */
-function DemoBadge() {
+function useDemo() {
   const [demo, setDemo] = useState(null);
   useEffect(() => { api.get("/api/demo").then(({ data }) => setDemo(data)).catch(() => {}); }, []);
-  if (!demo?.demo) return null;
+  return demo?.demo ? demo : null;
+}
+
+/* One word and a dot. It said "demo · invented data · you are Dana Whitfield", which is 250px
+   of left-hand flow - and the tab strip above xl is centred on the WINDOW, so the sentence ran
+   underneath the tabs. What it has to do is answer "is any of this real?" at a glance; the rest
+   of the sentence is what a tooltip is for. */
+function DemoBadge({ demo }) {
+  if (!demo) return null;
   return (
-    <Tooltip title="Everything here is invented - the people, the mail, the agents. Nothing sends, nothing connects, and no real system is reachable from this page.">
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, px: 1, py: 0.3, borderRadius: 99,
-        border: "1px solid #d8cfbe", bgcolor: "#f1ead9" }}>
+    <Tooltip title={`Everything here is invented${demo.owner ? ` - you are ${demo.owner}, who does not exist` : ""}: the people, the mail, the agents. Nothing sends, nothing connects, and no real system is reachable from this page.`}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 0.9, py: 0.3, borderRadius: 99,
+        flexShrink: 0, border: "1px solid #d8cfbe", bgcolor: "#f1ead9" }}>
         <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#8a7a5c" }} />
-        <Typography variant="caption" sx={{ fontWeight: 700, color: "#6b5f45" }}>
-          demo · invented data{demo.owner ? ` · you are ${demo.owner}` : ""}
-        </Typography>
+        <Typography variant="caption" noWrap sx={{ fontWeight: 700, color: "#6b5f45" }}>demo data</Typography>
       </Box>
     </Tooltip>
   );
@@ -134,6 +141,7 @@ function ServerVersion() {
 
 export default function TaskHubPage() {
   const [tab, setTab] = useState("Timeline");
+  const demo = useDemo();          // the badge, and what the header hides to make room for it
   const [selectedTask, setSelectedTask] = useState(null);
   const [pending, setPending] = useState(0);
   const [tick, setTick] = useState(0);
@@ -194,6 +202,7 @@ export default function TaskHubPage() {
   const go = (t) => {
     if (t === tab) { scrollAt.current[t] = 0; window.scrollTo(0, 0); setReset((r) => r + 1); return; }
     scrollAt.current[tab] = window.scrollY; setTab(t); tabRef.current = t;
+    track("tab", t);
   };
   useLayoutEffect(() => {
     const y = scrollAt.current[tab] || 0;
@@ -256,11 +265,11 @@ export default function TaskHubPage() {
             <HubIcon sx={{ color: "#fff", fontSize: 17 }} />
           </Box>
           <Typography sx={{ fontWeight: 800, fontSize: 14.5, color: INK, letterSpacing: 0.2 }}>Taskuary</Typography>
-          <Typography variant="caption" noWrap sx={{ color: DIM, display: { xs: "none", lg: "block" } }}>
+          <Typography variant="caption" noWrap sx={{ color: DIM, display: demo ? "none" : { xs: "none", lg: "block" } }}>
             everything in → one funnel → agents + you
           </Typography>
           <ServerVersion />
-          <DemoBadge />
+          <DemoBadge demo={demo} />
           <StaleBuild />
 
           {/* Below 900px the full tab strip had no room: it began under the brand and its

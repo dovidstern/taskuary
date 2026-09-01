@@ -17,6 +17,15 @@ Taskuary is early—currently **v0.3.2.2**—and moving fast. The funnel, review
 agent sessions, and reports pipeline are in daily use; breaking changes are still possible
 before 1.0.
 
+<p align="center">
+  <a href="https://taskuary.com/demo/"><img
+    src="https://img.shields.io/badge/%E2%96%B6%20Try%20it%20now-no%20install%2C%20in%20your%20browser-2f4858?style=for-the-badge&labelColor=1f2a22"
+    alt="Try Taskuary now, in your browser"></a>
+</p>
+
+<p align="center"><sub>The real app over invented work — timeline, triage, a coding session mid-run,
+reports with charts. Nothing to install and nothing connects to anything.</sub></p>
+
 ## One timeline for incoming work
 
 Outlook, Gmail, Teams, Slack, Telegram, WhatsApp, GitHub, Jira, alerts, and reports all

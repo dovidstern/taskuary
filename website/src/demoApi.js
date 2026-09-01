@@ -11,6 +11,7 @@
 // make a task and it appears, ask the assistant and it answers - and none of it survives a
 // reload, which is exactly what a visitor expects of a demo.
 import FIXTURES from "./demoFixtures.json";
+import { track } from "./demoTrack";
 
 export const DEMO = import.meta.env.VITE_DEMO === "1";
 
@@ -30,6 +31,10 @@ const read = (url) => {
   if (m) return clone(state["/api/tasks/detail"]?.[`${m[1]}:assistant`]) || { messages: [], providers: [], session: null };
   m = p.match(/^\/api\/tasks\/(\d+)$/);
   if (m) return clone(state["/api/tasks/detail"]?.[m[1]]) || null;
+  m = p.match(/^\/api\/messages\/(\d+)$/);
+  if (m) return clone(state["/api/messages/one"]?.[m[1]]) || null;
+  m = p.match(/^\/api\/messages\/(\d+)\/attachments$/);
+  if (m) return clone(state["/api/messages/attachments"]?.[m[1]]) || { data: [] };
   m = p.match(/^\/api\/doc\/([a-z]+)$/);
   if (m) return clone(state["/api/doc"]?.[m[1]]) || { content: "" };
   m = p.match(/^\/api\/terminals\/([a-z0-9]+)$/);
@@ -50,8 +55,22 @@ const REPLIES = [
 const feedRows = () => (state["/api/feed"]?.data) || [];
 const taskRows = () => (state["/api/tasks"]?.data) || [];
 
+// what the visitor DID, named. Every write goes through here and the panel's reads of one
+// message or one task are the only reads that mean "they opened something", so this is the
+// whole of the demo's instrumentation - nothing is sprinkled through the components.
+const noted = (method, p) => {
+  let m;
+  if (method === "get" && (m = p.match(/^\/api\/(messages|tasks)\/\d+$/))) track("row", m[1]);
+  else if ((m = p.match(/^\/api\/messages\/\d+\/([a-z-]+)$/))) track("verdict", m[1]);
+  else if (/\/assistant\/messages$/.test(p)) track("ask", "assistant");
+  else if (/\/api\/tasks$/.test(p) && method === "post") track("verdict", "new-task");
+  else if (/\/api\/board\/notes$/.test(p)) track("ask", "wall-note");
+  else if (method !== "get") track("verdict", p.split("/").slice(-1)[0].slice(0, 24));
+};
+
 const write = (method, url, body) => {
   const p = path(url);
+  noted(method, p);
   let m;
 
   if (method === "post" && p === "/api/tasks") {
@@ -126,7 +145,7 @@ const respond = (fn) => new Promise((resolve, reject) => {
 });
 
 const demoApi = {
-  get: (url) => respond(() => read(url + (query(url) ? "" : ""))),
+  get: (url) => respond(() => { noted("get", path(url)); return read(url); }),
   post: (url, body) => respond(() => write("post", url, body)),
   patch: (url, body) => respond(() => write("patch", url, body)),
   put: (url, body) => respond(() => write("put", url, body)),

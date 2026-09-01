@@ -11,6 +11,7 @@ import { PANEL, PANEL2, BORDER, DIM, FAINT, INK, ACCENT2, mono } from "./theme.j
 
 // An <img src> carries no headers, so the token rides in the query string (see token_gate).
 export const attUrl = (a, download) => {
+  if (String(a.url || "").startsWith("data:")) return a.url;   // the static demo carries its own bytes
   const t = localStorage.getItem("taskuary_token");
   const q = [download ? "download=true" : "", t ? `token=${encodeURIComponent(t)}` : ""].filter(Boolean).join("&");
   return `${a.url}${q ? `?${q}` : ""}`;

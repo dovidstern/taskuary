@@ -883,6 +883,19 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(artifacts.chart_columns([{'a': 'x', 'b': 'y'}]), ('a', None))
         self.assertEqual(artifacts.to_svg_chart([{'a': 'x'}], p), '')
 
+    def test_a_series_over_dates_draws_a_line_not_a_stack_of_bars(self):
+        rows = [{'day': f'2026-08-{d:02d}', 'tickets': n} for d, n in zip(range(18, 32), range(38, 52))]
+        svg = artifacts.to_svg_chart(rows, None, 'Tickets by day')
+        self.assertIn('<polyline', svg)                       # the line
+        self.assertNotIn('<rect x=', svg)                     # ...and not fourteen bars
+        self.assertIn('51', svg)                              # the last value, labelled
+        self.assertNotIn('<script', svg)
+        # four rows is a comparison, not a trend, and still reads better as bars
+        self.assertIn('<rect x=', artifacts.to_svg_chart(rows[:4], None, 'Tickets by day'))
+        # and a label column that is not dates never becomes a timeline
+        sites = [{'site': f'Site {i}', 'headcount': 90 + i} for i in range(6)]
+        self.assertNotIn('<polyline', artifacts.to_svg_chart(sites, None, 'Headcount'))
+
     def test_prose_reports_produce_no_files_and_row_reports_produce_both(self):
         s = MemoryStore()
         body = '\n'.join(json.dumps(r) for r in self._report_rows())

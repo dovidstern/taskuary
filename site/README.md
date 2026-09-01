@@ -30,3 +30,29 @@ Or from a terminal, one-off: `npx wrangler pages deploy site --project-name task
   every tagged release, so the direct link
   `https://github.com/ldbumble/taskuary/releases/latest/download/Taskuary.exe` works from the
   first release cut after that change.
+
+## Counting the demo
+
+Nothing counted anything until now, so "did anyone try it?" had no answer. Two first-party
+pieces, no third-party script and no cookie:
+
+- `site/index.html` sends `open` when the page loads and `cta` when someone clicks Try it now,
+  Download or View source.
+- The demo bundle (`website/src/demoTrack.js`) sends `open`, `tab`, `row`, `verdict`, `ask`,
+  `dwell` (15s/1m/3m/10m) and `leave` with the seconds spent — never a word the visitor typed,
+  and only when the page is served from `taskuary.com`.
+
+Both POST to `functions/api/ev.js`, a Pages Function that writes to D1 and **does nothing at all
+without a binding** — so a preview deploy or a fork collects no data. To turn it on once:
+
+```
+npx wrangler d1 create taskuary-demo
+npx wrangler d1 execute taskuary-demo --remote --file functions/schema.sql
+```
+
+Then in the Pages project: **Settings → Functions → D1 bindings** → `DEMO_EVENTS` →
+`taskuary-demo`, and **Environment variables** → `ANALYTICS_TOKEN` → any long random string.
+
+Read it back with `https://taskuary.com/api/ev?token=<ANALYTICS_TOKEN>&days=30` — sessions per
+day, what was clicked, and how many sessions bounced after one event versus stayed for fifteen.
+Without the token that URL is a 404, so the numbers are not public.
